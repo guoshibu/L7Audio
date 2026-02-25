@@ -167,9 +167,9 @@ SOFTWARE.
 
 如果您有任何问题或建议，欢迎联系我们：
 
-- 项目地址：[GitHub链接]()
-- 邮箱：[contact@example.com]
+- 项目地址：[[GitHub链接](https://github.com/guoshibu/L7Audio)]()
+
 
 ---
 
-**享受您的音频体验！** 🎧
+**享受您的车外音频体验！** 🎧
