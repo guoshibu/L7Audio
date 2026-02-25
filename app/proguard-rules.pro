@@ -5,20 +5,8 @@
 # For more details, see
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
-
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
-
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# 保留行号信息，便于调试崩溃
+-keepattributes SourceFile,LineNumberTable
 
 # Remove log statements in release build
 -assumenosideeffects class android.util.Log {
@@ -37,4 +25,26 @@
     public static void w(...);
     public static void d(...);
     public static void e(...);
+}
+
+# 保留应用的关键类
+-keep class com.aug32.l7audio.** {
+    *;
+}
+
+# 保留基本组件
+-keep public class * extends android.app.Activity
+-keep public class * extends androidx.fragment.app.Fragment
+-keep public class * extends android.app.Service
+-keep public class * extends android.content.BroadcastReceiver
+
+# 保留枚举类
+-keepclassmembers enum * {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+}
+
+# 保留R类
+-keepclassmembers class **.R$* {
+    public static <fields>;
 }
