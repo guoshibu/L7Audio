@@ -85,6 +85,9 @@ public class SettingsFragment extends Fragment {
         btnSaveAudioDevice = view.findViewById(R.id.btn_save_audio_device);
         tvAudioDeviceStatus = view.findViewById(R.id.tv_audio_device_status);
         
+        // 初始化关于按钮
+        Button btnAbout = view.findViewById(R.id.btn_about);
+        
         // 启用TextView的滚动功能
         tvAudioRoutes.setMovementMethod(new android.text.method.ScrollingMovementMethod());
 
@@ -164,6 +167,13 @@ public class SettingsFragment extends Fragment {
 
         // 设置音频设备设置按钮点击事件
         setupAudioDeviceListeners();
+
+        // 设置关于按钮点击事件
+        btnAbout.setOnClickListener(v -> {
+            // 显示关于页面
+            MainActivity activity = (MainActivity) requireActivity();
+            activity.showAboutFragment();
+        });
 
         return view;
     }

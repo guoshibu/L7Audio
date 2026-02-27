@@ -322,7 +322,7 @@ public class MainActivity extends AppCompatActivity {
 
 
 
-    private void showSettingsFragment() {
+    public void showSettingsFragment() {
         if (mainLayout != null) {
             mainLayout.setVisibility(View.GONE);
         }
@@ -337,9 +337,19 @@ public class MainActivity extends AppCompatActivity {
         fragmentTransaction.commitAllowingStateLoss();
     }
 
-    private void showAboutFragment() {
-        // TODO: 实现关于Fragment
-        Toast.makeText(this, "关于功能开发中", Toast.LENGTH_SHORT).show();
+    public void showAboutFragment() {
+        if (mainLayout != null) {
+            mainLayout.setVisibility(View.GONE);
+        }
+        if (fragmentContainer != null) {
+            fragmentContainer.setVisibility(View.VISIBLE);
+        }
+        
+        // 显示关于Fragment
+        FragmentManager fragmentManager = getSupportFragmentManager();
+        FragmentTransaction fragmentTransaction = fragmentManager.beginTransaction();
+        fragmentTransaction.replace(R.id.fragment_container, new AboutFragment());
+        fragmentTransaction.commitAllowingStateLoss();
     }
 
     private void showMicAmplifierFragment() {
