@@ -42,6 +42,7 @@ public class MicrophoneManager {
     private boolean echoCancellationEnabled;
     private boolean howlingSuppressionEnabled;
     private boolean useSystemAudioProcessing = false;
+    private boolean hardwareAecAvailable = false; // 硬件 AEC 可用性标志
     private AcousticEchoCanceler acousticEchoCanceler;
     
     private static final float TARGET_DB = -20.0f;
@@ -60,6 +61,14 @@ public class MicrophoneManager {
     private float howlingEnergy = 0.0f;
     private int howlingCounter = 0;
     private static final int HOWLING_DETECTION_COUNT = 3;
+
+    // RNNoise 接口预留（未来扩展）
+    // private static native long rnnoiseCreate();
+    // private static native void rnnoiseDestroy(long state);
+    // private static native int rnnoiseProcessFrame(long state, float[] input, float[] output);
+    // private static native void rnnoiseSetModel(long state, String modelPath);
+    // private long rnnoiseState = 0; // RNNoise 状态句柄
+    // private boolean useRnnoise = false; // 是否使用 RNNoise
 
     /**
      * 构造函数
@@ -248,22 +257,33 @@ public class MicrophoneManager {
                     acousticEchoCanceler = AcousticEchoCanceler.create(audioRecordSessionId);
                     if (acousticEchoCanceler != null) {
                         acousticEchoCanceler.setEnabled(true);
-                        AppLog.d(TAG, "Hardware echo canceler enabled on AudioRecord");
+                        hardwareAecAvailable = true;
+                        AppLog.d(TAG, "Hardware echo canceler enabled on AudioRecord (Session ID: " + audioRecordSessionId + ")");
+                        AppLog.d(TAG, "Software echo cancellation will be disabled to avoid conflict");
                     } else {
                         AppLog.w(TAG, "Failed to create echo canceler on AudioRecord, trying AudioTrack");
                         int audioTrackSessionId = audioTrack.getAudioSessionId();
                         acousticEchoCanceler = AcousticEchoCanceler.create(audioTrackSessionId);
                         if (acousticEchoCanceler != null) {
                             acousticEchoCanceler.setEnabled(true);
-                            AppLog.d(TAG, "Hardware echo canceler enabled on AudioTrack");
+                            hardwareAecAvailable = true;
+                            AppLog.d(TAG, "Hardware echo canceler enabled on AudioTrack (Session ID: " + audioTrackSessionId + ")");
+                            AppLog.d(TAG, "Software echo cancellation will be disabled to avoid conflict");
+                        } else {
+                            AppLog.w(TAG, "Failed to create hardware echo canceler on both AudioRecord and AudioTrack");
+                            hardwareAecAvailable = false;
                         }
                     }
                 } else {
-                    AppLog.w(TAG, "Echo canceler not available on this device");
+                    AppLog.w(TAG, "Hardware echo canceler not available on this device, will use software echo cancellation as fallback");
+                    hardwareAecAvailable = false;
                 }
             } catch (Exception e) {
-                AppLog.e(TAG, "Error initializing echo canceler", e);
+                AppLog.e(TAG, "Error initializing hardware echo canceler", e);
+                hardwareAecAvailable = false;
             }
+        } else {
+            hardwareAecAvailable = false;
         }
     }
 
@@ -357,8 +377,13 @@ public class MicrophoneManager {
             applyNoiseReduction(samples);
         }
 
-        if (echoCancellationEnabled) {
+        // 软件回声抑制：仅在硬件 AEC 不可用时启用
+        if (echoCancellationEnabled && !hardwareAecAvailable) {
+            AppLog.d(TAG, "Using software echo cancellation (hardware AEC not available)");
             applyEchoCancellation(samples);
+        } else if (echoCancellationEnabled && hardwareAecAvailable) {
+            // 硬件 AEC 可用，跳过软件回声抑制
+            AppLog.d(TAG, "Skipping software echo cancellation (hardware AEC is active)");
         }
 
         if (howlingSuppressionEnabled) {
@@ -463,24 +488,62 @@ public class MicrophoneManager {
         }
         float avgVolume = (float) sum / samples.length / Short.MAX_VALUE;
         
-        float baseThreshold = 0.02f;
-        float dynamicThreshold = Math.max(baseThreshold, avgVolume * 0.7f);
+        // 改进的阈值计算：使用更智能的动态阈值
+        float baseThreshold = 0.015f; // 降低基础阈值，更保守
+        // 使用平滑的平均音量，避免阈值突变
+        float smoothedAvgVolume = avgVolume * 0.7f + previousAvgVolume * 0.3f;
+        previousAvgVolume = smoothedAvgVolume;
+        
+        float dynamicThreshold = Math.max(baseThreshold, smoothedAvgVolume * 0.6f);
+        
+        // 频谱分析预留：检测稳态噪声
+        boolean isSteadyNoise = detectSteadyNoise(samples);
         
         for (int i = 0; i < samples.length; i++) {
             float normalizedSample = Math.abs(samples[i]) / (float) Short.MAX_VALUE;
             
             if (normalizedSample < dynamicThreshold) {
+                // 对于明显的低电平噪声，使用更强的衰减
                 float attenuation = normalizedSample / dynamicThreshold;
-                samples[i] = (short) (samples[i] * (0.4f + attenuation * 0.3f));
-            } else if (normalizedSample < dynamicThreshold * 1.2f) {
-                float attenuation = 0.7f + (normalizedSample - dynamicThreshold) / (dynamicThreshold * 0.2f) * 0.3f;
+                samples[i] = (short) (samples[i] * (0.5f + attenuation * 0.3f)); // 提高最小衰减系数
+            } else if (normalizedSample < dynamicThreshold * 1.3f) { // 扩大过渡区域
+                // 对于接近阈值的信号，使用平滑的过渡
+                float attenuation = 0.8f + (normalizedSample - dynamicThreshold) / (dynamicThreshold * 0.3f) * 0.2f;
                 samples[i] = (short) (samples[i] * attenuation);
             }
+            // 对于明显高于阈值的信号，不进行处理，保留原始音频
         }
     }
+    
+    // 用于平滑噪声抑制的平均音量
+    private float previousAvgVolume = 0.0f;
+    
+    /**
+     * 检测稳态噪声（预留频谱分析接口）
+     * @param samples 样本数组
+     * @return 是否为稳态噪声
+     */
+    private boolean detectSteadyNoise(short[] samples) {
+        // 简单的能量方差检测（未来可以用 FFT 频谱分析替代）
+        float energy = 0.0f;
+        for (short sample : samples) {
+            float normalizedSample = Math.abs(sample) / (float) Short.MAX_VALUE;
+            energy += normalizedSample * normalizedSample;
+        }
+        energy /= samples.length;
+        
+        // 如果能量变化很小，可能是稳态噪声
+        float energyDiff = Math.abs(energy - previousEnergy);
+        previousEnergy = energy;
+        
+        return energyDiff < 0.001f; // 能量变化小于阈值
+    }
+    
+    // 用于稳态噪声检测的能量值
+    private float previousEnergy = 0.0f;
 
     /**
-     * 应用回声抑制
+     * 应用回声抑制（仅在硬件 AEC 不可用时使用）
      * @param samples 样本数组
      */
     private void applyEchoCancellation(short[] samples) {
@@ -491,14 +554,21 @@ public class MicrophoneManager {
         }
         frameEnergy /= samples.length;
         
+        // 更新回声能量估计（使用更平滑的衰减因子）
         echoEnergy = ECHO_DECAY_FACTOR * echoEnergy + (1.0f - ECHO_DECAY_FACTOR) * frameEnergy;
         
+        // 更严格的回声检测条件
         for (int i = 0; i < samples.length; i++) {
             float normalizedSample = Math.abs(samples[i]) / (float) Short.MAX_VALUE;
             
-            if (normalizedSample > ECHO_THRESHOLD && frameEnergy > echoEnergy * 0.5f && frameEnergy < echoEnergy * 1.5f) {
+            // 仅当信号能量在平均能量附近且超过阈值时才进行抑制
+            // 增加检测条件，减少误判
+            if (normalizedSample > ECHO_THRESHOLD * 1.5f && // 提高阈值要求
+                frameEnergy > echoEnergy * 0.7f && // 更严格的下限
+                frameEnergy < echoEnergy * 1.3f) { // 更严格的上限
+                // 使用更保守的衰减系数
                 float attenuation = 1.0f - (normalizedSample - ECHO_THRESHOLD) * (1.0f - MAX_ECHO_ATTENUATION) / (1.0f - ECHO_THRESHOLD);
-                attenuation = Math.max(attenuation, MAX_ECHO_ATTENUATION);
+                attenuation = Math.max(attenuation, MAX_ECHO_ATTENUATION + 0.2f); // 提高最小衰减值，更保守
                 
                 samples[i] = (short) (samples[i] * attenuation);
             }
@@ -692,5 +762,13 @@ public class MicrophoneManager {
      */
     public boolean isHowlingSuppressionEnabled() {
         return howlingSuppressionEnabled;
+    }
+    
+    /**
+     * 获取硬件 AEC 可用性状态
+     * @return 硬件 AEC 是否可用
+     */
+    public boolean isHardwareAecAvailable() {
+        return hardwareAecAvailable;
     }
 }
