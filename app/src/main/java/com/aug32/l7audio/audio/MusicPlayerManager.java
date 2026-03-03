@@ -185,6 +185,21 @@ public class MusicPlayerManager {
             // 设置播放器在后台时继续运行
             exoPlayer.setHandleAudioBecomingNoisy(true);
             AppLog.d(TAG, "步骤5完成：后台播放配置成功");
+            
+            // 步骤6：设置保存的音量
+            AppLog.d(TAG, "步骤6：设置保存的音量");
+            int savedVolume;
+            if (audioOutputManager != null) {
+                if (audioOutputManager.getOutputMode() == AudioOutputManager.OUTPUT_CAR) {
+                    savedVolume = appConfig.getCarVolume();
+                } else {
+                    savedVolume = appConfig.getExternalVolume();
+                }
+            } else {
+                savedVolume = appConfig.getCarVolume();
+            }
+            setVolume(savedVolume);
+            AppLog.d(TAG, "步骤6完成：音量设置为" + savedVolume);
         
             AppLog.d(TAG, "=== ExoPlayer初始化完成 ===");           
         } else {
@@ -438,7 +453,7 @@ public class MusicPlayerManager {
         return start(index, -1);
     }
     
-    public boolean start(int index, long userPosition) {
+    public synchronized boolean start(int index, long userPosition) {
         AppLog.d(TAG, "=== 开始播放方法调用 ===");
         AppLog.d(TAG, "播放索引: " + index + ", 总音乐数: " + musicItems.size() + ", 用户位置: " + userPosition);
         
@@ -691,15 +706,27 @@ public class MusicPlayerManager {
     }
 
     public void stop() {
+        AppLog.d(TAG, "=== 开始停止播放 ===");
+        long currentPosition = 0;
         if (exoPlayer != null) {
             stopProgressUpdate();
-            exoPlayer.stop();
-            exoPlayer.clearMediaItems();
+            try {
+                currentPosition = exoPlayer.getCurrentPosition();
+                exoPlayer.stop();
+                exoPlayer.clearMediaItems();
+                exoPlayer.removeListener(playerListener);
+                exoPlayer.release();
+                exoPlayer = null;
+                AppLog.d(TAG, "ExoPlayer实例已完全释放");
+            } catch (Exception e) {
+                AppLog.e(TAG, "停止播放器时出错", e);
+            }
         }
 
         isPlaying = false;
-        if (currentIndex >= 0 && exoPlayer != null) {
-            appConfig.setLastPlayedPosition(exoPlayer.getCurrentPosition());
+        if (currentIndex >= 0) {
+            // 保存最后播放位置
+            appConfig.setLastPlayedPosition(currentPosition);
         }
 
         if (callback != null) {

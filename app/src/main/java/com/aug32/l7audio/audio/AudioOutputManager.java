@@ -28,7 +28,7 @@ public class AudioOutputManager {
     /**
      * 当前音频输出模式
      */
-    private int currentOutputMode = OUTPUT_EXTERNAL;
+    private volatile int currentOutputMode = OUTPUT_EXTERNAL;
 
     /**
      * 构造函数
@@ -46,7 +46,7 @@ public class AudioOutputManager {
      * 设置音频输出模式
      * @param mode 输出模式，OUTPUT_CAR或OUTPUT_EXTERNAL
      */
-    public void setOutputMode(int mode) {
+    public synchronized void setOutputMode(int mode) {
         if (mode < OUTPUT_CAR || mode > OUTPUT_EXTERNAL) {
             AppLog.e(TAG, "Invalid output mode: " + mode);
             return;
@@ -62,7 +62,7 @@ public class AudioOutputManager {
      * 获取当前音频输出模式
      * @return 当前输出模式
      */
-    public int getOutputMode() {
+    public synchronized int getOutputMode() {
         return currentOutputMode;// 返回当前音频输出模式
     }
 
@@ -70,7 +70,7 @@ public class AudioOutputManager {
      * 获取当前音频输出模式（兼容方法）
      * @return 当前输出模式
      */
-    public int getAudioOutputMode() {
+    public synchronized int getAudioOutputMode() {
         return currentOutputMode;// 返回当前音频输出模式
     }
 
@@ -81,7 +81,7 @@ public class AudioOutputManager {
      * - 车外模式：返回AppConfig.getAudioOutputUsageExternal()，默认值为15（bus15 ktvout）
      * @return AudioAttributes.Usage值
      */
-    public int getAudioUsage() {
+    public synchronized int getAudioUsage() {
         if (currentOutputMode == OUTPUT_CAR) { // 车内模式
             return appConfig.getAudioOutputUsageCar(); // 车内模式默认值为1（USAGE_MEDIA）
         } else { // 车外模式

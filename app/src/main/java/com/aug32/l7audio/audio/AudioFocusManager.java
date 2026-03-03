@@ -14,7 +14,7 @@ public class AudioFocusManager {
     private final Context context;
     private final AudioManager audioManager;
     private AudioFocusRequest audioFocusRequest;
-    private boolean hasAudioFocus = false;
+    private volatile boolean hasAudioFocus = false;
 
     public AudioFocusManager(Context context) {
         this.context = context;
@@ -25,7 +25,7 @@ public class AudioFocusManager {
     /**
      * 请求音频焦点
      */
-    public boolean requestAudioFocus() {
+    public synchronized boolean requestAudioFocus() {
         if (hasAudioFocus) {
             AppLog.d(TAG, "Already has audio focus");
             return true;
@@ -57,7 +57,7 @@ public class AudioFocusManager {
     /**
      * 放弃音频焦点
      */
-    public void abandonAudioFocus() {
+    public synchronized void abandonAudioFocus() {
         if (!hasAudioFocus) {
             AppLog.d(TAG, "No audio focus to abandon");
             return;

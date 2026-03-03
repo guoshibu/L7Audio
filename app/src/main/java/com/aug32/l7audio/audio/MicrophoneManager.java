@@ -36,7 +36,7 @@ public class MicrophoneManager {
     private AudioRecord audioRecord;
     private AudioTrack audioTrack;
     private Thread recordingThread;
-    private boolean isRecording = false;
+    private volatile boolean isRecording = false;
     private int amplificationLevel = 5;
     private boolean noiseReductionEnabled;
     private boolean echoCancellationEnabled;
@@ -86,7 +86,7 @@ public class MicrophoneManager {
      * 这样可以确保获取最新的车内外模式audioUsage，实现车内外切换生效
      * @return 是否成功启动
      */
-    public boolean start() {
+    public synchronized boolean start() {
         if (isRecording) {
             AppLog.d(TAG, "Already recording");
             return true;
@@ -291,7 +291,7 @@ public class MicrophoneManager {
      * 关键点：完全释放所有音频资源，确保下次start()时重新初始化AudioTrack
      * 这样每次start()都能获取最新的车内外模式audioUsage
      */
-    public void stop() {
+    public synchronized void stop() {
         if (!isRecording) {
             AppLog.d(TAG, "Not recording");
             return;

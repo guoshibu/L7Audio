@@ -175,7 +175,7 @@ public class TTSManager implements TextToSpeech.OnInitListener {
      * @param text 要播报的文本
      * @return 是否成功启动播报
      */
-    public boolean speak(String text) {
+    public synchronized boolean speak(String text) {
         return speakWithUsage(text, -1);
     }
     
@@ -185,7 +185,7 @@ public class TTSManager implements TextToSpeech.OnInitListener {
      * @param usage AudioAttributes.Usage值，如果为-1则使用当前模式
      * @return 是否成功启动播报
      */
-    public boolean speakWithUsage(String text, int usage) {
+    public synchronized boolean speakWithUsage(String text, int usage) {
         if (!isInitialized || textToSpeech == null) {
             AppLog.e(TAG, "TTS not initialized");
             return false;
@@ -301,7 +301,7 @@ public class TTSManager implements TextToSpeech.OnInitListener {
     /**
      * 停止播报
      */
-    public void stop() {
+    public synchronized void stop() {
         if (textToSpeech != null && isInitialized) {
             textToSpeech.stop();
             AppLog.d(TAG, "TTS stopped");
@@ -312,7 +312,7 @@ public class TTSManager implements TextToSpeech.OnInitListener {
      * 关闭TTS引擎
      * 释放所有资源
      */
-    public void shutdown() {
+    public synchronized void shutdown() {
         if (textToSpeech != null) {
             textToSpeech.shutdown();
             textToSpeech = null;

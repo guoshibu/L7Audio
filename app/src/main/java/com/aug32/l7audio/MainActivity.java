@@ -480,9 +480,12 @@ public class MainActivity extends AppCompatActivity {
             microphoneManager.stop();// 停止麦克风放大
         }
 
+        long currentMusicPosition = 0;// 当前播放位置
+        
         if (musicPlayerManager != null && musicPlayerManager.isPlaying()) {// 如果音乐正在播放
             musicWasPlaying = true;// 音乐正在播放
             currentMusicIndex = musicPlayerManager.getCurrentIndex();// 记录当前播放索引
+            currentMusicPosition = musicPlayerManager.getCurrentPosition();// 记录当前播放位置
             musicPlayerManager.stop();// 停止音乐播放
         }
        
@@ -493,7 +496,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (musicWasPlaying && musicPlayerManager != null && currentMusicIndex >= 0) {// 如果音乐正在播放且索引有效
-            musicPlayerManager.start(currentMusicIndex);// 重新启动音乐播放
+            musicPlayerManager.start(currentMusicIndex, currentMusicPosition);// 重新启动音乐播放，从之前的位置继续
         }
 
         updateOutputButtons(outputMode);//
