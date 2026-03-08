@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:padding="16dp"
-    android:background="@color/content_background">
+    android:background="?attr/colorSurface">
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
@@ -17,7 +17,7 @@
         android:layout_height="wrap_content"
         android:text="状态: 已停止"
         android:textSize="18sp"
-        android:textColor="@color/text_primary"
+        android:textColor="?attr/colorOnSurface"
         android:gravity="center"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -29,7 +29,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="@color/button_background"
+        android:background="?attr/colorSurfaceVariant"
         android:padding="16dp"
         android:layout_marginTop="16dp"
         android:layout_marginBottom="16dp"
@@ -55,7 +55,7 @@
                 android:layout_weight="1"
                 android:text="噪声抑制"
                 android:textSize="16sp"
-                android:textColor="@color/text_primary" />
+                android:textColor="?attr/colorOnSurface" />
 
             <android.widget.Switch
                 android:id="@+id/sw_noise_reduction"
@@ -79,7 +79,7 @@
                 android:layout_weight="1"
                 android:text="回声抑制"
                 android:textSize="16sp"
-                android:textColor="@color/text_primary" />
+                android:textColor="?attr/colorOnSurface" />
 
             <android.widget.Switch
                 android:id="@+id/sw_echo_cancellation"
@@ -102,7 +102,7 @@
                 android:layout_weight="1"
                 android:text="啸叫抑制"
                 android:textSize="16sp"
-                android:textColor="@color/text_primary" />
+                android:textColor="?attr/colorOnSurface" />
 
             <android.widget.Switch
                 android:id="@+id/sw_howling_suppression"
@@ -120,7 +120,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="@color/button_background"
+        android:background="?attr/colorSurfaceVariant"
         android:padding="16dp"
         android:layout_marginTop="16dp"
         android:layout_marginBottom="16dp"
@@ -143,7 +143,7 @@
                 android:layout_height="wrap_content"
                 android:text="放大级别:"
                 android:textSize="16sp"
-                android:textColor="@color/text_primary" />
+                android:textColor="?attr/colorOnSurface" />
 
             <TextView
                 android:id="@+id/tv_amplification_level"
@@ -151,7 +151,7 @@
                 android:layout_height="wrap_content"
                 android:text="5"
                 android:textSize="16sp"
-                android:textColor="@color/text_primary"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginStart="16dp" />
 
         </LinearLayout>
@@ -175,7 +175,7 @@
                 android:layout_weight="0.5"
                 android:text="弱"
                 android:textSize="14sp"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorOnSurfaceVariant"
                 android:gravity="start" />
 
             <TextView
@@ -185,7 +185,7 @@
                 android:layout_weight="0.5"
                 android:text="强"
                 android:textSize="14sp"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorOnSurfaceVariant"
                 android:gravity="end" />
 
         </LinearLayout>
@@ -202,8 +202,8 @@
         android:layout_marginTop="24dp"
         android:text="开始放大"
         android:textSize="24sp"
-        android:backgroundTint="@color/button_background"
-        android:textColor="@color/button_text"
+        android:backgroundTint="?attr/colorPrimary"
+        android:textColor="?attr/colorOnPrimary"
         app:layout_constraintTop_toBottomOf="@+id/ll_amplification"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />

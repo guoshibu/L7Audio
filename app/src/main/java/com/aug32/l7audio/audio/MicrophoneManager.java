@@ -1,5 +1,6 @@
 package com.aug32.l7audio.audio;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.media.AudioAttributes;
@@ -145,6 +146,7 @@ public class MicrophoneManager {
      * 初始化音频组件（AudioRecord和AudioTrack）
      * @return 是否初始化成功
      */
+    @SuppressLint("MissingPermission")
     private boolean initializeAudioComponents() {
         int audioSource = appConfig.getAudioInputSource();
         useSystemAudioProcessing = true;
@@ -369,15 +371,12 @@ public class MicrophoneManager {
 
         convertBytesToSamples(buffer, samples);
 
-        applyGain(samples, amplificationFactor);
-
-        limitVolume(samples);
-
+        // 1. 先处理噪声抑制
         if (noiseReductionEnabled) {
             applyNoiseReduction(samples);
         }
 
-        // 软件回声抑制：仅在硬件 AEC 不可用时启用
+        // 2. 再处理回声抑制：仅在硬件 AEC 不可用时启用
         if (echoCancellationEnabled && !hardwareAecAvailable) {
             AppLog.d(TAG, "Using software echo cancellation (hardware AEC not available)");
             applyEchoCancellation(samples);
@@ -386,6 +385,13 @@ public class MicrophoneManager {
             AppLog.d(TAG, "Skipping software echo cancellation (hardware AEC is active)");
         }
 
+        // 3. 应用增益
+        applyGain(samples, amplificationFactor);
+
+        // 4. 限制音量
+        limitVolume(samples);
+
+        // 5. 最后处理啸叫抑制
         if (howlingSuppressionEnabled) {
             applyHowlingSuppression(samples);
         }

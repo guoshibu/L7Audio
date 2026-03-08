@@ -198,7 +198,7 @@
                         android:textColor="?attr/colorOnSurface"
                         android:gravity="center"
                         android:id="@+id/edit_audio_usage_external"
-                        android:background="@android:drawable/edit_text"
+                        android:background="?attr/colorSurface"
                         android:layout_width="143dp"
                         android:layout_height="48dp"
                         android:hint="15"
@@ -238,7 +238,7 @@
                         android:textColor="?attr/colorOnSurface"
                         android:gravity="center"
                         android:id="@+id/edit_audio_usage_car"
-                        android:background="@android:drawable/edit_text"
+                        android:background="?attr/colorSurface"
                         android:layout_width="143dp"
                         android:layout_height="48dp"
                         android:hint="1"
@@ -246,6 +246,18 @@
                         android:inputType="number"
                         android:paddingStart="16dp"
                         android:paddingEnd="16dp"/>
+                    <Button
+                        android:textSize="16sp"
+                        android:textColor="?attr/colorOnSurface"
+                        android:id="@+id/btn_enum_car_outputs"
+                        android:layout_width="wrap_content"
+                        android:layout_height="56dp"
+                        android:minWidth="120dp"
+                        android:text="枚举设备"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:layout_marginStart="12dp" 
+                        android:backgroundTint="@color/button_background"/>
                 </LinearLayout>
 
                 <LinearLayout
@@ -266,7 +278,7 @@
                         android:textColor="?attr/colorOnSurface"
                         android:gravity="center"
                         android:id="@+id/edit_audio_source"
-                        android:background="@android:drawable/edit_text"
+                        android:background="?attr/colorSurface"
                         android:layout_width="143dp"
                         android:layout_height="48dp"
                         android:hint="1"
@@ -306,7 +318,7 @@
                         android:textColor="?attr/colorOnSurface"
                         android:gravity="center"
                         android:id="@+id/edit_max_amplification"
-                        android:background="@android:drawable/edit_text"
+                        android:background="?attr/colorSurface"
                         android:layout_width="143dp"
                         android:layout_height="48dp"
                         android:hint="2"

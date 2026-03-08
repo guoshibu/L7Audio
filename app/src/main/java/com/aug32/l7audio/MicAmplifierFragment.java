@@ -150,10 +150,10 @@ public class MicAmplifierFragment extends Fragment {
         if (btnStartStop != null) {
             if (isAmplifying) {
                 btnStartStop.setText("停止放大");
-                btnStartStop.setBackgroundTintList(ContextCompat.getColorStateList(requireContext(), R.color.status_recording));
+                btnStartStop.setBackgroundTintList(ContextCompat.getColorStateList(requireContext(), R.color.colorAccent));
             } else {
                 btnStartStop.setText("开始放大");
-                btnStartStop.setBackgroundTintList(ContextCompat.getColorStateList(requireContext(), R.color.button_background));
+                btnStartStop.setBackgroundTintList(ContextCompat.getColorStateList(requireContext(), R.color.colorPrimary));
             }
         }
     }

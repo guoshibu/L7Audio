@@ -32,7 +32,9 @@ import com.aug32.l7audio.audio.MusicPlayerManager;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
+import android.os.Environment;
 
 public class MusicPlayerFragment extends Fragment {
     private static final String TAG = "MusicPlayerFragment";
@@ -596,9 +598,9 @@ public class MusicPlayerFragment extends Fragment {
         // 扫描常见的音乐目录
         String[] musicDirectories = {
             "/storage/emulated/0/Music/",
-            "/sdcard/Music/",
+            Environment.getExternalStorageDirectory().getPath() + "/Music/",
             "/storage/emulated/0/Download/Music/",
-            "/sdcard/Download/Music/",
+            Environment.getExternalStorageDirectory().getPath() + "/Download/Music/",
             "/storage/emulated/0/Download/"
         };
 
@@ -662,7 +664,7 @@ public class MusicPlayerFragment extends Fragment {
      * 检查文件是否为音频文件
      */
     private boolean isMusicFile(File file) {
-        String fileName = file.getName().toLowerCase();
+        String fileName = file.getName().toLowerCase(Locale.ROOT);
         return fileName.endsWith(".mp3") || 
                fileName.endsWith(".wav") || 
                fileName.endsWith(".flac") || 
@@ -894,7 +896,7 @@ public class MusicPlayerFragment extends Fragment {
     private String formatTime(long milliseconds) {
         long minutes = TimeUnit.MILLISECONDS.toMinutes(milliseconds);
         long seconds = TimeUnit.MILLISECONDS.toSeconds(milliseconds) - TimeUnit.MINUTES.toSeconds(minutes);
-        return String.format("%02d:%02d", minutes, seconds);
+        return String.format(Locale.ROOT, "%02d:%02d", minutes, seconds);
     }
 
     @Override

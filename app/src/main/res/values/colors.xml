@@ -1,39 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Base application colors -->
-    <color name="colorPrimary">#3F51B5</color>
-    <color name="colorPrimaryDark">#303F9F</color>
+    <color name="colorPrimary">#757575</color>
+    <color name="colorPrimaryDark">#616161</color>
     <color name="colorAccent">#FF4081</color>
 
     <!-- Menu and background colors -->
-    <color name="menu_background">#1E1E1E</color>
-    <color name="nav_background">#2C2C2C</color>
+    <color name="menu_background">#FFFFFF</color>
+    <color name="nav_background">#F5F5F5</color>
 
     <!-- Button colors -->
-    <color name="button_background">#3A3A3A</color>
+    <color name="button_background">#BDBDBD</color>
     <color name="button_background_selected">#4CAF50</color>
-    <color name="button_text">#FFFFFF</color>
+    <color name="button_text">#000000</color>
 
     <!-- Navigation drawer colors -->
-    <color name="nav_text_color">#FFFFFF</color>
+    <color name="nav_text_color">#000000</color>
     <color name="nav_text_color_selected">#4CAF50</color>
-    <color name="nav_icon_color">#CCCCCC</color>
+    <color name="nav_icon_color">#666666</color>
     <color name="nav_icon_color_selected">#4CAF50</color>
 
     <!-- Status and debug colors -->
     <color name="status_recording">#FF4081</color>
     <color name="status_idle">#4CAF50</color>
-    <color name="debug_text">#AAFFFFFF</color>
+    <color name="debug_text">#AA000000</color>
 
     <!-- Text colors -->
-    <color name="text_primary">#FFFFFF</color>
-    <color name="text_secondary">#CCCCCC</color>
+    <color name="text_primary">#000000</color>
+    <color name="text_secondary">#666666</color>
 
     <!-- Content background color -->
-    <color name="content_background">#2C2C2C</color>
+    <color name="content_background">#F5F5F5</color>
 
     <!-- List item background colors for alternating rows -->
-    <color name="item_background_even">#353535</color>
-    <color name="item_background_odd">#2C2C2C</color>
+    <color name="item_background_even">#FFFFFF</color>
+    <color name="item_background_odd">#F0F0F0</color>
 
 </resources>

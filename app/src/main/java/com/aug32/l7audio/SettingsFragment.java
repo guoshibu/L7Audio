@@ -1,6 +1,7 @@
 package com.aug32.l7audio;
 
 import android.content.Context;
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -47,6 +48,7 @@ public class SettingsFragment extends Fragment {
     private EditText editMaxAmplification;
     private Button btnEnumMics;
     private Button btnEnumOutputs;
+    private Button btnEnumCarOutputs;
     private Button btnSaveAudioDevice;
     private TextView tvAudioDeviceStatus;
 
@@ -82,6 +84,7 @@ public class SettingsFragment extends Fragment {
         editMaxAmplification = view.findViewById(R.id.edit_max_amplification);
         btnEnumMics = view.findViewById(R.id.btn_enum_mics);
         btnEnumOutputs = view.findViewById(R.id.btn_enum_outputs);
+        btnEnumCarOutputs = view.findViewById(R.id.btn_enum_car_outputs);
         btnSaveAudioDevice = view.findViewById(R.id.btn_save_audio_device);
         tvAudioDeviceStatus = view.findViewById(R.id.tv_audio_device_status);
         
@@ -132,8 +135,16 @@ public class SettingsFragment extends Fragment {
                 themeMode = AppConfig.THEME_MODE_DARK;
             }
             appConfig.setThemeMode(themeMode);
-            // 重启Activity以应用主题
-            requireActivity().recreate();
+            // 真正重启应用以应用主题
+            try {
+            Intent intent = new Intent(requireContext(), MainActivity.class);// 1. 创建跳转到MainActivity的Intent
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);// 2. 添加关键Flag，确保启动模式符合预期
+            requireContext().startActivity(intent);// 3. 启动MainActivity（requireContext()适配Fragment场景）
+            requireActivity().finishAffinity();// 4. 关闭当前Activity所属的所有关联Activity（清空整个任务栈）
+            } catch (Exception e) {
+            // 捕获启动异常，关闭应用
+            requireActivity().finishAffinity();
+            }
         });
 
         autoStartSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
@@ -668,6 +679,11 @@ public class SettingsFragment extends Fragment {
             enumOutputDevices();
         });
         
+        // 枚举车内输出设备按钮点击事件
+        btnEnumCarOutputs.setOnClickListener(v -> {
+            enumCarOutputDevices();
+        });
+        
         // 保存音频设备设置按钮点击事件
         btnSaveAudioDevice.setOnClickListener(v -> {
             saveAudioDeviceSettings();
@@ -761,7 +777,7 @@ public class SettingsFragment extends Fragment {
                             // 设备类型
                             int type = device.getType();
                             
-                            outputInfo.append((i + 1)).append(". ").append(name).append("\n");
+                            outputInfo.append((i + 1)).append(". " ).append(name).append("\n");
                             outputInfo.append("   设备类型：").append(getDeviceTypeName(type)).append("\n");
                             outputInfo.append("   类型ID：").append(type).append("\n");
                         }
@@ -787,13 +803,69 @@ public class SettingsFragment extends Fragment {
     }
     
     /**
+     * 枚举车内输出设备
+     */
+    private void enumCarOutputDevices() {
+        try {
+            StringBuilder outputInfo = new StringBuilder();
+            outputInfo.append("车内输出设备列表:\n\n");
+            
+            // 获取AudioManager实例
+            android.media.AudioManager audioManager = (android.media.AudioManager) requireContext().getSystemService(android.content.Context.AUDIO_SERVICE);
+            
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                // Android 6.0+ 可以获取音频设备信息
+                try {
+                    // 反射检查getDevices方法是否存在
+                    java.lang.reflect.Method getDevicesMethod = android.media.AudioManager.class.getMethod("getDevices", int.class);
+                    
+                    // 获取输出设备
+                    int GET_DEVICES_OUTPUTS = android.media.AudioManager.class.getField("GET_DEVICES_OUTPUTS").getInt(null);
+                    android.media.AudioDeviceInfo[] outputDevices = audioManager.getDevices(GET_DEVICES_OUTPUTS);
+                    
+                    if (outputDevices != null && outputDevices.length > 0) {
+                        for (int i = 0; i < outputDevices.length; i++) {
+                            android.media.AudioDeviceInfo device = outputDevices[i];
+                            // 系统原始名称
+                            CharSequence productName = device.getProductName();
+                            String name = productName == null ? "无名设备" : productName.toString();
+                            
+                            // 设备类型
+                            int type = device.getType();
+                            
+                            outputInfo.append((i + 1)).append(". " ).append(name).append("\n");
+                            outputInfo.append("   设备类型：").append(getDeviceTypeName(type)).append("\n");
+                            outputInfo.append("   类型ID：").append(type).append("\n");
+                        }
+                    } else {
+                        outputInfo.append("未检测到车内输出设备\n");
+                    }
+                } catch (Exception e) {
+                    outputInfo.append("获取车内输出设备失败: " ).append(e.getMessage()).append("\n");
+                    AppLog.e(TAG, "Failed to enumerate car output devices", e);
+                }
+            } else {
+                outputInfo.append("Android 版本较低，无法获取详细车内输出设备信息\n");
+            }
+            
+            // 显示车内输出设备列表
+            tvAudioDeviceStatus.setText(outputInfo.toString());
+            AppLog.d(TAG, "Car output device enumeration completed: " + outputInfo.toString());
+            
+        } catch (Exception e) {
+            tvAudioDeviceStatus.setText("枚举车内输出设备时出错：" + e.getMessage());
+            AppLog.e(TAG, "Error enumerating car output devices", e);
+        }
+    }
+    
+    /**
      * 保存音频设备设置
      */
     private void saveAudioDeviceSettings() {
         try {
             // 保存车外输出设备设置
             String outputUsageExternalStr = editAudioUsageExternal.getText().toString().trim();
-            int audioOutputUsageExternal = 15; // 默认值
+            int audioOutputUsageExternal = 9; // 默认值
             if (!outputUsageExternalStr.isEmpty()) {
                 audioOutputUsageExternal = Integer.parseInt(outputUsageExternalStr);
             }

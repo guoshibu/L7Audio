@@ -15,6 +15,7 @@ import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 
+import com.aug32.l7audio.audio.AudioVisualizerView;
 import com.aug32.l7audio.audio.TTSManager;
 
 import java.util.ArrayList;
@@ -32,6 +33,7 @@ public class TTSFragment extends Fragment {
     private Button btnAddTTS;
     private TTSManager ttsManager;
     private List<TTSItem> ttsItems;
+    private List<AudioVisualizerView> visualizerViews;
     private int currentlyPlayingPosition = -1;
 
     private static class TTSItem {
@@ -59,42 +61,48 @@ public class TTSFragment extends Fragment {
                 ttsManager = mainActivity.getTTSManager();
                 if (ttsManager != null) {
                     ttsManager.setProgressListener(new TTSManager.TTSProgressListener() {
-                        @Override
-                        public void onTTSStart() {
-                            
-                        }
+                    @Override
+                    public void onTTSStart() {
+                        
+                    }
 
-                        @Override
-                        public void onTTSDone() {
-                            if (getActivity() != null) {
-                                getActivity().runOnUiThread(() -> {
-                                    if (currentlyPlayingPosition >= 0 && currentlyPlayingPosition < ttsItems.size()) {
-                                        ttsItems.get(currentlyPlayingPosition).isPlaying = false;
-                                        currentlyPlayingPosition = -1;
-                                        refreshTTSItemsView();
-                                    }
-                                });
-                            }
+                    @Override
+                    public void onTTSDone() {
+                        if (getActivity() != null) {
+                            getActivity().runOnUiThread(() -> {
+                                if (currentlyPlayingPosition >= 0 && currentlyPlayingPosition < ttsItems.size()) {
+                                    ttsItems.get(currentlyPlayingPosition).isPlaying = false;
+                                    currentlyPlayingPosition = -1;
+                                    refreshTTSItemsView();
+                                }
+                            });
                         }
+                    }
 
-                        @Override
-                        public void onTTSError() {
-                            if (getActivity() != null) {
-                                getActivity().runOnUiThread(() -> {
-                                    if (currentlyPlayingPosition >= 0 && currentlyPlayingPosition < ttsItems.size()) {
-                                        ttsItems.get(currentlyPlayingPosition).isPlaying = false;
-                                        currentlyPlayingPosition = -1;
-                                        refreshTTSItemsView();
-                                    }
-                                });
-                            }
+                    @Override
+                    public void onTTSError() {
+                        if (getActivity() != null) {
+                            getActivity().runOnUiThread(() -> {
+                                if (currentlyPlayingPosition >= 0 && currentlyPlayingPosition < ttsItems.size()) {
+                                    ttsItems.get(currentlyPlayingPosition).isPlaying = false;
+                                    currentlyPlayingPosition = -1;
+                                    refreshTTSItemsView();
+                                }
+                            });
                         }
-                    });
+                    }
+
+                    @Override
+                    public void onTTSProgress(int progress) {
+                        
+                    }
+                });
                 }
             }
         }
 
         ttsItems = new ArrayList<>();
+        visualizerViews = new ArrayList<>();
         loadTTSItems();
 
         if (btnAddTTS != null) {
@@ -183,7 +191,11 @@ public class TTSFragment extends Fragment {
 
     private void refreshTTSItemsView() {
         if (ttsItemsContainer == null) return;
+        for (AudioVisualizerView visualizer : visualizerViews) {
+            visualizer.stopAnimation();
+        }
         ttsItemsContainer.removeAllViews();
+        visualizerViews.clear();
         for (int i = 0; i < ttsItems.size(); i++) {
             addTTSItemToView(ttsItems.get(i), i);
         }
@@ -223,7 +235,7 @@ public class TTSFragment extends Fragment {
         btnPlayPause.setTextSize(20);
         
         if (item.isPlaying) {
-            btnPlayPause.setBackgroundTintList(ContextCompat.getColorStateList(getActivity(), R.color.button_background_selected));
+            btnPlayPause.setBackgroundTintList(ContextCompat.getColorStateList(getActivity(), R.color.colorAccent));
         } else {
             btnPlayPause.setBackgroundTintList(ContextCompat.getColorStateList(getActivity(), R.color.button_background));
         }
@@ -233,17 +245,43 @@ public class TTSFragment extends Fragment {
         final int finalPosition = position;
         btnPlayPause.setOnClickListener(v -> togglePlayPause(finalPosition));
 
-        TextView ttsText = new TextView(getActivity());
-        ttsText.setLayoutParams(new LinearLayout.LayoutParams(
+        // 创建垂直LinearLayout来容纳文本和进度条
+        LinearLayout textContainer = new LinearLayout(getActivity());
+        textContainer.setLayoutParams(new LinearLayout.LayoutParams(
                 0,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 1
         ));
+        textContainer.setOrientation(LinearLayout.VERTICAL);
+        textContainer.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        
+        // 添加文本
+        TextView ttsText = new TextView(getActivity());
+        ttsText.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
         ttsText.setText(item.text);
         ttsText.setTextSize(16);
         ttsText.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_primary));
-        ttsText.setPadding(0, 0, 12, 0);
+        ttsText.setPadding(0, 0, 12, 8);
         ttsText.setOnClickListener(v -> togglePlayPause(finalPosition));
+        textContainer.addView(ttsText);
+        
+        // 添加音频可视化视图
+        AudioVisualizerView visualizerView = new AudioVisualizerView(getActivity());
+        visualizerView.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (int) (32 * getResources().getDisplayMetrics().density)
+        ));
+        visualizerView.setVisibility(item.isPlaying ? View.VISIBLE : View.GONE);
+        if (item.isPlaying) {
+            visualizerView.startAnimation();
+        }
+        textContainer.addView(visualizerView);
+        
+        // 将可视化视图添加到列表中
+        visualizerViews.add(visualizerView);
 
         Button btnDelete = new Button(getActivity());
         int deleteButtonWidth = (int) (100 * getResources().getDisplayMetrics().density);
@@ -260,7 +298,7 @@ public class TTSFragment extends Fragment {
         btnDelete.setOnClickListener(v -> deleteTTSItem(finalPosition));
 
         ttsItemLayout.addView(btnPlayPause);
-        ttsItemLayout.addView(ttsText);
+        ttsItemLayout.addView(textContainer);
         ttsItemLayout.addView(btnDelete);
         ttsItemsContainer.addView(ttsItemLayout);
     }
@@ -280,9 +318,15 @@ public class TTSFragment extends Fragment {
                 previousItem.isPlaying = false;
             }
             stopTTS();
-            playTTS(item.text);
-            item.isPlaying = true;
-            currentlyPlayingPosition = position;
+            boolean playSuccess = playTTS(item.text);
+            if (playSuccess) {
+                item.isPlaying = true;
+                currentlyPlayingPosition = position;
+            } else {
+                item.isPlaying = false;
+                currentlyPlayingPosition = -1;
+                Toast.makeText(getActivity(), "播放失败，请检查TTS引擎", Toast.LENGTH_SHORT).show();
+            }
         }
         refreshTTSItemsView();
     }
@@ -302,10 +346,11 @@ public class TTSFragment extends Fragment {
         }
     }
 
-    private void playTTS(String text) {
+    private boolean playTTS(String text) {
         if (ttsManager != null) {
-            ttsManager.speak(text);
+            return ttsManager.speak(text);
         }
+        return false;
     }
 
     private void stopTTS() {

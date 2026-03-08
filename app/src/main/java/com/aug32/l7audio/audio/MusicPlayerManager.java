@@ -4,10 +4,12 @@ import android.content.Context;
 import android.net.Uri;
 import android.os.Build;
 
+import androidx.annotation.OptIn;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
+import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer;
@@ -24,6 +26,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import android.media.MediaMetadataRetriever;
 
 public class MusicPlayerManager {
@@ -37,7 +40,7 @@ public class MusicPlayerManager {
     private ExoPlayer exoPlayer;// ExoPlayer实例
     private List<MusicItem> musicItems;// 音乐项列表
     private int currentIndex = -1;// 当前播放索引
-    private boolean isPlaying = false;// 是否正在播放
+    private volatile boolean isPlaying = false;// 是否正在播放
     private int repeatMode = Player.REPEAT_MODE_OFF;// 循环播放模式
     private boolean shuffleMode = false;// 是否随机播放
 
@@ -151,6 +154,7 @@ public class MusicPlayerManager {
         this.callback = callback;
     }
 
+    @OptIn(markerClass = UnstableApi.class)
     private void initPlayer() {
         AppLog.d(TAG, "=== 开始初始化播放器 ===");
         if (exoPlayer == null) {
@@ -657,7 +661,7 @@ public class MusicPlayerManager {
      * MusicPlayerFragment.togglePlayPause()（正在播放）
      * → MusicPlayerManager.pause()
      */
-    public void pause() {
+    public synchronized void pause() {
         AppLog.d(TAG, "=== METHOD CHAIN: pause() ===");
         if (exoPlayer != null && isPlaying) {
             exoPlayer.pause();
@@ -680,7 +684,7 @@ public class MusicPlayerManager {
      */
     private long userSelectedPosition = -1;
     
-    public void resume() {
+    public synchronized void resume() {
         AppLog.d(TAG, "=== METHOD CHAIN: resume() ===");
         if (exoPlayer != null && !isPlaying) {
             // 新策略：直接播放，因为属性已经在初始化时设置正确了
@@ -700,12 +704,12 @@ public class MusicPlayerManager {
     /**
      * 恢复播放（带用户选择的位置）
      */
-    public void resume(long position) {
+    public synchronized void resume(long position) {
         userSelectedPosition = position;
         resume();
     }
 
-    public void stop() {
+    public synchronized void stop() {
         AppLog.d(TAG, "=== 开始停止播放 ===");
         long currentPosition = 0;
         if (exoPlayer != null) {
@@ -736,7 +740,7 @@ public class MusicPlayerManager {
         AppLog.d(TAG, "Playback stopped");
     }
 
-    public void release() {
+    public synchronized void release() {
         stop();
         if (exoPlayer != null) {
             exoPlayer.removeListener(playerListener);
@@ -757,7 +761,7 @@ public class MusicPlayerManager {
      * 
      * @return 是否成功开始播放
      */
-    public boolean playNext() {
+    public synchronized boolean playNext() {
         AppLog.d(TAG, "=== METHOD CHAIN: playNext() ===");
         if (musicItems.isEmpty()) {
             AppLog.d(TAG, "Music list is empty, cannot play next");
@@ -790,7 +794,7 @@ public class MusicPlayerManager {
      * 
      * @return 是否成功开始播放
      */
-    public boolean playPrevious() {
+    public synchronized boolean playPrevious() {
         AppLog.d(TAG, "=== METHOD CHAIN: playPrevious() ===");
         if (musicItems.isEmpty()) {
             AppLog.d(TAG, "Music list is empty, cannot play previous");
@@ -806,28 +810,28 @@ public class MusicPlayerManager {
         return start(prevIndex);
     }
 
-    public void seekTo(long positionMs) {
+    public synchronized void seekTo(long positionMs) {
         if (exoPlayer != null) {
             exoPlayer.seekTo(positionMs);
             AppLog.d(TAG, "Seeked to: " + positionMs + "ms");
         }
     }
 
-    public long getCurrentPosition() {
+    public synchronized long getCurrentPosition() {
         if (exoPlayer != null) {
             return exoPlayer.getCurrentPosition();
         }
         return 0;
     }
 
-    public long getDuration() {
+    public synchronized long getDuration() {
         if (exoPlayer != null) {
             return exoPlayer.getDuration();
         }
         return 0;
     }
 
-    public boolean isPlaying() {
+    public synchronized boolean isPlaying() {
         // 确保isPlaying状态与实际播放器状态一致
         if (exoPlayer != null) {
             isPlaying = exoPlayer.isPlaying();
@@ -835,24 +839,24 @@ public class MusicPlayerManager {
         return isPlaying;
     }
 
-    public boolean isExoPlayerInitialized() {
+    public synchronized boolean isExoPlayerInitialized() {
         return exoPlayer != null;
     }
 
-    public void resetPlayingState() {
+    public synchronized void resetPlayingState() {
         isPlaying = false;
         AppLog.d(TAG, "Playing state reset to false");
     }
 
-    public long getLastPlayedPosition() {
+    public synchronized long getLastPlayedPosition() {
         return appConfig.getLastPlayedPosition();
     }
 
-    public int getRepeatMode() {
+    public synchronized int getRepeatMode() {
         return repeatMode;
     }
 
-    public void setRepeatMode(int mode) {
+    public synchronized void setRepeatMode(int mode) {
         this.repeatMode = mode;
         if (exoPlayer != null) {
             exoPlayer.setRepeatMode(mode);
@@ -860,11 +864,11 @@ public class MusicPlayerManager {
         appConfig.setRepeatMode(mode);
     }
 
-    public boolean isShuffleModeEnabled() {
+    public synchronized boolean isShuffleModeEnabled() {
         return shuffleMode;
     }
 
-    public void setShuffleModeEnabled(boolean enabled) {
+    public synchronized void setShuffleModeEnabled(boolean enabled) {
         this.shuffleMode = enabled;
         if (exoPlayer != null) {
             exoPlayer.setShuffleModeEnabled(enabled);
@@ -922,7 +926,7 @@ public class MusicPlayerManager {
     }
 
     private boolean isMusicFile(File file) {
-        String name = file.getName().toLowerCase();
+        String name = file.getName().toLowerCase(Locale.ROOT);
         return name.endsWith(".mp3") || name.endsWith(".wav") || name.endsWith(".flac") ||
                 name.endsWith(".ogg") || name.endsWith(".m4a") || name.endsWith(".aac");
     }

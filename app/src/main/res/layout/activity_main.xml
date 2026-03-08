@@ -18,7 +18,7 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:orientation="vertical"
-            android:background="@color/menu_background">
+            android:background="?attr/colorSurface">
 
             <!-- Top: Title bar -->
             <LinearLayout
@@ -28,7 +28,7 @@
                 android:orientation="horizontal"
                 android:padding="8dp"
                 android:gravity="center_vertical"
-                android:background="@color/menu_background">
+                android:background="?attr/colorSurfaceVariant">
 
                 <Button
                     android:id="@+id/btn_menu"
@@ -37,8 +37,8 @@
                     android:layout_margin="4dp"
                     android:text="☰"
                     android:textSize="24sp"
-                    android:backgroundTint="@color/button_background"
-                    android:textColor="@color/button_text"
+                    android:backgroundTint="?attr/colorPrimary"
+                    android:textColor="?attr/colorOnPrimary"
                     android:elevation="4dp"
                     android:insetTop="0dp"
                     android:insetBottom="0dp"
@@ -55,7 +55,7 @@
                     android:layout_weight="1"
                     android:text="L7 Audio"
                     android:textSize="20sp"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorOnSurface"
                     android:textStyle="bold"
                     android:gravity="center" />
 
@@ -66,8 +66,8 @@
                     android:layout_margin="4dp"
                     android:text="✕"
                     android:textSize="24sp"
-                    android:backgroundTint="@color/button_background"
-                    android:textColor="@color/button_text"
+                    android:backgroundTint="?attr/colorPrimary"
+                    android:textColor="?attr/colorOnPrimary"
                     android:elevation="4dp"
                     android:insetTop="0dp"
                     android:insetBottom="0dp"
@@ -86,7 +86,7 @@
                 android:layout_weight="1"
                 android:orientation="vertical"
                 android:padding="16dp"
-                android:background="@color/content_background">
+                android:background="?attr/colorSurface">
 
                 <!-- Output control buttons -->
                 <LinearLayout
@@ -104,8 +104,8 @@
                         android:layout_margin="4dp"
                         android:text="仅车内"
                         android:textSize="16sp"
-                        android:backgroundTint="@color/button_background"
-                        android:textColor="@color/button_text"
+                        android:backgroundTint="?attr/colorPrimary"
+                        android:textColor="?attr/colorOnPrimary"
                         android:elevation="4dp"
                         android:insetTop="0dp"
                         android:insetBottom="0dp"
@@ -119,8 +119,8 @@
                         android:layout_margin="4dp"
                         android:text="仅车外"
                         android:textSize="16sp"
-                        android:backgroundTint="@color/button_background"
-                        android:textColor="@color/button_text"
+                        android:backgroundTint="?attr/colorPrimary"
+                        android:textColor="?attr/colorOnPrimary"
                         android:elevation="4dp"
                         android:insetTop="0dp"
                         android:insetBottom="0dp"
@@ -133,7 +133,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="0dp"
                     android:layout_weight="1"
-                    android:background="@color/content_background">
+                    android:background="?attr/colorSurface">
 
                     <!-- This area will be used to display different function pages -->
 
@@ -149,7 +149,7 @@
                 android:orientation="horizontal"
                 android:padding="8dp"
                 android:gravity="center"
-                android:background="@color/menu_background">
+                android:background="?attr/colorSurfaceVariant">
 
                 <Button
                     android:id="@+id/btn_mic_amplifier"
@@ -159,8 +159,8 @@
                     android:layout_margin="4dp"
                     android:text="🎤 麦克风"
                     android:textSize="16sp"
-                    android:backgroundTint="@color/button_background"
-                    android:textColor="@color/button_text"
+                    android:backgroundTint="?attr/colorPrimary"
+                    android:textColor="?attr/colorOnPrimary"
                     android:elevation="4dp"
                     android:insetTop="0dp"
                     android:insetBottom="0dp"
@@ -175,8 +175,8 @@
                     android:layout_margin="4dp"
                     android:text="📢 TTS"
                     android:textSize="16sp"
-                    android:backgroundTint="@color/button_background"
-                    android:textColor="@color/button_text"
+                    android:backgroundTint="?attr/colorPrimary"
+                    android:textColor="?attr/colorOnPrimary"
                     android:elevation="4dp"
                     android:insetTop="0dp"
                     android:insetBottom="0dp"
@@ -191,8 +191,8 @@
                     android:layout_margin="4dp"
                     android:text="🎵 音乐"
                     android:textSize="16sp"
-                    android:backgroundTint="@color/button_background"
-                    android:textColor="@color/button_text"
+                    android:backgroundTint="?attr/colorPrimary"
+                    android:textColor="?attr/colorOnPrimary"
                     android:elevation="4dp"
                     android:insetTop="0dp"
                     android:insetBottom="0dp"

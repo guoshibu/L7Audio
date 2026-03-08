@@ -140,8 +140,10 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         
-        // 加载保存的功能状态
-        loadSavedFunctionState();
+        // 如果权限已授予，直接加载保存的功能状态
+        if (checkPermissions()) {
+            loadSavedFunctionState();
+        }
     }
 
     private void initAudioManagers() {
@@ -400,27 +402,33 @@ public class MainActivity extends AppCompatActivity {
      * 加载保存的功能状态
      */
     private void loadSavedFunctionState() {
-        int savedFunction = appConfig.getCurrentFunction();
-        if (savedFunction != -1) {
-            // 延迟加载，确保UI已初始化
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                switch (savedFunction) {
-                    case 0:
-                        showMicAmplifierFragment();
-                        currentFunction = 0;
-                        break;
-                    case 1:
-                        showTTSFragment();
-                        currentFunction = 1;
-                        break;
-                    case 2:
-                        showMusicPlayerFragment();
-                        currentFunction = 2;
-                        break;
-                }
-                updateFunctionButtons();
-            }, 500);
+        int tempFunction = appConfig.getCurrentFunction();
+        // 如果是第一次安装（tempFunction为-1），默认进入麦克风放大功能
+        if (tempFunction == -1) {
+            tempFunction = 0; // 0: 麦克风放大功能
+            appConfig.setCurrentFunction(tempFunction);
         }
+        
+        final int savedFunction = tempFunction;
+        
+        // 延迟加载，确保UI已初始化
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            switch (savedFunction) {
+                case 0:
+                    showMicAmplifierFragment();
+                    currentFunction = 0;
+                    break;
+                case 1:
+                    showTTSFragment();
+                    currentFunction = 1;
+                    break;
+                case 2:
+                    showMusicPlayerFragment();
+                    currentFunction = 2;
+                    break;
+            }
+            updateFunctionButtons();
+        }, 500);
     }
 
     /**
@@ -439,7 +447,7 @@ public class MainActivity extends AppCompatActivity {
             if (currentFunction == 0) {
                 btnMicAmplifier.setBackgroundColor(ContextCompat.getColor(this, R.color.button_background_selected));
             } else {
-                btnMicAmplifier.setBackgroundColor(ContextCompat.getColor(this, R.color.button_background));
+                btnMicAmplifier.setBackgroundColor(ContextCompat.getColor(this, R.color.colorPrimary));
             }
         }
         
@@ -447,7 +455,7 @@ public class MainActivity extends AppCompatActivity {
             if (currentFunction == 1) {
                 btnTTS.setBackgroundColor(ContextCompat.getColor(this, R.color.button_background_selected));
             } else {
-                btnTTS.setBackgroundColor(ContextCompat.getColor(this, R.color.button_background));
+                btnTTS.setBackgroundColor(ContextCompat.getColor(this, R.color.colorPrimary));
             }
         }
         
@@ -455,7 +463,7 @@ public class MainActivity extends AppCompatActivity {
             if (currentFunction == 2) {
                 btnMusicPlayer.setBackgroundColor(ContextCompat.getColor(this, R.color.button_background_selected));
             } else {
-                btnMusicPlayer.setBackgroundColor(ContextCompat.getColor(this, R.color.button_background));
+                btnMusicPlayer.setBackgroundColor(ContextCompat.getColor(this, R.color.colorPrimary));
             }
         }
     }
@@ -526,14 +534,14 @@ public class MainActivity extends AppCompatActivity {
             if (outputMode == AudioOutputManager.OUTPUT_CAR) {
                 btnOutputCar.setBackgroundColor(ContextCompat.getColor(this, R.color.button_background_selected));
             } else {
-                btnOutputCar.setBackgroundColor(ContextCompat.getColor(this, R.color.button_background));
+                btnOutputCar.setBackgroundColor(ContextCompat.getColor(this, R.color.colorPrimary));
             }
         }
         if (btnOutputExternal != null) {
             if (outputMode == AudioOutputManager.OUTPUT_EXTERNAL) {
                 btnOutputExternal.setBackgroundColor(ContextCompat.getColor(this, R.color.button_background_selected));
             } else {
-                btnOutputExternal.setBackgroundColor(ContextCompat.getColor(this, R.color.button_background));
+                btnOutputExternal.setBackgroundColor(ContextCompat.getColor(this, R.color.colorPrimary));
             }
         }
     }
@@ -699,6 +707,8 @@ public class MainActivity extends AppCompatActivity {
                             if (Environment.isExternalStorageManager()) {
                                 // 用户授予了MANAGE_EXTERNAL_STORAGE权限
                                 initAudioManagers();
+                                // 初始化完成后加载保存的功能状态
+                                loadSavedFunctionState();
                             } else {
                                 // 用户拒绝了MANAGE_EXTERNAL_STORAGE权限
                                 Toast.makeText(MainActivity.this, "存储权限被拒绝，部分功能可能无法使用", Toast.LENGTH_LONG).show();
@@ -719,10 +729,14 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 // 已有权限，初始化音频管理器
                 initAudioManagers();
+                // 初始化完成后加载保存的功能状态
+                loadSavedFunctionState();
             }
         } else {
             // Android R以下不需要这个权限
             initAudioManagers();
+            // 初始化完成后加载保存的功能状态
+            loadSavedFunctionState();
         }
     }
 }

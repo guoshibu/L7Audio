@@ -5,6 +5,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -24,6 +25,17 @@ public class AboutFragment extends Fragment {
         // 初始化视图
         btnBack = view.findViewById(R.id.btn_back);
         btnHome = view.findViewById(R.id.btn_home);
+        TextView tvVersion = view.findViewById(R.id.tv_version);
+
+        // 设置版本号
+        if (tvVersion != null && getActivity() != null) {
+            try {
+                String versionName = getActivity().getPackageManager().getPackageInfo(getActivity().getPackageName(), 0).versionName;
+                tvVersion.setText("版本 " + versionName);
+            } catch (Exception e) {
+                AppLog.e(TAG, "Failed to get version name", e);
+            }
+        }
 
         // 设置返回按钮点击事件
         btnBack.setOnClickListener(v -> {

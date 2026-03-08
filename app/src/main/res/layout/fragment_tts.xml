@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:padding="16dp"
-    android:background="@color/content_background">
+    android:background="?attr/colorSurface">
 
     <!-- 添加TTS文本 -->
     <LinearLayout
@@ -26,8 +26,8 @@
             android:layout_weight="1"
             android:hint="输入TTS文本(最多100字)"
             android:textSize="16sp"
-            android:textColor="@color/text_primary"
-            android:backgroundTint="@color/button_background"
+            android:textColor="?attr/colorOnSurface"
+            android:backgroundTint="?attr/colorPrimary"
             android:layout_marginEnd="16dp"
             android:minHeight="70dp"
             android:maxLength="100" />
@@ -38,8 +38,8 @@
             android:layout_height="wrap_content"
             android:text="添加"
             android:textSize="16sp"
-            android:backgroundTint="@color/button_background"
-            android:textColor="@color/button_text"
+            android:backgroundTint="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimary"
             android:minWidth="100dp"
             android:minHeight="70dp" />
 

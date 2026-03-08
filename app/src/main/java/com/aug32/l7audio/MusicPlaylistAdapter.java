@@ -150,12 +150,14 @@ public class MusicPlaylistAdapter extends RecyclerView.Adapter<MusicPlaylistAdap
         MusicPlayerManager.MusicItem item = musicItems.get(position);
 
         holder.tvSongTitle.setText(item.title);
+        holder.tvSongTitle.setTextColor(ContextCompat.getColor(holder.itemView.getContext(), R.color.text_primary));
         holder.tvSongArtist.setText(item.artist);
+        holder.tvSongArtist.setTextColor(ContextCompat.getColor(holder.itemView.getContext(), R.color.text_secondary));
 
         if (isSelectionMode) {
             if (selectedItems.contains(position)) {
                 holder.itemView.setBackgroundColor(
-                        ContextCompat.getColor(holder.itemView.getContext(), R.color.button_background_selected)
+                        ContextCompat.getColor(holder.itemView.getContext(), R.color.colorAccent)
                 );
             } else {
                 if (position % 2 == 0) {
@@ -170,7 +172,7 @@ public class MusicPlaylistAdapter extends RecyclerView.Adapter<MusicPlaylistAdap
             }
         } else if (position == currentPlayingIndex) {
             holder.itemView.setBackgroundColor(
-                    ContextCompat.getColor(holder.itemView.getContext(), R.color.status_recording)
+                    ContextCompat.getColor(holder.itemView.getContext(), R.color.colorAccent)
             );
         } else {
             if (position % 2 == 0) {

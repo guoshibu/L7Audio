@@ -148,7 +148,7 @@ public class AppConfig {
 
     // 车外音频使用类型设置
     public int getAudioOutputUsageExternal() {
-        return preferences.getInt(PREF_AUDIO_OUTPUT_USAGE_EXTERNAL, 15); // 默认15 (bus15 ktvout)
+        return preferences.getInt(PREF_AUDIO_OUTPUT_USAGE_EXTERNAL, 9); // 默认9 (车外输出)
     }
 
     public void setAudioOutputUsageExternal(int usageType) {
@@ -176,7 +176,7 @@ public class AppConfig {
     // 重置音频通道设置
     public void resetAudioChannel() {
         preferences.edit()
-                .putInt(PREF_AUDIO_OUTPUT_USAGE_EXTERNAL, 15) // 车外默认15 (bus15 ktvout)
+                .putInt(PREF_AUDIO_OUTPUT_USAGE_EXTERNAL, 9) // 车外默认9 (车外输出)
                 .putInt(PREF_AUDIO_OUTPUT_USAGE_CAR, 1) // 车内默认1 (USAGE_MEDIA)
                 .putInt(PREF_AUDIO_INPUT_SOURCE, 1) // 默认MIC
                 .apply();
