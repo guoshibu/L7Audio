@@ -396,4 +396,12 @@ public class TTSManager implements TextToSpeech.OnInitListener {
     public void setProgressListener(TTSProgressListener listener) {
         this.progressListener = listener;
     }
+    
+    /**
+     * 检查是否正在播报
+     * @return 是否正在播报
+     */
+    public boolean isSpeaking() {
+        return isSpeaking;
+    }
 }

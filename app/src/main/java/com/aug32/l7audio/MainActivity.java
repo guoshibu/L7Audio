@@ -41,6 +41,7 @@ import com.aug32.l7audio.audio.MicrophoneManager;
 import com.aug32.l7audio.audio.MusicPlayerManager;
 import com.aug32.l7audio.audio.TTSManager;
 import com.aug32.l7audio.service.AudioForegroundService;
+import com.aug32.l7audio.service.FloatingWindowService;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
@@ -144,6 +145,38 @@ public class MainActivity extends AppCompatActivity {
         if (checkPermissions()) {
             loadSavedFunctionState();
         }
+        
+        // 处理从悬浮窗导航的intent
+        handleFloatingWindowIntent();
+        
+        // 根据配置启动悬浮窗服务
+        if (appConfig.isFloatingWindowEnabled()) {
+            startFloatingWindowService();
+        }
+    }
+    
+    private void handleFloatingWindowIntent() {
+        Intent intent = getIntent();
+        if (intent != null && intent.getBooleanExtra("navigate_to_tts", false)) {
+            showTTSFragment();
+            currentFunction = 1;
+            updateFunctionButtons();
+            intent.removeExtra("navigate_to_tts");
+        }
+    }
+    
+    private void startFloatingWindowService() {
+        Intent serviceIntent = new Intent(this, FloatingWindowService.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent);
+        } else {
+            startService(serviceIntent);
+        }
+    }
+    
+    private void stopFloatingWindowService() {
+        Intent serviceIntent = new Intent(this, FloatingWindowService.class);
+        stopService(serviceIntent);
     }
 
     private void initAudioManagers() {
@@ -354,7 +387,7 @@ public class MainActivity extends AppCompatActivity {
         fragmentTransaction.commitAllowingStateLoss();
     }
 
-    private void showMicAmplifierFragment() {
+    public void showMicAmplifierFragment() {
         // 更新标题栏文本
         updateAppTitle("L7 Audio - 麦克风放大");
         // 暂停音乐播放
@@ -368,6 +401,12 @@ public class MainActivity extends AppCompatActivity {
         fragmentTransaction.commitAllowingStateLoss();
         // 保存当前功能状态
         saveCurrentFunctionState(0);
+    }
+    
+    public void startMicAmplification() {
+        if (microphoneManager != null && !microphoneManager.isRecording()) {
+            microphoneManager.start();
+        }
     }
 
     private void showTTSFragment() {
@@ -473,7 +512,7 @@ public class MainActivity extends AppCompatActivity {
      * 如果麦克风正在放大，会先停止再重新启动，确保模式切换立即生效
      * @param outputMode 音频输出模式，可选值：OUTPUT_CAR（车内）、OUTPUT_EXTERNAL（车外）
      */
-    private void setAudioOutput(int outputMode) {
+    public void setAudioOutput(int outputMode) {
         if (audioOutputManager == null) {// 如果音频输出管理器未初始化
             Toast.makeText(this, "音频输出管理器未初始化", Toast.LENGTH_SHORT).show();
             return;

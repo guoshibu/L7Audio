@@ -12,6 +12,7 @@
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:allowBackup="false"
@@ -37,6 +38,13 @@
             android:foregroundServiceType="mediaPlayback"
             android:exported="false"
             android:stopWithTask="false" />
+
+        <service
+            android:name=".service.FloatingWindowService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:configChanges="uiMode|screenLayout|screenSize|orientation" />
 
         <receiver
             android:name=".BootReceiver"

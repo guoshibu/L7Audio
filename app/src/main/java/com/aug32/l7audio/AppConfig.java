@@ -30,6 +30,13 @@ public class AppConfig {
     private static final String PREF_CAR_VOLUME = "car_volume";
     private static final String PREF_EXTERNAL_VOLUME = "external_volume";
     private static final String PREF_MAX_AMPLIFICATION = "max_amplification";
+    // 悬浮窗相关配置
+    private static final String PREF_FLOATING_WINDOW_ENABLED = "floating_window_enabled";
+    private static final String PREF_FLOATING_WINDOW_X = "floating_window_x";
+    private static final String PREF_FLOATING_WINDOW_Y = "floating_window_y";
+    private static final String PREF_FLOATING_WINDOW_ALPHA = "floating_window_alpha";
+    private static final String PREF_FLOATING_WINDOW_TTS_INDICES = "floating_window_tts_indices";
+    private static final String PREF_FLOATING_WINDOW_TTS_NAMES = "floating_window_tts_names";
 
     // 主题模式常量
     public static final int THEME_MODE_SYSTEM = 0;
@@ -259,5 +266,58 @@ public class AppConfig {
 
     public void setMaxAmplification(int maxAmplification) {
         preferences.edit().putInt(PREF_MAX_AMPLIFICATION, maxAmplification).apply();
+    }
+
+    // 悬浮窗开关设置
+    public boolean isFloatingWindowEnabled() {
+        return preferences.getBoolean(PREF_FLOATING_WINDOW_ENABLED, false);
+    }
+
+    public void setFloatingWindowEnabled(boolean enabled) {
+        preferences.edit().putBoolean(PREF_FLOATING_WINDOW_ENABLED, enabled).apply();
+    }
+
+    // 悬浮窗位置设置
+    public int getFloatingWindowX() {
+        return preferences.getInt(PREF_FLOATING_WINDOW_X, 0); // 默认左侧
+    }
+
+    public void setFloatingWindowX(int x) {
+        preferences.edit().putInt(PREF_FLOATING_WINDOW_X, x).apply();
+    }
+
+    public int getFloatingWindowY() {
+        return preferences.getInt(PREF_FLOATING_WINDOW_Y, 100);
+    }
+
+    public void setFloatingWindowY(int y) {
+        preferences.edit().putInt(PREF_FLOATING_WINDOW_Y, y).apply();
+    }
+
+    // 悬浮窗透明度设置
+    public int getFloatingWindowAlpha() {
+        return preferences.getInt(PREF_FLOATING_WINDOW_ALPHA, 80); // 默认80%
+    }
+
+    public void setFloatingWindowAlpha(int alpha) {
+        preferences.edit().putInt(PREF_FLOATING_WINDOW_ALPHA, alpha).apply();
+    }
+
+    // 悬浮窗TTS选择索引设置
+    public String getFloatingWindowTTSIndices() {
+        return preferences.getString(PREF_FLOATING_WINDOW_TTS_INDICES, "[]");
+    }
+
+    public void setFloatingWindowTTSIndices(String indicesJson) {
+        preferences.edit().putString(PREF_FLOATING_WINDOW_TTS_INDICES, indicesJson).apply();
+    }
+
+    // 悬浮窗TTS自定义名称设置
+    public String getFloatingWindowTTSNames() {
+        return preferences.getString(PREF_FLOATING_WINDOW_TTS_NAMES, "{}");
+    }
+
+    public void setFloatingWindowTTSNames(String namesJson) {
+        preferences.edit().putString(PREF_FLOATING_WINDOW_TTS_NAMES, namesJson).apply();
     }
 }

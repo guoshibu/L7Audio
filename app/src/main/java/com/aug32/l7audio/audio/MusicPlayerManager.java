@@ -204,6 +204,12 @@ public class MusicPlayerManager {
             }
             setVolume(savedVolume);
             AppLog.d(TAG, "步骤6完成：音量设置为" + savedVolume);
+            
+            // 步骤7：设置循环模式和随机播放模式
+            AppLog.d(TAG, "步骤7：设置循环模式和随机播放模式");
+            exoPlayer.setRepeatMode(repeatMode);
+            exoPlayer.setShuffleModeEnabled(shuffleMode);
+            AppLog.d(TAG, "步骤7完成：循环模式=" + repeatMode + ", 随机播放=" + shuffleMode);
         
             AppLog.d(TAG, "=== ExoPlayer初始化完成 ===");           
         } else {
@@ -876,22 +882,23 @@ public class MusicPlayerManager {
         appConfig.setShuffleModeEnabled(enabled);
     }
 
-    private void handleCompletion() {
-        if (callback != null) {
+    private void handleCompletion() {// 处理播放完成
+        if (callback != null) {// 调用回调接口
             callback.onPlaybackCompleted();
         }
 
-        if (repeatMode == Player.REPEAT_MODE_ONE) {
+        if (repeatMode == Player.REPEAT_MODE_ONE) {// 循环播放当前首
             if (exoPlayer != null) {
                 exoPlayer.seekTo(0);
                 exoPlayer.play();
             }
-        } else if (repeatMode == Player.REPEAT_MODE_ALL || (currentIndex + 1 < musicItems.size())) {
+        } else if (repeatMode == Player.REPEAT_MODE_ALL) {// 循环播放所有歌曲
             playNext();
         }
     }
 
-    private void handleError(String error) {
+    private void handleError(String error) {// 处理错误
+        AppLog.e(TAG, "Error occurred: " + error);
         if (callback != null) {
             callback.onError(error);
         }

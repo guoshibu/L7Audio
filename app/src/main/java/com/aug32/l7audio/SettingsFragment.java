@@ -22,6 +22,7 @@ import androidx.fragment.app.Fragment;
 import com.aug32.l7audio.audio.AudioOutputManager;
 import com.aug32.l7audio.audio.MicrophoneManager;
 import com.aug32.l7audio.audio.TTSManager;
+import com.aug32.l7audio.service.FloatingWindowService;
 
 public class SettingsFragment extends Fragment {
     private static final String TAG = "SettingsFragment";
@@ -31,6 +32,7 @@ public class SettingsFragment extends Fragment {
     private RadioButton themeLightRadio;
     private RadioButton themeDarkRadio;
     private Switch autoStartSwitch;
+    private Switch floatingWindowSwitch;
     private Button btnBack;
     private Button btnHome;
     private Button btnDebugAudioRoutes;
@@ -67,6 +69,7 @@ public class SettingsFragment extends Fragment {
         themeLightRadio = view.findViewById(R.id.theme_light);
         themeDarkRadio = view.findViewById(R.id.theme_dark);
         autoStartSwitch = view.findViewById(R.id.auto_start_switch);
+        floatingWindowSwitch = view.findViewById(R.id.floating_window_switch);
         btnBack = view.findViewById(R.id.btn_back);
         btnHome = view.findViewById(R.id.btn_home);
         btnDebugAudioRoutes = view.findViewById(R.id.btn_debug_audio_routes);
@@ -120,6 +123,7 @@ public class SettingsFragment extends Fragment {
         }
 
         autoStartSwitch.setChecked(appConfig.isAutoStartOnBoot());
+        floatingWindowSwitch.setChecked(appConfig.isFloatingWindowEnabled());
 
         // 加载并设置音频设备设置
         loadAudioDeviceSettings();
@@ -135,6 +139,12 @@ public class SettingsFragment extends Fragment {
                 themeMode = AppConfig.THEME_MODE_DARK;
             }
             appConfig.setThemeMode(themeMode);
+            // 通知悬浮窗服务主题变化
+            try {
+                com.aug32.l7audio.service.FloatingWindowService.notifyThemeChanged(requireContext());
+            } catch (Exception e) {
+                AppLog.d(TAG, "Failed to notify theme change to floating window service");
+            }
             // 真正重启应用以应用主题
             try {
             Intent intent = new Intent(requireContext(), MainActivity.class);// 1. 创建跳转到MainActivity的Intent
@@ -151,6 +161,15 @@ public class SettingsFragment extends Fragment {
             appConfig.setAutoStartOnBoot(isChecked);
             // 更新开机自启动接收器状态
             BootReceiver.enable(requireContext());
+        });
+        
+        floatingWindowSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            appConfig.setFloatingWindowEnabled(isChecked);
+            if (isChecked) {
+                startFloatingWindowService();
+            } else {
+                stopFloatingWindowService();
+            }
         });
 
         // 设置返回按钮点击事件
@@ -688,6 +707,32 @@ public class SettingsFragment extends Fragment {
         btnSaveAudioDevice.setOnClickListener(v -> {
             saveAudioDeviceSettings();
         });
+        
+        // 最大放大倍数输入框过滤 - 限制只能输入1-10
+        android.text.InputFilter inputFilter = (source, start, end, dest, dstart, dend) -> {
+            try {
+                String newText = dest.subSequence(0, dstart).toString() + 
+                                source.subSequence(start, end).toString() + 
+                                dest.subSequence(dend, dest.length()).toString();
+                
+                if (newText.isEmpty()) {
+                    return null; // 允许空字符串
+                }
+                
+                int value = Integer.parseInt(newText);
+                if (value >= 1 && value <= 10) {
+                    return null; // 允许输入
+                }
+                return ""; // 拒绝输入
+            } catch (NumberFormatException e) {
+                return ""; // 拒绝非数字
+            }
+        };
+        
+        editMaxAmplification.setFilters(new android.text.InputFilter[]{ 
+            new android.text.InputFilter.LengthFilter(2), 
+            inputFilter 
+        });
     }
     
     /**
@@ -889,11 +934,11 @@ public class SettingsFragment extends Fragment {
             int maxAmplification = 2; // 默认值
             if (!maxAmplificationStr.isEmpty()) {
                 maxAmplification = Integer.parseInt(maxAmplificationStr);
-                // 限制范围1-5倍
+                // 限制范围1-10倍
                 if (maxAmplification < 1) {
                     maxAmplification = 1;
-                } else if (maxAmplification > 5) {
-                    maxAmplification = 5;
+                } else if (maxAmplification > 10) {
+                    maxAmplification = 10;
                 }
             }
             
@@ -929,5 +974,19 @@ public class SettingsFragment extends Fragment {
             tvAudioDeviceStatus.setText("保存设置时出错：" + e.getMessage());
             AppLog.e(TAG, "Error saving audio device settings", e);
         }
+    }
+    
+    private void startFloatingWindowService() {
+        Intent serviceIntent = new Intent(requireContext(), FloatingWindowService.class);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            requireContext().startForegroundService(serviceIntent);
+        } else {
+            requireContext().startService(serviceIntent);
+        }
+    }
+    
+    private void stopFloatingWindowService() {
+        Intent serviceIntent = new Intent(requireContext(), FloatingWindowService.class);
+        requireContext().stopService(serviceIntent);
     }
 }

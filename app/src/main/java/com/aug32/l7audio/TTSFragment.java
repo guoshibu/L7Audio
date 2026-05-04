@@ -1,12 +1,15 @@
 package com.aug32.l7audio;
 
+import android.app.AlertDialog;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -19,7 +22,9 @@ import com.aug32.l7audio.audio.AudioVisualizerView;
 import com.aug32.l7audio.audio.TTSManager;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
@@ -54,6 +59,7 @@ public class TTSFragment extends Fragment {
         ttsItemsContainer = view.findViewById(R.id.tts_items_container);
         ttsInput = view.findViewById(R.id.tts_input);
         btnAddTTS = view.findViewById(R.id.btn_add_tts);
+        Button btnEditFloatingList = view.findViewById(R.id.btn_edit_floating_list);
 
         if (getActivity() != null) {
             MainActivity mainActivity = MainActivity.getInstance();
@@ -108,6 +114,10 @@ public class TTSFragment extends Fragment {
         if (btnAddTTS != null) {
             btnAddTTS.setOnClickListener(v -> addTTSItem());
         }
+        
+        if (btnEditFloatingList != null) {
+            btnEditFloatingList.setOnClickListener(v -> showFloatingListEditor());
+        }
 
         return view;
     }
@@ -132,7 +142,8 @@ public class TTSFragment extends Fragment {
                 }
             }
         }
-        loadDefaultTTSItems();
+        loadDefaultTTSItems();// 加载默认值并保存
+        saveTTSItems(); // 保存默认值到SharedPreferences
     }
 
     private void saveTTSItems() {
@@ -365,5 +376,124 @@ public class TTSFragment extends Fragment {
         if (ttsManager != null) {
             ttsManager.stop();
         }
+    }
+    
+    private void showFloatingListEditor() {
+        if (getActivity() == null) return;
+        
+        AppConfig appConfig = new AppConfig(getActivity());
+        Gson gson = new Gson();
+        
+        String indicesJson = appConfig.getFloatingWindowTTSIndices();
+        String namesJson = appConfig.getFloatingWindowTTSNames();
+        
+        List<Integer> selectedIndices = new ArrayList<>();
+        Map<Integer, String> customNames = new HashMap<>();
+        
+        try {
+            List<Integer> savedIndices = gson.fromJson(indicesJson, new TypeToken<List<Integer>>(){}.getType());
+            if (savedIndices != null) {
+                selectedIndices.addAll(savedIndices);
+            }
+            
+            Map<Integer, String> savedNames = gson.fromJson(namesJson, new TypeToken<Map<Integer, String>>(){}.getType());
+            if (savedNames != null) {
+                customNames.putAll(savedNames);
+            }
+        } catch (Exception e) {
+            AppLog.e(TAG, "Failed to load floating window config", e);
+        }
+        
+        AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
+        builder.setTitle("编辑悬浮窗列表");
+        
+        ScrollView scrollView = new ScrollView(getActivity());
+        LinearLayout container = new LinearLayout(getActivity());
+        container.setOrientation(LinearLayout.VERTICAL);
+        int padding = (int) (16 * getResources().getDisplayMetrics().density);
+        container.setPadding(padding, padding, padding, padding);
+        
+        List<CheckBox> checkBoxes = new ArrayList<>();
+        List<EditText> nameInputs = new ArrayList<>();
+        
+        for (int i = 0; i < ttsItems.size(); i++) {
+            final int index = i;
+            TTSItem item = ttsItems.get(i);
+            
+            LinearLayout itemLayout = new LinearLayout(getActivity());
+            itemLayout.setOrientation(LinearLayout.VERTICAL);
+            itemLayout.setPadding(0, 0, 0, padding);
+            
+            CheckBox checkBox = new CheckBox(getActivity());
+            checkBox.setText(item.text);
+            checkBox.setTextSize(16);
+            checkBox.setChecked(selectedIndices.contains(index));
+            checkBoxes.add(checkBox);
+            
+            EditText nameInput = new EditText(getActivity());
+            nameInput.setHint("自定义名称（可选）");
+            nameInput.setTextSize(14);
+            if (customNames.containsKey(index)) {
+                nameInput.setText(customNames.get(index));
+            }
+            nameInputs.add(nameInput);
+            
+            itemLayout.addView(checkBox);
+            itemLayout.addView(nameInput);
+            container.addView(itemLayout);
+        }
+        
+        scrollView.addView(container);
+        builder.setView(scrollView);
+        
+        final List<Integer> finalSelectedIndices = selectedIndices;
+        final Map<Integer, String> finalCustomNames = customNames;
+        
+        AlertDialog dialog = builder.create();
+        
+        dialog.setOnShowListener(dialogInterface -> {
+            Button positiveBtn = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            Button negativeBtn = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
+            
+            // 设置保存按钮样式
+            positiveBtn.setTextColor(getResources().getColor(android.R.color.white));
+            positiveBtn.setBackgroundColor(getResources().getColor(R.color.button_background_selected));
+            positiveBtn.setTextSize(16);
+            positiveBtn.setPadding(32, 16, 32, 16);
+            
+            // 设置取消按钮样式
+            negativeBtn.setTextColor(getResources().getColor(android.R.color.white));
+            negativeBtn.setBackgroundColor(getResources().getColor(R.color.button_background));
+            negativeBtn.setTextSize(16);
+            negativeBtn.setPadding(32, 16, 32, 16);
+        });
+        
+        dialog.setButton(AlertDialog.BUTTON_POSITIVE, "保存", (dialogInterface, which) -> {
+            List<Integer> newSelectedIndices = new ArrayList<>();
+            Map<Integer, String> newCustomNames = new HashMap<>();
+            
+            for (int i = 0; i < checkBoxes.size(); i++) {
+                if (checkBoxes.get(i).isChecked()) {
+                    newSelectedIndices.add(i);
+                    String customName = nameInputs.get(i).getText().toString().trim();
+                    if (!customName.isEmpty()) {
+                        newCustomNames.put(i, customName);
+                    }
+                }
+            }
+            
+            String newIndicesJson = gson.toJson(newSelectedIndices);
+            String newNamesJson = gson.toJson(newCustomNames);
+            appConfig.setFloatingWindowTTSIndices(newIndicesJson);
+            appConfig.setFloatingWindowTTSNames(newNamesJson);
+            
+            Toast.makeText(getActivity(), "已保存", Toast.LENGTH_SHORT).show();
+        });
+        
+        dialog.setButton(AlertDialog.BUTTON_NEGATIVE, "取消", (dialogInterface, which) -> {
+            dialog.dismiss();
+        });
+        
+        dialog.show();
     }
 }
