@@ -466,7 +466,7 @@ public class MusicPlayerFragment extends Fragment {
     private void updateRepeatButton() {
         switch (currentLoopMode) {
             case LOOP_MODE_OFF:
-                btnRepeat.setText("不循环");
+                btnRepeat.setText("单曲播放");
                 btnRepeat.setBackgroundTintList(ContextCompat.getColorStateList(requireContext(), R.color.button_background));
                 break;
             case LOOP_MODE_ALL:
@@ -509,7 +509,7 @@ public class MusicPlayerFragment extends Fragment {
             if (getActivity() == null) return;
             
             try {
-                // 使用MediaStore查询音乐文件
+                // 使用MediaStore查询所有存储卷（包括USB）的音乐文件
                 String[] projection = {
                     android.provider.MediaStore.Audio.Media._ID,
                     android.provider.MediaStore.Audio.Media.DATA,
@@ -522,42 +522,76 @@ public class MusicPlayerFragment extends Fragment {
                 String selection = android.provider.MediaStore.Audio.Media.IS_MUSIC + " != 0";
                 String sortOrder = android.provider.MediaStore.Audio.Media.TITLE + " ASC";
 
-                android.database.Cursor cursor = getActivity().getContentResolver().query(
-                    android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                    projection,
-                    selection,
-                    null,
-                    sortOrder
-                );
+                // 尝试获取所有存储卷
+                android.database.Cursor cursor = null;
+                try {
+                    // 先尝试扫描默认的外部存储
+                    cursor = getActivity().getContentResolver().query(
+                        android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                        projection,
+                        selection,
+                        null,
+                        sortOrder
+                    );
 
-                if (cursor != null) {
-                    while (cursor.moveToNext()) {
-                        String filePath = cursor.getString(
-                            cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.DATA)
-                        );
-                        String title = cursor.getString(
-                            cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.TITLE)
-                        );
-                        String artist = cursor.getString(
-                            cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.ARTIST)
-                        );
+                    if (cursor != null) {
+                        while (cursor.moveToNext()) {
+                            String filePath = cursor.getString(
+                                cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.DATA)
+                            );
+                            String title = cursor.getString(
+                                cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.TITLE)
+                            );
+                            String artist = cursor.getString(
+                                cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.ARTIST)
+                            );
 
-                        File file = new File(filePath);
-                        if (file.exists() && isMusicFile(file)) {
-                            musicFiles.add(filePath);
-                            AppLog.d(TAG, "找到音乐: " + title + " - " + artist + " (" + filePath + ")");
+                            File file = new File(filePath);
+                            if (file.exists() && isMusicFile(file)) {
+                                // 检查是否已经在列表中（去重）
+                                String absolutePath;
+                                try {
+                                    absolutePath = file.getCanonicalPath();
+                                } catch (java.io.IOException e) {
+                                    absolutePath = file.getAbsolutePath();
+                                }
+                                
+                                boolean alreadyExists = false;
+                                for (String existingPath : musicFiles) {
+                                    try {
+                                        File existingFile = new File(existingPath);
+                                        if (existingFile.getCanonicalPath().equals(absolutePath)) {
+                                            alreadyExists = true;
+                                            break;
+                                        }
+                                    } catch (java.io.IOException e) {
+                                        if (existingPath.equals(absolutePath)) {
+                                            alreadyExists = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                
+                                if (!alreadyExists) {
+                                    musicFiles.add(filePath);
+                                    AppLog.d(TAG, "找到音乐: " + title + " - " + artist + " (" + filePath + ")");
+                                }
+                            }
                         }
+                        cursor.close();
                     }
-                    cursor.close();
+                } catch (Exception e) {
+                    AppLog.e(TAG, "扫描默认存储失败", e);
                 }
 
                 AppLog.d(TAG, "MediaStore扫描完成，找到 " + musicFiles.size() + " 首音乐");
 
             } catch (Exception e) {
                 AppLog.e(TAG, "使用MediaStore扫描失败，回退到目录扫描", e);
-                // 如果MediaStore扫描失败，回退到传统的目录扫描方法
-                scanMusicFallback(musicFiles);
             }
+
+            // 即使MediaStore成功，也尝试使用回退方案扫描USB存储
+            scanMusicFallback(musicFiles);
 
             // 处理扫描结果
             final int foundCount = musicFiles.size();
@@ -595,15 +629,24 @@ public class MusicPlayerFragment extends Fragment {
     private void scanMusicFallback(List<String> musicFiles) {
         AppLog.d(TAG, "使用回退方案扫描音乐目录");
         
-        // 扫描常见的音乐目录
-        String[] musicDirectories = {
-            "/storage/emulated/0/Music/",
-            Environment.getExternalStorageDirectory().getPath() + "/Music/",
-            "/storage/emulated/0/Download/Music/",
-            Environment.getExternalStorageDirectory().getPath() + "/Download/Music/",
-            "/storage/emulated/0/Download/"
-        };
-
+        // 扫描常见的音乐目录 + USB挂载点
+        List<String> musicDirectories = new ArrayList<>();
+        
+        // 添加常见内部存储目录
+        musicDirectories.add("/storage/emulated/0/Music/");
+        musicDirectories.add(Environment.getExternalStorageDirectory().getPath() + "/Music/");
+        musicDirectories.add("/storage/emulated/0/Download/Music/");
+        musicDirectories.add(Environment.getExternalStorageDirectory().getPath() + "/Download/Music/");
+        musicDirectories.add("/storage/emulated/0/Download/");
+        
+        // 添加USB挂载点
+        musicDirectories.add("/storage/usb0/");
+        musicDirectories.add("/storage/usb1/");
+        musicDirectories.add("/mnt/usb/");
+        musicDirectories.add("/mnt/media_rw/");
+        musicDirectories.add("/storage/"); // 扫描整个storage目录，可能会找到UUID格式的挂载点
+        
+        // 扫描所有目录
         for (String directoryPath : musicDirectories) {
             File directory = new File(directoryPath);
             if (directory.exists() && directory.isDirectory() && !hasNomediaFile(directory)) {
@@ -614,22 +657,7 @@ public class MusicPlayerFragment extends Fragment {
             }
         }
 
-        // 处理扫描结果
-        final int foundCount = musicFiles.size();
-        AppLog.d(TAG, "扫描完成，找到 " + foundCount + " 首音乐（已排除录音文件）");
-
-        if (getActivity() != null) {
-            getActivity().runOnUiThread(() -> {
-                if (foundCount > 0) {
-                    // 添加找到的音乐文件
-                    musicPlayerManager.addMusicFiles(musicFiles);
-                    playlistAdapter.setMusicItems(musicPlayerManager.getMusicItems());
-                    Toast.makeText(getActivity(), "已扫描到 " + foundCount + " 首音乐", Toast.LENGTH_SHORT).show();
-                } else {
-                    Toast.makeText(getActivity(), "未找到音乐文件", Toast.LENGTH_SHORT).show();
-                }
-            });
-        }
+        AppLog.d(TAG, "回退扫描完成，找到 " + musicFiles.size() + " 首音乐");
     }
 
     /**
@@ -653,9 +681,32 @@ public class MusicPlayerFragment extends Fragment {
                 // 递归扫描子目录
                 scanDirectory(file, musicFiles);
             } else if (isMusicFile(file)) {
-                // 添加音频文件
-                musicFiles.add(file.getAbsolutePath());
-                AppLog.d(TAG, "找到音乐文件: " + file.getAbsolutePath());
+                // 检查是否已经在列表中（去重）
+                String filePath = file.getAbsolutePath();
+                boolean alreadyExists = false;
+                for (String existingPath : musicFiles) {
+                    // 比较绝对路径，避免重复
+                    try {
+                        File existingFile = new File(existingPath);
+                        File newFile = new File(filePath);
+                        if (existingFile.getCanonicalPath().equals(newFile.getCanonicalPath())) {
+                            alreadyExists = true;
+                            break;
+                        }
+                    } catch (java.io.IOException e) {
+                        // 如果获取canonicalPath失败，用absolutePath比较
+                        if (existingPath.equals(filePath)) {
+                            alreadyExists = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if (!alreadyExists) {
+                    // 添加音频文件
+                    musicFiles.add(filePath);
+                    AppLog.d(TAG, "找到音乐文件: " + filePath);
+                }
             }
         }
     }

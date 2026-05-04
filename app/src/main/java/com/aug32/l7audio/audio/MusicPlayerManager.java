@@ -75,7 +75,29 @@ public class MusicPlayerManager {
         @Override
         public void onPlaybackStateChanged(int playbackState) {// 播放状态改变事件
             if (playbackState == Player.STATE_ENDED) {
-                handleCompletion();// 处理播放完成
+                // 检查当前是否是"单曲播放"模式
+                boolean isSinglePlayMode = (repeatMode == Player.REPEAT_MODE_OFF);
+                if (isSinglePlayMode) {
+                    // 单曲播放模式：播放完一首后，暂停并重置进度到0（保持选中效果）
+                    AppLog.d(TAG, "单曲播放完成，暂停并重置进度到0！");
+                    if (exoPlayer != null) {
+                        try {
+                            exoPlayer.pause();
+                            exoPlayer.seekTo(0);
+                        } catch (Exception e) {
+                            AppLog.e(TAG, "暂停播放器时出错", e);
+                        }
+                    }
+                    isPlaying = false;
+                    if (callback != null) {
+                        callback.onPlaybackPaused();
+                        callback.onPlaybackCompleted();
+                    }
+                    return;
+                }
+                
+                // 其他模式：正常处理
+                handleCompletion();
             }
         }
 
@@ -92,6 +114,22 @@ public class MusicPlayerManager {
                     callback.onPlaybackPaused();
                 }
                 stopProgressUpdate();
+            }
+        }
+
+        @Override
+        public void onMediaItemTransition(@androidx.annotation.Nullable androidx.media3.common.MediaItem mediaItem, int reason) {
+            // 播放项切换时更新索引（只有非单曲播放模式）
+            if (exoPlayer != null && repeatMode != Player.REPEAT_MODE_OFF) {
+                int newIndex = exoPlayer.getCurrentMediaItemIndex();
+                if (newIndex >= 0 && newIndex < musicItems.size()) {
+                    currentIndex = newIndex;
+                    appConfig.setLastPlayedIndex(currentIndex);
+                    if (callback != null) {
+                        callback.onPlaybackStarted(currentIndex);
+                    }
+                    AppLog.d(TAG, "播放项切换到索引=" + currentIndex);
+                }
             }
         }
 
@@ -525,31 +563,36 @@ public class MusicPlayerManager {
                 AppLog.d(TAG, "步骤5.1完成：元数据无需更新");
             }
             
-            // 步骤6：创建MediaItem并设置到播放器
-            MediaItem mediaItem = MediaItem.fromUri(Uri.fromFile(new File(item.filePath)));
-            AppLog.d(TAG, "步骤6完成：创建MediaItem成功");
+            // 步骤6：根据模式创建MediaItem列表并设置到播放器
+            AppLog.d(TAG, "步骤6：创建MediaItem列表，repeatMode=" + repeatMode);
+            List<MediaItem> mediaItems = new ArrayList<>();
             
-            AppLog.d(TAG, "步骤7：设置MediaItem到播放器");
-            exoPlayer.setMediaItem(mediaItem);// 设置播放器的媒体项
-            AppLog.d(TAG, "步骤7完成：MediaItem设置成功");
-            
-            // 步骤8：准备播放器，加载音频文件
-            AppLog.d(TAG, "步骤8：准备播放器，加载音频文件");
-            exoPlayer.prepare();// 准备播放器，加载音频文件
-            AppLog.d(TAG, "步骤8完成：播放器准备完成");
-            
-            // 步骤9：跳转到之前保存的位置（如果有）- 只有在播放同一首歌曲时才需要
-            if (seekPosition > 0 && currentIndex == index) {// 如果有保存的位置播放位置且是同一首歌曲
-                AppLog.d(TAG, "步骤9：跳转到保存的位置: " + seekPosition);
-                exoPlayer.seekTo(seekPosition);// 跳转到之前保存的位置播放位置
-                AppLog.d(TAG, "步骤9完成：跳转位置成功");
+            if (repeatMode == Player.REPEAT_MODE_OFF) {
+                // 单曲播放模式：只给当前这一首歌！
+                mediaItems.add(MediaItem.fromUri(Uri.fromFile(new File(item.filePath))));
+                exoPlayer.setMediaItems(mediaItems, 0, seekPosition);
+                AppLog.d(TAG, "步骤6完成：单曲播放模式 - 只给1首歌！");
             } else {
-                AppLog.d(TAG, "步骤9：无需跳转位置（无保存位置或不同歌曲）");
+                // 其他模式：给完整列表
+                for (MusicItem musicItem : musicItems) {
+                    mediaItems.add(MediaItem.fromUri(Uri.fromFile(new File(musicItem.filePath))));
+                }
+                exoPlayer.setMediaItems(mediaItems, index, seekPosition);
+                AppLog.d(TAG, "步骤6完成：其他模式 - 给完整列表！");
             }
             
-            // 步骤10：新策略 - 直接使用正确的AudioAttributes播放！
+            // 步骤7：准备播放器，加载音频文件
+            AppLog.d(TAG, "步骤7：准备播放器，加载音频文件");
+            exoPlayer.prepare();// 准备播放器，加载音频文件
+            AppLog.d(TAG, "步骤7完成：播放器准备完成");
+            
+            // 步骤8：跳转到之前保存的位置（如果有）- 只有在播放同一首歌曲时才需要
+            // 注意：上面setMediaItems已经设置了seekPosition，这里不需要再seek了
+            // if (seekPosition > 0 && currentIndex == index) { ... }
+            
+            // 步骤9：新策略 - 直接使用正确的AudioAttributes播放！
             // 已经在initPlayer()中设置了正确的属性，直接开始播放
-            AppLog.d(TAG, "=== 步骤10：开始播放 ===");
+            AppLog.d(TAG, "=== 步骤9：开始播放 ===");
             AppLog.d(TAG, "使用正确的音频属性开始播放");
             AppLog.d(TAG, "当前输出模式: " + (audioOutputManager != null ? (audioOutputManager.getOutputMode() == 0 ? "车内" : "车外") : "未知"));
             AppLog.d(TAG, "音频用途: " + (audioOutputManager != null ? audioOutputManager.getAudioUsage() : "未知"));
@@ -866,6 +909,44 @@ public class MusicPlayerManager {
         this.repeatMode = mode;
         if (exoPlayer != null) {
             exoPlayer.setRepeatMode(mode);
+            
+            // 无论是否正在播放，都重新设置播放列表！
+            if (!musicItems.isEmpty() && currentIndex >= 0 && currentIndex < musicItems.size()) {
+                long currentPosition = 0;
+                // 尝试获取当前播放位置，无论播放器状态
+                try {
+                    currentPosition = exoPlayer.getCurrentPosition();
+                    // 防止获取到异常的位置值
+                    if (currentPosition < 0) {
+                        currentPosition = 0;
+                    }
+                } catch (Exception e) {
+                    AppLog.e(TAG, "获取播放位置失败，使用0", e);
+                    currentPosition = 0;
+                }
+                
+                // 保存旧的播放状态
+                boolean wasPlaying = isPlaying;
+                
+                List<MediaItem> mediaItems = new ArrayList<>();
+                if (mode == Player.REPEAT_MODE_OFF) {
+                    // 单曲播放模式：只给当前这一首歌！
+                    mediaItems.add(MediaItem.fromUri(Uri.fromFile(new File(musicItems.get(currentIndex).filePath))));
+                    exoPlayer.setMediaItems(mediaItems, 0, currentPosition);
+                    AppLog.d(TAG, "setRepeatMode：切换到单曲播放模式，只给1首歌！currentIndex=" + currentIndex + ", position=" + currentPosition);
+                } else {
+                    // 其他模式：给完整列表！
+                    for (MusicItem musicItem : musicItems) {
+                        mediaItems.add(MediaItem.fromUri(Uri.fromFile(new File(musicItem.filePath))));
+                    }
+                    exoPlayer.setMediaItems(mediaItems, currentIndex, currentPosition);
+                    AppLog.d(TAG, "setRepeatMode：切换到其他模式，给完整列表！currentIndex=" + currentIndex + ", position=" + currentPosition);
+                }
+                exoPlayer.prepare();
+                if (wasPlaying) {
+                    exoPlayer.play();
+                }
+            }
         }
         appConfig.setRepeatMode(mode);
     }
@@ -882,18 +963,9 @@ public class MusicPlayerManager {
         appConfig.setShuffleModeEnabled(enabled);
     }
 
-    private void handleCompletion() {// 处理播放完成
+    private void handleCompletion() {// 处理播放完成（只处理REPEAT_MODE_ALL和REPEAT_MODE_ONE）
         if (callback != null) {// 调用回调接口
             callback.onPlaybackCompleted();
-        }
-
-        if (repeatMode == Player.REPEAT_MODE_ONE) {// 循环播放当前首
-            if (exoPlayer != null) {
-                exoPlayer.seekTo(0);
-                exoPlayer.play();
-            }
-        } else if (repeatMode == Player.REPEAT_MODE_ALL) {// 循环播放所有歌曲
-            playNext();
         }
     }
 

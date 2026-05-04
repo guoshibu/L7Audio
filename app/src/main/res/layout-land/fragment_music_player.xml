@@ -198,6 +198,16 @@
                 android:textColor="@color/text_primary" />
 
             <Button
+                android:id="@+id/btn_scan_music"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="扫描音乐"
+                android:textSize="14sp"
+                android:backgroundTint="@color/button_background"
+                android:textColor="@color/button_text"
+                android:layout_marginEnd="8dp" />
+
+            <Button
                 android:id="@+id/btn_select_file"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

@@ -43,8 +43,7 @@
             android:name=".service.FloatingWindowService"
             android:foregroundServiceType="mediaPlayback"
             android:exported="false"
-            android:stopWithTask="false"
-            android:configChanges="uiMode|screenLayout|screenSize|orientation" />
+            android:stopWithTask="false" />
 
         <receiver
             android:name=".BootReceiver"
