@@ -64,6 +64,5 @@ Thumbs.db
 
 # 其他
 /.trae/
-
-# 保留 gradlew 包装器（但删除 gradlew.bat）
-# gradlew.bat 由 *.bat 规则忽略
+*Trae CN*
+Trae*

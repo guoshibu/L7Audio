@@ -251,7 +251,6 @@ L7Audio/
 │   │   └── AndroidManifest.xml              # 应用清单
 │   ├── build.gradle.kts                     # 应用级构建配置
 │   └── proguard-rules.pro                   # 混淆规则
-├── backup_music_module/                     # 备份目录（重构用）
 ├── CHANGELOG.md                             # 改动记录
 ├── README.md                                # 本文件
 ├── settings.gradle.kts                      # 项目设置
@@ -263,7 +262,6 @@ L7Audio/
 │   │   └── gradle-wrapper.properties        # Wrapper 配置
 │   ├── libs.versions.toml                   # 版本目录（依赖版本管理）
 │   └── gradle-daemon-jvm.properties         # Daemon JVM 配置
-└── release.keystore                         # 签名密钥（release 构建用）
 ```
 
 ---
