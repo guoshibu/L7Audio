@@ -6,7 +6,10 @@
 
 # Gradle相关
 /.gradle/
-/gradle/
+
+# 保留 gradle 目录下的配置文件（版本目录、wrapper 等）
+# 但排除 gradle 下的临时/缓存子目录
+!/gradle/
 
 # 本地配置文件
 local.properties
