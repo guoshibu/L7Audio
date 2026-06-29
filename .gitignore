@@ -51,8 +51,9 @@ diagnose.ps1
 test.ps1
 test2.ps1
 
-# 保留 gradlew 包装器（但删除其他 bat）
+# 保留 gradlew 和 do_build 包装器
 gradlew.bat
+do_build.bat
 
 # 操作系统文件
 .DS_Store
