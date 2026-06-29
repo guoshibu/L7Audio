@@ -1,0 +1,1208 @@
+package com.aug32.l7audio.ui.fragment;
+
+import android.content.Intent;
+import android.net.Uri;
+import android.os.Bundle;
+import android.os.Environment;
+import android.provider.DocumentsContract;
+import android.view.View;
+import android.widget.Button;
+import android.widget.ImageView;
+import android.widget.SeekBar;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.activity.result.ActivityResult;
+import androidx.activity.result.ActivityResultCallback;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.core.content.ContextCompat;
+import androidx.media3.common.MediaItem;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
+import com.aug32.l7audio.data.local.config.AudioConfig;
+import com.aug32.l7audio.utils.AppLog;
+import com.aug32.l7audio.R;
+import com.aug32.l7audio.base.BaseFragment;
+import com.aug32.l7audio.domain.audio.AudioOutputManager;
+import com.aug32.l7audio.domain.audio.AudioServiceLocator;
+import com.aug32.l7audio.domain.audio.LrcParser;
+import com.aug32.l7audio.domain.audio.MusicPlayerManager;
+import com.aug32.l7audio.ui.adapter.MusicPlaylistAdapter;
+import com.aug32.l7audio.utils.AppExecutors;
+import com.aug32.l7audio.utils.FileUtils;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * 音乐播放器功能 Fragment
+ *
+ * 职责：
+ * - 显示音乐播放控制界面
+ * - 管理播放列表（添加、删除、选择）
+ * - 控制播放、暂停、上下首、循环模式
+ * - 显示歌词和专辑封面
+ *
+ * 目标 SDK：Android 11 (API 30)
+ */
+public class MusicPlayerFragment extends BaseFragment {
+
+    private static final String TAG = "MusicPlayerFragment";
+
+    private static final int LOOP_MODE_OFF = 0;
+    private static final int LOOP_MODE_ALL = 1;
+    private static final int LOOP_MODE_SHUFFLE = 2;
+    private static final int LOOP_MODE_ONE = 3;
+
+    private int currentLoopMode = LOOP_MODE_OFF;
+    private ActivityResultLauncher<Intent> selectFileLauncher;
+
+    private TextView tvSongTitle;
+    private TextView tvSongArtist;
+    private android.widget.ScrollView svLyrics;
+    private android.widget.LinearLayout llLyricsContainer;
+    private int currentLyricIndex = -1;
+    private List<LrcParser.LrcLine> currentLyricLines;
+    private TextView tvCurrentTime;
+    private TextView tvTotalTime;
+    private TextView tvPlaylistTitle;
+    private SeekBar seekBar;
+    private SeekBar sbVolume;
+    private Button btnPrev;
+    private Button btnPlayPause;
+    private Button btnNext;
+    private Button btnRepeat;
+    private Button btnSelectFile;
+    private Button btnDelete;
+    private Button btnCancel;
+    private Button btnSelectAll;
+    private Button btnScanMusic;
+    private RecyclerView rvPlaylist;
+    private ImageView ivAlbumArt;
+
+    private MusicPlayerManager musicPlayerManager;
+    private AudioConfig audioConfig;
+    private MusicPlaylistAdapter playlistAdapter;
+    private boolean isUserSeeking = false;
+
+    @Override
+    protected int getLayoutId() {
+        return R.layout.fragment_music_player;
+    }
+
+    @Override
+    protected void initViews(View view) {
+        tvSongTitle = view.findViewById(R.id.tv_song_title);
+        tvSongArtist = view.findViewById(R.id.tv_song_artist);
+        svLyrics = view.findViewById(R.id.sv_lyrics);
+        llLyricsContainer = view.findViewById(R.id.ll_lyrics_container);
+        tvCurrentTime = view.findViewById(R.id.tv_current_time);
+        tvTotalTime = view.findViewById(R.id.tv_total_time);
+        tvPlaylistTitle = view.findViewById(R.id.tv_playlist_title);
+        seekBar = view.findViewById(R.id.seek_bar);
+        sbVolume = view.findViewById(R.id.sb_volume);
+        btnPrev = view.findViewById(R.id.btn_prev);
+        btnPlayPause = view.findViewById(R.id.btn_play_pause);
+        btnNext = view.findViewById(R.id.btn_next);
+        btnRepeat = view.findViewById(R.id.btn_repeat);
+        btnScanMusic = view.findViewById(R.id.btn_scan_music);
+        btnSelectFile = view.findViewById(R.id.btn_select_file);
+        btnDelete = view.findViewById(R.id.btn_delete);
+        btnCancel = view.findViewById(R.id.btn_cancel);
+        btnSelectAll = view.findViewById(R.id.btn_select_all);
+        rvPlaylist = view.findViewById(R.id.rv_playlist);
+        ivAlbumArt = view.findViewById(R.id.iv_album_art);
+
+        // 检查屏幕宽高比
+        checkScreenAspectRatio();
+    }
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        selectFileLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() == android.app.Activity.RESULT_OK) {
+                        Intent data = result.getData();
+                        if (data != null) {
+                            List<String> filePaths = new ArrayList<>();
+                            List<String> contentUris = new ArrayList<>();
+                            if (data.getClipData() != null) {
+                                int count = data.getClipData().getItemCount();
+                                AppLog.d(TAG, "文件选择结果：多选模式，共 " + count + " 个文件");
+                                for (int i = 0; i < count; i++) {
+                                    Uri uri = data.getClipData().getItemAt(i).getUri();
+                                    try {
+                                        requireContext().getContentResolver().takePersistableUriPermission(
+                                                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                                    } catch (Exception e) {
+                                        AppLog.d(TAG, "takePersistableUriPermission: " + e.getMessage());
+                                    }
+                                    String filePath = getRealPathFromURI(uri);
+                                    if (filePath != null) {
+                                        filePaths.add(filePath);
+                                        contentUris.add(uri.toString());
+                                    } else {
+                                        filePaths.add(uri.toString());
+                                        contentUris.add(uri.toString());
+                                    }
+                                }
+                            } else if (data.getData() != null) {
+                                AppLog.d(TAG, "文件选择结果：单选模式");
+                                Uri uri = data.getData();
+                                try {
+                                    requireContext().getContentResolver().takePersistableUriPermission(
+                                            uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                                } catch (Exception e) {
+                                    AppLog.d(TAG, "takePersistableUriPermission: " + e.getMessage());
+                                }
+                                String filePath = getRealPathFromURI(uri);
+                                if (filePath != null) {
+                                    filePaths.add(filePath);
+                                    contentUris.add(uri.toString());
+                                } else {
+                                    filePaths.add(uri.toString());
+                                    contentUris.add(uri.toString());
+                                }
+                            }
+
+                            AppLog.d(TAG, "待添加的音乐文件数量: " + filePaths.size());
+                            if (!filePaths.isEmpty()) {
+                                musicPlayerManager.addMusicFilesWithUris(filePaths, contentUris, new MusicPlayerManager.AddMusicCallback() {
+                                    @Override
+                                    public void onAddComplete(List<MusicPlayerManager.MusicItem> addedItems, int startPosition, int skippedExistCount, int skippedFailedCount) {
+                                        if (getSafeActivity() != null) {
+                                            getSafeActivity().runOnUiThread(() -> {
+                                                if (!addedItems.isEmpty()) {
+                                                    playlistAdapter.addMusicItemsRange(addedItems, startPosition);
+                                                } else {
+                                                    playlistAdapter.setMusicItems(musicPlayerManager.getMusicItems());
+                                                }
+
+                                                int addedCount = addedItems.size();
+                                                if (addedCount > 0 && skippedExistCount == 0 && skippedFailedCount == 0) {
+                                                    Toast.makeText(getSafeContext(), "已添加 " + addedCount + " 首音乐", Toast.LENGTH_SHORT).show();
+                                                } else if (addedCount > 0) {
+                                                    String msg = "已添加 " + addedCount + " 首";
+                                                    if (skippedExistCount > 0) msg += "，跳过 " + skippedExistCount + " 首(重复)";
+                                                    if (skippedFailedCount > 0) msg += "，失败 " + skippedFailedCount + " 首";
+                                                    Toast.makeText(getSafeContext(), msg, Toast.LENGTH_SHORT).show();
+                                                } else if (skippedExistCount > 0 && skippedFailedCount == 0) {
+                                                    Toast.makeText(getSafeContext(), "没有添加新音乐，所有 " + skippedExistCount + " 首已存在", Toast.LENGTH_SHORT).show();
+                                                } else if (skippedFailedCount > 0 && skippedExistCount == 0) {
+                                                    Toast.makeText(getSafeContext(), "添加失败，" + skippedFailedCount + " 首无法访问", Toast.LENGTH_SHORT).show();
+                                                } else {
+                                                    String msg = "未添加音乐";
+                                                    if (skippedExistCount > 0) msg += "，" + skippedExistCount + " 首已存在";
+                                                    if (skippedFailedCount > 0) msg += "，" + skippedFailedCount + " 首无法访问";
+                                                    Toast.makeText(getSafeContext(), msg, Toast.LENGTH_SHORT).show();
+                                                }
+                                            });
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+        );
+    }
+
+    @Override
+    protected void initData() {
+        audioConfig = new AudioConfig(
+                requireContext().getSharedPreferences(
+                        requireContext().getPackageName() + "_preferences",
+                        android.content.Context.MODE_PRIVATE));
+
+        AudioServiceLocator locator = AudioServiceLocator.getInstance();
+        locator.init(requireContext());
+        musicPlayerManager = locator.getMusicPlayerManager();
+
+        musicPlayerManager.setCallback(new MusicPlayerManager.MusicPlayerCallback() {
+            @Override
+            public void onPlaybackStarted(int position) {
+                if (isAdded() && getSafeActivity() != null) {
+                    getSafeActivity().runOnUiThread(() -> {
+                        playlistAdapter.setMusicItems(musicPlayerManager.getMusicItems());
+                        playlistAdapter.setCurrentPlayingIndex(position);
+                        if (position >= 0) {
+                            rvPlaylist.scrollToPosition(position);
+                        }
+                        reloadLyrics();
+                        updateUI();
+                    });
+                }
+            }
+
+            @Override
+            public void onPlaybackPaused() {
+                if (isAdded() && getSafeActivity() != null) {
+                    getSafeActivity().runOnUiThread(MusicPlayerFragment.this::updateUI);
+                }
+            }
+
+            @Override
+            public void onPlaybackStopped() {
+                if (isAdded() && getSafeActivity() != null) {
+                    getSafeActivity().runOnUiThread(() -> {
+                        updateUI();
+                        playlistAdapter.setCurrentPlayingIndex(-1);
+                    });
+                }
+            }
+
+            @Override
+            public void onPlaybackCompleted() {
+            }
+
+            @Override
+            public void onPlaybackProgress(long position, long duration) {
+                if (isAdded() && getSafeActivity() != null && !isUserSeeking) {
+                    getSafeActivity().runOnUiThread(() -> {
+                        if (isAdded()) {
+                            seekBar.setProgress((int) position);
+                            seekBar.setMax((int) duration);
+                            tvCurrentTime.setText(formatTime(position));
+                            tvTotalTime.setText(formatTime(duration));
+                            updateCurrentLyricLine(position);
+                        }
+                    });
+                }
+            }
+
+            @Override
+            public void onError(String error) {
+                if (isAdded() && getSafeActivity() != null) {
+                    getSafeActivity().runOnUiThread(() ->
+                            Toast.makeText(getSafeContext(), error, Toast.LENGTH_SHORT).show()
+                    );
+                }
+            }
+        });
+
+        // 初始化播放列表
+        playlistAdapter = new MusicPlaylistAdapter();
+        rvPlaylist.setLayoutManager(new LinearLayoutManager(requireContext()));
+        rvPlaylist.setAdapter(playlistAdapter);
+
+        playlistAdapter.setMusicItems(musicPlayerManager.getMusicItems());
+        playlistAdapter.setCurrentPlayingIndex(musicPlayerManager.getCurrentIndex());
+
+        int currentIndex = musicPlayerManager.getCurrentIndex();
+        if (currentIndex >= 0) {
+            rvPlaylist.scrollToPosition(currentIndex);
+        }
+
+        // 播放列表项点击
+        playlistAdapter.setOnItemClickListener(position -> {
+            if (!playlistAdapter.isSelectionMode()) {
+                musicPlayerManager.start(position);
+            }
+        });
+
+        playlistAdapter.setOnItemLongClickListener(position -> {
+            if (!playlistAdapter.isSelectionMode()) {
+                enterSelectionMode();
+                playlistAdapter.toggleSelection(position);
+            }
+        });
+
+        playlistAdapter.setOnSelectionChangedListener(selectedCount -> {
+            if (tvPlaylistTitle != null) {
+                tvPlaylistTitle.setText(selectedCount > 0 ? "已选择 " + selectedCount + " 首" : "播放列表");
+            }
+            if (btnSelectAll != null) {
+                btnSelectAll.setText(playlistAdapter.isAllSelected() ? "取消全选" : "全选");
+            }
+        });
+    }
+
+    @Override
+    protected void initListeners() {
+        if (btnPrev != null) btnPrev.setOnClickListener(v -> playPrevious());
+        if (btnPlayPause != null) btnPlayPause.setOnClickListener(v -> togglePlayPause());
+        if (btnNext != null) btnNext.setOnClickListener(v -> playNext());
+        if (btnRepeat != null) btnRepeat.setOnClickListener(v -> toggleRepeatMode());
+        if (btnScanMusic != null) btnScanMusic.setOnClickListener(v -> scanMusicDirectory());
+        if (btnSelectFile != null) btnSelectFile.setOnClickListener(v -> selectMusicFiles());
+        if (btnDelete != null) btnDelete.setOnClickListener(v -> deleteSelectedItems());
+        if (btnCancel != null) btnCancel.setOnClickListener(v -> exitSelectionMode());
+        if (btnSelectAll != null) btnSelectAll.setOnClickListener(v -> toggleSelectAll());
+
+        if (seekBar != null) {
+            seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                private int userSelectedPosition = 0;
+
+                @Override
+                public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                    if (fromUser && tvCurrentTime != null) {
+                        tvCurrentTime.setText(formatTime(progress));
+                        userSelectedPosition = progress;
+                    }
+                }
+
+                @Override
+                public void onStartTrackingTouch(SeekBar seekBar) {
+                    isUserSeeking = true;
+                    userSelectedPosition = seekBar.getProgress();
+                }
+
+                @Override
+                public void onStopTrackingTouch(SeekBar seekBar) {
+                    isUserSeeking = false;
+                    int progress = seekBar.getProgress();
+                    userSelectedPosition = progress;
+                    musicPlayerManager.seekTo(progress);
+                    if (!musicPlayerManager.isPlaying() && musicPlayerManager.getCurrentIndex() >= 0) {
+                        musicPlayerManager.resume(progress);
+                    }
+                }
+            });
+        }
+
+        if (sbVolume != null) {
+            sbVolume.setMax(100);
+            int currentVolume = getCurrentVolume();
+            sbVolume.setProgress(currentVolume);
+            sbVolume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override
+                public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                    if (fromUser) {
+                        setVolume(progress);
+                    }
+                }
+
+                @Override
+                public void onStartTrackingTouch(SeekBar seekBar) {
+                }
+
+                @Override
+                public void onStopTrackingTouch(SeekBar seekBar) {
+                }
+            });
+        }
+    }
+
+    /** 检查屏幕宽高比，决定方向 */
+    private void checkScreenAspectRatio() {
+        if (getSafeActivity() != null) {
+            android.util.DisplayMetrics displayMetrics = new android.util.DisplayMetrics();
+            getSafeActivity().getWindowManager().getDefaultDisplay().getMetrics(displayMetrics);
+            int screenWidth = displayMetrics.widthPixels;
+            int screenHeight = displayMetrics.heightPixels;
+
+            AppLog.d(TAG, "Screen resolution: " + screenWidth + "x" + screenHeight);
+
+            // 2880×1080 分辨率强制横屏
+            if ((screenWidth == 2880 && screenHeight == 1080) || (screenWidth == 1080 && screenHeight == 2880)) {
+                AppLog.d(TAG, "Forcing landscape orientation for 2880×1080 resolution");
+                getSafeActivity().setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+            } else {
+                getSafeActivity().setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR);
+            }
+        }
+    }
+
+    /** 播放上一首 */
+    private void playPrevious() {
+        if (musicPlayerManager != null) {
+            musicPlayerManager.playPrevious();
+        }
+    }
+
+    /** 切换播放/暂停 */
+    private void togglePlayPause() {
+        if (musicPlayerManager != null) {
+            if (musicPlayerManager.isPlaying()) {
+                musicPlayerManager.pause();
+            } else {
+                if (musicPlayerManager.getCurrentIndex() >= 0) {
+                    musicPlayerManager.resume();
+                } else if (musicPlayerManager.getMusicItemCount() > 0) {
+                    Toast.makeText(getSafeContext(), "请选择要播放的曲目", Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(getSafeContext(), "请先添加音乐文件", Toast.LENGTH_SHORT).show();
+                }
+            }
+        }
+    }
+
+    /** 播放下一首 */
+    private void playNext() {
+        if (musicPlayerManager != null) {
+            musicPlayerManager.playNext();
+        }
+    }
+
+    /** 切换循环模式 */
+    private void toggleRepeatMode() {
+        if (musicPlayerManager != null) {
+            currentLoopMode = (currentLoopMode + 1) % 4;
+            applyLoopMode();
+            updateRepeatButton();
+        }
+    }
+
+    /** 应用循环模式 */
+    private void applyLoopMode() {
+        switch (currentLoopMode) {
+            case LOOP_MODE_OFF:
+                musicPlayerManager.setRepeatMode(MusicPlayerManager.REPEAT_MODE_OFF);
+                musicPlayerManager.setShuffleModeEnabled(false);
+                break;
+            case LOOP_MODE_ALL:
+                musicPlayerManager.setRepeatMode(MusicPlayerManager.REPEAT_MODE_ALL);
+                musicPlayerManager.setShuffleModeEnabled(false);
+                break;
+            case LOOP_MODE_SHUFFLE:
+                musicPlayerManager.setRepeatMode(MusicPlayerManager.REPEAT_MODE_SHUFFLE);
+                musicPlayerManager.setShuffleModeEnabled(true);
+                break;
+            case LOOP_MODE_ONE:
+                musicPlayerManager.setRepeatMode(MusicPlayerManager.REPEAT_MODE_ONE);
+                musicPlayerManager.setShuffleModeEnabled(false);
+                break;
+        }
+    }
+
+    /** 更新循环按钮 */
+    private void updateRepeatButton() {
+        if (btnRepeat == null) return;
+        switch (currentLoopMode) {
+            case LOOP_MODE_OFF:
+                btnRepeat.setText("单曲播放");
+                btnRepeat.setBackgroundTintList(ContextCompat.getColorStateList(requireContext(), R.color.button_background));
+                break;
+            case LOOP_MODE_ALL:
+                btnRepeat.setText("全部循环");
+                btnRepeat.setBackgroundTintList(ContextCompat.getColorStateList(requireContext(), R.color.button_background_selected));
+                break;
+            case LOOP_MODE_SHUFFLE:
+                btnRepeat.setText("随机播放");
+                btnRepeat.setBackgroundTintList(ContextCompat.getColorStateList(requireContext(), R.color.button_background_selected));
+                break;
+            case LOOP_MODE_ONE:
+                btnRepeat.setText("单曲循环");
+                btnRepeat.setBackgroundTintList(ContextCompat.getColorStateList(requireContext(), R.color.status_recording));
+                break;
+        }
+    }
+
+    /** 选择音乐文件 */
+    private void selectMusicFiles() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.setType("audio/*");
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            selectFileLauncher.launch(Intent.createChooser(intent, "选择音乐文件"));
+        } catch (android.content.ActivityNotFoundException ex) {
+            Toast.makeText(getSafeContext(), "请安装文件管理器", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** 扫描音乐目录 */
+    private void scanMusicDirectory() {
+        AppLog.d(TAG, "=== 开始使用MediaStore扫描音乐 ===");
+
+        if (tvPlaylistTitle != null) {
+            tvPlaylistTitle.setText("扫描中... 0 首");
+        }
+
+        AppExecutors.getInstance().executeOnComputeThread(() -> {
+            List<MusicPlayerManager.ScannedMusicInfo> scannedList = new ArrayList<>();
+
+            if (getSafeActivity() == null) return;
+
+            try {
+                String[] projection = {
+                        android.provider.MediaStore.Audio.Media._ID,
+                        android.provider.MediaStore.Audio.Media.DATA,
+                        android.provider.MediaStore.Audio.Media.TITLE,
+                        android.provider.MediaStore.Audio.Media.ARTIST,
+                        android.provider.MediaStore.Audio.Media.ALBUM,
+                        android.provider.MediaStore.Audio.Media.DURATION
+                };
+
+                String selection = android.provider.MediaStore.Audio.Media.IS_MUSIC + " != 0";
+                String sortOrder = android.provider.MediaStore.Audio.Media.TITLE + " ASC";
+
+                try (android.database.Cursor cursor = getSafeActivity().getContentResolver().query(
+                        android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                        projection,
+                        selection,
+                        null,
+                        sortOrder)) {
+
+                    if (cursor != null) {
+                        int rowCount = 0;
+                        int progressReportInterval = 20;
+                        while (cursor.moveToNext()) {
+                            String filePath = cursor.getString(
+                                    cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.DATA));
+                            String title = cursor.getString(
+                                    cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.TITLE));
+                            String artist = cursor.getString(
+                                    cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.ARTIST));
+                            String album = cursor.getString(
+                                    cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.ALBUM));
+                            long duration = cursor.getLong(
+                                    cursor.getColumnIndexOrThrow(android.provider.MediaStore.Audio.Media.DURATION));
+
+                            File file = new File(filePath);
+                            if (file.exists() && FileUtils.isAudioFile(file)) {
+                                String absolutePath = FileUtils.getCanonicalPath(file);
+
+                                boolean alreadyExists = false;
+                                for (MusicPlayerManager.ScannedMusicInfo existing : scannedList) {
+                                    if (FileUtils.getCanonicalPath(new File(existing.filePath)).equals(absolutePath)) {
+                                        alreadyExists = true;
+                                        break;
+                                    }
+                                }
+
+                                if (!alreadyExists) {
+                                    String contentUri = android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                                            + "/" + cursor.getLong(cursor.getColumnIndexOrThrow(
+                                            android.provider.MediaStore.Audio.Media._ID));
+                                    scannedList.add(new MusicPlayerManager.ScannedMusicInfo(
+                                            filePath, contentUri, title, artist, album, duration));
+                                    rowCount++;
+                                    if (rowCount % progressReportInterval == 0) {
+                                        final int currentCount = scannedList.size();
+                                        if (tvPlaylistTitle != null && getSafeActivity() != null) {
+                                            getSafeActivity().runOnUiThread(() ->
+                                                    tvPlaylistTitle.setText("扫描中... " + currentCount + " 首")
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                AppLog.e(TAG, "MediaStore扫描失败", e);
+            }
+
+            final List<MusicPlayerManager.ScannedMusicInfo> finalScannedList = scannedList;
+            final int foundCount = scannedList.size();
+
+            if (getSafeActivity() != null) {
+                getSafeActivity().runOnUiThread(() -> {
+                    if (foundCount > 0) {
+                        musicPlayerManager.addScannedMusicItems(finalScannedList, new MusicPlayerManager.AddMusicCallback() {
+                            @Override
+                            public void onAddComplete(List<MusicPlayerManager.MusicItem> addedItems, int startPosition, int skippedExistCount, int skippedFailedCount) {
+                                if (getSafeActivity() != null) {
+                                    getSafeActivity().runOnUiThread(() -> {
+                                        if (!addedItems.isEmpty()) {
+                                            playlistAdapter.addMusicItemsRange(addedItems, startPosition);
+                                        } else {
+                                            playlistAdapter.setMusicItems(musicPlayerManager.getMusicItems());
+                                        }
+                                        int addedCount = addedItems.size();
+                                        if (addedCount > 0) {
+                                            Toast.makeText(getSafeContext(), "已扫描到 " + addedCount + " 首音乐", Toast.LENGTH_SHORT).show();
+                                        } else {
+                                            Toast.makeText(getSafeContext(), "没有添加新音乐，所有文件已存在", Toast.LENGTH_SHORT).show();
+                                        }
+                                        if (tvPlaylistTitle != null) {
+                                            tvPlaylistTitle.setText("播放列表");
+                                        }
+                                    });
+                                }
+                            }
+                        });
+                    } else {
+                        Toast.makeText(getSafeContext(), "未找到音乐文件", Toast.LENGTH_SHORT).show();
+                        if (tvPlaylistTitle != null) {
+                            tvPlaylistTitle.setText("播放列表");
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    /** 回退扫描音乐目录 */
+    private void scanMusicFallback(List<String> musicFiles) {
+        AppLog.d(TAG, "使用回退方案扫描音乐目录");
+
+        List<String> musicDirectories = new ArrayList<>();
+        musicDirectories.add("/storage/emulated/0/Music/");
+        musicDirectories.add(Environment.getExternalStorageDirectory().getPath() + "/Music/");
+        musicDirectories.add("/storage/emulated/0/Download/Music/");
+        musicDirectories.add(Environment.getExternalStorageDirectory().getPath() + "/Download/Music/");
+        musicDirectories.add("/storage/emulated/0/Download/");
+        musicDirectories.add("/storage/usb0/");
+        musicDirectories.add("/storage/usb1/");
+        musicDirectories.add("/mnt/usb/");
+        musicDirectories.add("/mnt/media_rw/");
+        musicDirectories.add("/storage/");
+
+        for (String directoryPath : musicDirectories) {
+            File directory = new File(directoryPath);
+            if (directory.exists() && directory.isDirectory() && !hasNomediaFile(directory)) {
+                AppLog.d(TAG, "扫描目录: " + directoryPath);
+                scanDirectory(directory, musicFiles);
+            }
+        }
+    }
+
+    /** 检查目录是否有 .nomedia 文件 */
+    private boolean hasNomediaFile(File directory) {
+        File nomediaFile = new File(directory, ".nomedia");
+        return nomediaFile.exists();
+    }
+
+    /** 递归扫描目录 */
+    private void scanDirectory(File directory, List<String> musicFiles) {
+        File[] files = directory.listFiles();
+        if (files == null) return;
+
+        for (File file : files) {
+            if (file.isDirectory()) {
+                scanDirectory(file, musicFiles);
+            } else if (FileUtils.isAudioFile(file)) {
+                String filePath = file.getAbsolutePath();
+                boolean alreadyExists = false;
+                String absolutePath = FileUtils.getCanonicalPath(file);
+                for (String existingPath : musicFiles) {
+                    if (FileUtils.getCanonicalPath(new File(existingPath)).equals(absolutePath)) {
+                        alreadyExists = true;
+                        break;
+                    }
+                }
+
+                if (!alreadyExists) {
+                    musicFiles.add(filePath);
+                }
+            }
+        }
+    }
+
+    /** 从 URI 获取真实路径 */
+    private String getRealPathFromURI(Uri uri) {
+        AppLog.d(TAG, "getRealPathFromURI: uri=" + uri);
+        String path = null;
+
+        if (getSafeActivity() == null) return null;
+
+        try {
+            requireContext().getContentResolver().takePersistableUriPermission(
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (Exception e) {
+            AppLog.d(TAG, "takePersistableUriPermission: " + e.getMessage());
+        }
+
+        if (DocumentsContract.isDocumentUri(requireContext(), uri)) {
+            String docId = DocumentsContract.getDocumentId(uri);
+
+            if ("com.android.externalstorage.documents".equals(uri.getAuthority())) {
+                int colonIndex = docId.indexOf(':');
+                String type = colonIndex >= 0 ? docId.substring(0, colonIndex) : docId;
+                String relativePath = colonIndex >= 0 && colonIndex + 1 < docId.length()
+                        ? docId.substring(colonIndex + 1) : "";
+
+                if (relativePath != null && !relativePath.isEmpty()) {
+                    String[] candidates = {
+                            "/storage/emulated/0/" + relativePath,
+                            "/sdcard/" + relativePath,
+                            "/mnt/sdcard/" + relativePath,
+                            "/storage/" + type + "/" + relativePath
+                    };
+                    for (String candidate : candidates) {
+                        File f = new File(candidate);
+                        if (f.exists()) {
+                            path = candidate;
+                            break;
+                        }
+                    }
+                    if (path == null) {
+                        path = candidates[0];
+                    }
+                }
+            } else if ("com.android.providers.downloads.documents".equals(uri.getAuthority())) {
+                try {
+                    if (docId.startsWith("raw:")) {
+                        path = docId.substring(4);
+                    } else {
+                        long docNum = Long.parseLong(docId);
+                        Uri contentUri = android.net.Uri.withAppendedPath(
+                                android.net.Uri.parse("content://downloads/public_downloads"),
+                                String.valueOf(docNum));
+                        path = getDataColumn(contentUri, null, null);
+                    }
+                } catch (Exception e) {
+                    AppLog.e(TAG, "下载目录解析失败", e);
+                }
+            } else if ("com.android.providers.media.documents".equals(uri.getAuthority())) {
+                int colonIndex = docId.indexOf(':');
+                String type = colonIndex >= 0 ? docId.substring(0, colonIndex) : docId;
+                String id = colonIndex >= 0 && colonIndex + 1 < docId.length()
+                        ? docId.substring(colonIndex + 1) : "";
+                Uri contentUri = null;
+                if ("audio".equals(type)) {
+                    contentUri = android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+                }
+                if (contentUri != null) {
+                    path = getDataColumn(contentUri, "_id=?", new String[]{id});
+                }
+            }
+        } else if ("content".equalsIgnoreCase(uri.getScheme())) {
+            try {
+                path = getDataColumn(uri, null, null);
+            } catch (Exception e) {
+                AppLog.e(TAG, "content URI 解析失败", e);
+            }
+        } else if ("file".equalsIgnoreCase(uri.getScheme())) {
+            path = uri.getPath();
+        }
+
+        if (path != null) {
+            File testFile = new File(path);
+            if (!testFile.exists()) {
+                String cachedPath = copyFileToCache(uri);
+                if (cachedPath != null) {
+                    path = cachedPath;
+                }
+            }
+        }
+
+        return path;
+    }
+
+    /** 查询 ContentResolver 获取文件路径 */
+    private String getDataColumn(Uri uri, String selection, String[] selectionArgs) {
+        String column = "_data";
+        String[] projection = {column};
+        try (android.database.Cursor cursor = requireContext().getContentResolver().query(
+                uri, projection, selection, selectionArgs, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int columnIndex = cursor.getColumnIndexOrThrow(column);
+                return cursor.getString(columnIndex);
+            }
+        } catch (Exception e) {
+            AppLog.e(TAG, "Error querying content resolver: " + e.getMessage());
+        }
+        return null;
+    }
+
+    /** 从 URI 获取扩展名 */
+    private String getExtensionFromUri(Uri uri) {
+        try {
+            android.database.Cursor cursor = requireContext().getContentResolver()
+                    .query(uri, new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME},
+                            null, null, null);
+            if (cursor != null) {
+                try {
+                    if (cursor.moveToFirst()) {
+                        String displayName = cursor.getString(0);
+                        if (displayName != null && displayName.contains(".")) {
+                            return displayName.substring(displayName.lastIndexOf("."));
+                        }
+                    }
+                } finally {
+                    cursor.close();
+                }
+            }
+            String lastSegment = uri.getLastPathSegment();
+            if (lastSegment != null && lastSegment.contains(".")) {
+                return lastSegment.substring(lastSegment.lastIndexOf("."));
+            }
+        } catch (Exception e) {
+            AppLog.d(TAG, "无法获取扩展名");
+        }
+        return ".mp3";
+    }
+
+    /** 复制文件到缓存目录 */
+    private String copyFileToCache(Uri uri) {
+        try {
+            String extension = getExtensionFromUri(uri);
+            String fileName = "audio_" + System.currentTimeMillis() + extension;
+            File cacheFile = new File(requireContext().getCacheDir(), fileName);
+            java.io.InputStream inputStream = requireContext().getContentResolver().openInputStream(uri);
+            if (inputStream == null) return null;
+            java.io.FileOutputStream outputStream = new java.io.FileOutputStream(cacheFile);
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
+            }
+            inputStream.close();
+            outputStream.close();
+            return cacheFile.getAbsolutePath();
+        } catch (Exception e) {
+            AppLog.e(TAG, "复制到缓存失败", e);
+            return null;
+        }
+    }
+
+    /** 进入选择模式 */
+    private void enterSelectionMode() {
+        if (playlistAdapter != null) playlistAdapter.setSelectionMode(true);
+        if (btnDelete != null) btnDelete.setVisibility(View.VISIBLE);
+        if (btnCancel != null) btnCancel.setVisibility(View.VISIBLE);
+        if (btnSelectAll != null) btnSelectAll.setVisibility(View.VISIBLE);
+        if (btnSelectFile != null) btnSelectFile.setVisibility(View.GONE);
+    }
+
+    /** 退出选择模式 */
+    private void exitSelectionMode() {
+        if (playlistAdapter != null) playlistAdapter.setSelectionMode(false);
+        if (btnDelete != null) btnDelete.setVisibility(View.GONE);
+        if (btnCancel != null) btnCancel.setVisibility(View.GONE);
+        if (btnSelectAll != null) btnSelectAll.setVisibility(View.GONE);
+        if (btnSelectFile != null) btnSelectFile.setVisibility(View.VISIBLE);
+        if (tvPlaylistTitle != null) tvPlaylistTitle.setText("播放列表");
+    }
+
+    /** 切换全选 */
+    private void toggleSelectAll() {
+        if (playlistAdapter != null) {
+            if (playlistAdapter.isAllSelected()) {
+                playlistAdapter.clearSelection();
+            } else {
+                playlistAdapter.selectAll();
+            }
+        }
+    }
+
+    /** 删除选中的曲目 */
+    private void deleteSelectedItems() {
+        if (playlistAdapter == null) return;
+        List<Integer> selectedItems = playlistAdapter.getSelectedItems();
+        if (!selectedItems.isEmpty()) {
+            musicPlayerManager.removeMusicItems(selectedItems);
+            playlistAdapter.setMusicItems(musicPlayerManager.getMusicItems());
+            exitSelectionMode();
+            Toast.makeText(getSafeContext(), "已删除 " + selectedItems.size() + " 首音乐", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** 获取当前音量 */
+    private int getCurrentVolume() {
+        AudioServiceLocator locator = AudioServiceLocator.getInstance();
+        AudioOutputManager audioOutputManager = locator.getAudioOutputManager();
+        if (audioOutputManager != null) {
+            return audioOutputManager.getOutputMode() == AudioOutputManager.OUTPUT_CAR
+                    ? audioConfig.getCarVolume() : audioConfig.getExternalVolume();
+        }
+        return audioConfig.getCarVolume();
+    }
+
+    /** 设置音量 */
+    private void setVolume(int volume) {
+        if (musicPlayerManager != null) {
+            musicPlayerManager.setVolume(volume);
+        }
+        AudioServiceLocator locator = AudioServiceLocator.getInstance();
+        AudioOutputManager audioOutputManager = locator.getAudioOutputManager();
+        if (audioOutputManager != null) {
+            if (audioOutputManager.getOutputMode() == AudioOutputManager.OUTPUT_CAR) {
+                audioConfig.setCarVolume(volume);
+            } else {
+                audioConfig.setExternalVolume(volume);
+            }
+        }
+    }
+
+    /** 更新界面 */
+    private void updateUI() {
+        if (musicPlayerManager != null) {
+            MusicPlayerManager.MusicItem currentItem = musicPlayerManager.getCurrentMusicItem();
+            if (currentItem != null) {
+                if (tvSongTitle != null) tvSongTitle.setText(currentItem.title);
+                if (tvSongArtist != null) tvSongArtist.setText(currentItem.artist);
+                reloadLyrics();
+                updateAlbumArt();
+            } else {
+                if (tvSongTitle != null) tvSongTitle.setText("未选择歌曲");
+                if (tvSongArtist != null) tvSongArtist.setText("");
+                if (llLyricsContainer != null) {
+                    llLyricsContainer.removeAllViews();
+                    TextView placeholder = new TextView(requireContext());
+                    placeholder.setText("暂无歌词");
+                    placeholder.setTextSize(14);
+                    placeholder.setGravity(android.view.Gravity.CENTER);
+                    placeholder.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant));
+                    llLyricsContainer.addView(placeholder);
+                    currentLyricLines = null;
+                    currentLyricIndex = -1;
+                }
+                if (ivAlbumArt != null) {
+                    ivAlbumArt.setImageResource(R.drawable.ic_launcher_playstore);
+                }
+            }
+
+            if (btnPlayPause != null) {
+                btnPlayPause.setText(musicPlayerManager.isPlaying() ? "暂停" : "播放");
+            }
+
+            if (currentItem != null) {
+                long currentPosition = musicPlayerManager.getCurrentPosition();
+                long duration = musicPlayerManager.getDuration();
+                if (duration <= 0) {
+                    duration = currentItem.duration;
+                }
+                if (duration > 0 && seekBar != null) {
+                    seekBar.setMax((int) duration);
+                    seekBar.setProgress((int) currentPosition);
+                    if (tvCurrentTime != null) tvCurrentTime.setText(formatTime(currentPosition));
+                    if (tvTotalTime != null) tvTotalTime.setText(formatTime(duration));
+                }
+            }
+
+            initLoopModeFromPlayer();
+            updateRepeatButton();
+        }
+    }
+
+    /** 更新专辑封面 */
+    private void updateAlbumArt() {
+        if (ivAlbumArt != null && musicPlayerManager != null) {
+            MusicPlayerManager.MusicItem currentItem = musicPlayerManager.getCurrentMusicItem();
+            if (currentItem != null) {
+                AppExecutors.getInstance().executeOnComputeThread(() -> {
+                    android.graphics.Bitmap albumArt = musicPlayerManager.extractAlbumArt(currentItem.filePath);
+                    if (getSafeActivity() != null) {
+                        getSafeActivity().runOnUiThread(() -> {
+                            if (ivAlbumArt != null) {
+                                if (albumArt != null) {
+                                    ivAlbumArt.setImageBitmap(albumArt);
+                                } else {
+                                    ivAlbumArt.setImageResource(R.drawable.ic_launcher_playstore);
+                                }
+                            }
+                        });
+                    }
+                });
+            } else {
+                ivAlbumArt.setImageResource(R.drawable.ic_launcher_playstore);
+            }
+        }
+    }
+
+    /** 从播放器同步循环模式 */
+    private void initLoopModeFromPlayer() {
+        if (musicPlayerManager.isShuffleModeEnabled()) {
+            currentLoopMode = LOOP_MODE_SHUFFLE;
+        } else {
+            switch (musicPlayerManager.getRepeatMode()) {
+                case MusicPlayerManager.REPEAT_MODE_ALL:
+                    currentLoopMode = LOOP_MODE_ALL;
+                    break;
+                case MusicPlayerManager.REPEAT_MODE_ONE:
+                    currentLoopMode = LOOP_MODE_ONE;
+                    break;
+                default:
+                    currentLoopMode = LOOP_MODE_OFF;
+                    break;
+            }
+        }
+    }
+
+    /** 格式化时间 */
+    private String formatTime(long milliseconds) {
+        long minutes = TimeUnit.MILLISECONDS.toMinutes(milliseconds);
+        long seconds = TimeUnit.MILLISECONDS.toSeconds(milliseconds) - TimeUnit.MINUTES.toSeconds(minutes);
+        return String.format(Locale.ROOT, "%02d:%02d", minutes, seconds);
+    }
+
+    /** 解析主题颜色 */
+    private int resolveAttrColor(int attrRes) {
+        android.util.TypedValue typedValue = new android.util.TypedValue();
+        requireContext().getTheme().resolveAttribute(attrRes, typedValue, true);
+        if (typedValue.type >= android.util.TypedValue.TYPE_FIRST_COLOR_INT
+                && typedValue.type <= android.util.TypedValue.TYPE_LAST_COLOR_INT) {
+            return typedValue.data;
+        }
+        try {
+            return ContextCompat.getColor(requireContext(), typedValue.resourceId);
+        } catch (Exception ex) {
+            return android.graphics.Color.GRAY;
+        }
+    }
+
+    /** 重新加载歌词 */
+    private void reloadLyrics() {
+        if (llLyricsContainer == null || musicPlayerManager == null) return;
+        MusicPlayerManager.MusicItem current = musicPlayerManager.getCurrentMusicItem();
+        llLyricsContainer.removeAllViews();
+        if (current == null || current.lyrics == null || current.lyrics.isEmpty()) {
+            TextView placeholder = new TextView(requireContext());
+            placeholder.setText("暂无歌词");
+            placeholder.setTextSize(14);
+            placeholder.setGravity(android.view.Gravity.CENTER);
+            placeholder.setTextColor(resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant));
+            llLyricsContainer.addView(placeholder);
+            currentLyricLines = null;
+            currentLyricIndex = -1;
+            return;
+        }
+        List<LrcParser.LrcLine> lines = LrcParser.parse(current.lyrics);
+        if (lines == null || lines.isEmpty()) {
+            String[] raw = current.lyrics.split("\\r?\\n");
+            lines = new ArrayList<>(raw.length);
+            for (int i = 0; i < raw.length; i++) {
+                String r = raw[i];
+                if (r != null && !r.trim().isEmpty()) {
+                    lines.add(new LrcParser.LrcLine((long) i * 5000L, r));
+                }
+            }
+        }
+        currentLyricLines = lines;
+        currentLyricIndex = -1;
+        int defaultColor = resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant);
+        for (int i = 0; i < lines.size(); i++) {
+            TextView row = new TextView(requireContext());
+            row.setText(lines.get(i).text);
+            row.setTextSize(14);
+            row.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+            row.setTextColor(defaultColor);
+            row.setPadding(0, 6, 0, 6);
+            row.setTag(i);
+            llLyricsContainer.addView(row);
+        }
+    }
+
+    /** 更新当前歌词行 */
+    private void updateCurrentLyricLine(long positionMs) {
+        if (llLyricsContainer == null || currentLyricLines == null || currentLyricLines.isEmpty()) return;
+        int newIndex = LrcParser.findIndexAt(currentLyricLines, positionMs);
+        if (newIndex < 0 || newIndex == currentLyricIndex) return;
+        final int oldIndex = currentLyricIndex;
+        currentLyricIndex = newIndex;
+        final int accentColor = ContextCompat.getColor(requireContext(), R.color.colorAccent);
+        final int defaultColor = resolveAttrColor(com.google.android.material.R.attr.colorOnSurfaceVariant);
+        if (oldIndex >= 0 && oldIndex < llLyricsContainer.getChildCount()) {
+            View v = llLyricsContainer.getChildAt(oldIndex);
+            if (v instanceof TextView) {
+                TextView tv = (TextView) v;
+                tv.setTextColor(defaultColor);
+                tv.setTypeface(null, android.graphics.Typeface.NORMAL);
+                tv.setTextSize(14);
+            }
+        }
+        View v = llLyricsContainer.getChildAt(newIndex);
+        if (v instanceof TextView) {
+            TextView tv = (TextView) v;
+            tv.setTextColor(accentColor);
+            tv.setTypeface(null, android.graphics.Typeface.BOLD);
+            tv.setTextSize(18);
+            int top = v.getTop() - svLyrics.getHeight() / 2 + v.getHeight() / 2;
+            svLyrics.smoothScrollTo(0, top);
+        }
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (musicPlayerManager != null && playlistAdapter != null) {
+            // 重新注册 callback（onDestroyView 会清理它）
+            registerMusicCallback();
+            playlistAdapter.setMusicItems(musicPlayerManager.getMusicItems());
+            playlistAdapter.setCurrentPlayingIndex(musicPlayerManager.getCurrentIndex());
+            updateUI();
+        }
+    }
+
+    /** 注册播放回调（用于 onResume 时重新注册） */
+    private void registerMusicCallback() {
+        if (musicPlayerManager == null) return;
+        musicPlayerManager.setCallback(new MusicPlayerManager.MusicPlayerCallback() {
+            @Override
+            public void onPlaybackStarted(int position) {
+                if (isAdded() && getSafeActivity() != null) {
+                    getSafeActivity().runOnUiThread(() -> {
+                        if (isAdded()) {
+                            playlistAdapter.setMusicItems(musicPlayerManager.getMusicItems());
+                            playlistAdapter.setCurrentPlayingIndex(position);
+                            if (position >= 0) {
+                                rvPlaylist.scrollToPosition(position);
+                            }
+                            reloadLyrics();
+                            updateUI();
+                        }
+                    });
+                }
+            }
+
+            @Override
+            public void onPlaybackPaused() {
+                if (isAdded() && getSafeActivity() != null) {
+                    getSafeActivity().runOnUiThread(() -> {
+                        if (isAdded()) MusicPlayerFragment.this.updateUI();
+                    });
+                }
+            }
+
+            @Override
+            public void onPlaybackStopped() {
+                if (isAdded() && getSafeActivity() != null) {
+                    getSafeActivity().runOnUiThread(() -> {
+                        if (isAdded()) {
+                            updateUI();
+                            playlistAdapter.setCurrentPlayingIndex(-1);
+                        }
+                    });
+                }
+            }
+
+            @Override
+            public void onPlaybackCompleted() {
+            }
+
+            @Override
+            public void onPlaybackProgress(long position, long duration) {
+                if (isAdded() && getSafeActivity() != null && !isUserSeeking) {
+                    getSafeActivity().runOnUiThread(() -> {
+                        if (isAdded()) {
+                            seekBar.setProgress((int) position);
+                            seekBar.setMax((int) duration);
+                            tvCurrentTime.setText(formatTime(position));
+                            tvTotalTime.setText(formatTime(duration));
+                            updateCurrentLyricLine(position);
+                        }
+                    });
+                }
+            }
+
+            @Override
+            public void onError(String error) {
+                if (isAdded() && getSafeActivity() != null) {
+                    getSafeActivity().runOnUiThread(() -> {
+                        if (isAdded())
+                            Toast.makeText(getSafeContext(), error, Toast.LENGTH_SHORT).show();
+                    });
+                }
+            }
+        });
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        // 不在 onPause 清理 callback，避免切换到其他页面后无法接收播放进度
+    }
+
+    @Override
+    public void onDestroyView() {
+        super.onDestroyView();
+        // 清理进度 Handler 回调
+        if (musicPlayerManager != null) {
+            musicPlayerManager.setCallback(null);
+        }
+    }
+}

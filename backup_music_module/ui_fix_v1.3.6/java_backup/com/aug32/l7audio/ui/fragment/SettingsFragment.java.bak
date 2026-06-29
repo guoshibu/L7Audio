@@ -1,0 +1,664 @@
+package com.aug32.l7audio.ui.fragment;
+
+import android.content.Intent;
+import android.os.Bundle;
+import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
+import android.widget.SeekBar;
+import android.widget.Switch;
+import android.widget.TextView;
+
+import androidx.core.text.HtmlCompat;
+
+import com.aug32.l7audio.data.local.AppConfig;
+import com.aug32.l7audio.data.local.config.AudioConfig;
+import com.aug32.l7audio.data.local.config.FloatingWindowConfig;
+import com.aug32.l7audio.data.local.config.MicConfig;
+import com.aug32.l7audio.data.local.config.TTSConfig;
+import com.aug32.l7audio.data.local.config.ThemeConfig;
+import com.aug32.l7audio.utils.AppLog;
+import com.aug32.l7audio.R;
+import com.aug32.l7audio.base.BaseFragment;
+import com.aug32.l7audio.domain.audio.AudioOutputManager;
+import com.aug32.l7audio.domain.audio.AudioServiceLocator;
+import com.aug32.l7audio.domain.audio.TTSManager;
+import com.aug32.l7audio.receiver.BootReceiver;
+import com.aug32.l7audio.service.FloatingWindowService;
+import com.aug32.l7audio.ui.activity.MainActivity;
+import com.aug32.l7audio.utils.ServiceCompat;
+
+/**
+ * 设置功能 Fragment
+ *
+ * <p>职责：
+ * <ul>
+ *   <li>主题模式设置（跟随系统/浅色/深色）</li>
+ *   <li>开机自启动开关</li>
+ *   <li>悬浮窗开关</li>
+ *   <li>TTS 语速/音调配置</li>
+ *   <li>音频设备参数配置</li>
+ *   <li>音频路由调试信息</li>
+ * </ul>
+ *
+ * <p>架构：按领域拆分配置类（ThemeConfig、AudioConfig、MicConfig、TTSConfig、FloatingWindowConfig），
+ * 每个配置类负责对应领域的持久化读写，职责清晰。
+ *
+ * <p>目标 SDK：Android 11 (API 30)
+ */
+public class SettingsFragment extends BaseFragment {
+
+    /** 日志标签 */
+    private static final String TAG = "SettingsFragment";
+
+    // ========== 主题设置 UI ==========
+    /** 主题选择单选组 */
+    private RadioGroup themeRadioGroup;
+    /** 跟随系统主题单选按钮 */
+    private RadioButton themeSystemRadio;
+    /** 浅色主题单选按钮 */
+    private RadioButton themeLightRadio;
+    /** 深色主题单选按钮 */
+    private RadioButton themeDarkRadio;
+    /** 开机自启动开关 */
+    private Switch autoStartSwitch;
+    /** 悬浮窗开关 */
+    private Switch floatingWindowSwitch;
+    /** 返回按钮 */
+    private Button btnBack;
+    /** 主页按钮 */
+    private Button btnHome;
+    /** 调试音频路由按钮 */
+    private Button btnDebugAudioRoutes;
+    /** 音频路由信息显示文本 */
+    private TextView tvAudioRoutes;
+
+    // ========== TTS 诊断 UI ==========
+    /** TTS 状态显示文本 */
+    private TextView tvTTSStatus;
+    /** 测试 TTS 按钮 */
+    private Button btnTestTTS;
+    /** 检查 TTS 状态按钮 */
+    private Button btnCheckTTSStatus;
+
+    // ========== TTS 设置 UI ==========
+    /** TTS 语速滑块 */
+    private SeekBar sbTtsSpeed;
+    /** TTS 音调滑块 */
+    private SeekBar sbTtsPitch;
+    /** TTS 语速数值显示 */
+    private TextView tvTtsSpeedValue;
+    /** TTS 音调数值显示 */
+    private TextView tvTtsPitchValue;
+    /** 测试 TTS 设置按钮 */
+    private Button btnTestTtsSettings;
+    /** 保存 TTS 设置按钮 */
+    private Button btnSaveTtsSettings;
+
+    // ========== 音频设备设置 UI ==========
+    /** 车外音频用途输入框 */
+    private EditText editAudioUsageExternal;
+    /** 车内音频用途输入框 */
+    private EditText editAudioUsageCar;
+    /** 音频输入源输入框 */
+    private EditText editAudioSource;
+    /** 最大放大倍数输入框 */
+    private EditText editMaxAmplification;
+    /** 放大倍数警告文本 */
+    private TextView tvAmplificationWarning;
+    /** 枚举麦克风按钮 */
+    private Button btnEnumMics;
+    /** 枚举输出设备按钮 */
+    private Button btnEnumOutputs;
+    /** 枚举车内输出设备按钮 */
+    private Button btnEnumCarOutputs;
+    /** 保存音频设备设置按钮 */
+    private Button btnSaveAudioDevice;
+    /** 音频设备状态显示文本 */
+    private TextView tvAudioDeviceStatus;
+    /** 关于页面按钮 */
+    private Button btnAbout;
+
+    // ========== 配置管理器 ==========
+    /** 主题配置 */
+    private ThemeConfig themeConfig;
+    /** 音频配置 */
+    private AudioConfig audioConfig;
+    /** 麦克风配置 */
+    private MicConfig micConfig;
+    /** TTS 配置 */
+    private TTSConfig ttsConfig;
+    /** 悬浮窗配置 */
+    private FloatingWindowConfig floatingWindowConfig;
+    /** TTS 管理器 */
+    private TTSManager ttsManager;
+    /** 音频输出管理器 */
+    private AudioOutputManager audioOutputManager;
+
+    /**
+     * 返回布局资源 ID。
+     *
+     * @return 设置页面布局资源 ID
+     */
+    @Override
+    protected int getLayoutId() {
+        return R.layout.fragment_settings;
+    }
+
+    /**
+     * 初始化视图控件。
+     *
+     * <p>查找所有 UI 控件，初始化各领域配置类和音频服务，
+     * 加载当前配置值到 UI 控件。
+     *
+     * @param view Fragment 根视图
+     */
+    @Override
+    protected void initViews(View view) {
+        themeRadioGroup = view.findViewById(R.id.theme_radio_group);
+        themeSystemRadio = view.findViewById(R.id.theme_system);
+        themeLightRadio = view.findViewById(R.id.theme_light);
+        themeDarkRadio = view.findViewById(R.id.theme_dark);
+        autoStartSwitch = view.findViewById(R.id.auto_start_switch);
+        floatingWindowSwitch = view.findViewById(R.id.floating_window_switch);
+        btnBack = view.findViewById(R.id.btn_back);
+        btnHome = view.findViewById(R.id.btn_home);
+        btnDebugAudioRoutes = view.findViewById(R.id.btn_debug_audio_routes);
+        tvAudioRoutes = view.findViewById(R.id.tv_audio_routes);
+
+        tvTTSStatus = view.findViewById(R.id.tv_tts_status);
+        btnTestTTS = view.findViewById(R.id.btn_test_tts);
+        btnCheckTTSStatus = view.findViewById(R.id.btn_check_tts_status);
+
+        sbTtsSpeed = view.findViewById(R.id.sb_tts_speed);
+        sbTtsPitch = view.findViewById(R.id.sb_tts_pitch);
+        tvTtsSpeedValue = view.findViewById(R.id.tv_tts_speed_value);
+        tvTtsPitchValue = view.findViewById(R.id.tv_tts_pitch_value);
+        btnTestTtsSettings = view.findViewById(R.id.btn_test_tts_settings);
+        btnSaveTtsSettings = view.findViewById(R.id.btn_save_tts_settings);
+
+        editAudioUsageExternal = view.findViewById(R.id.edit_audio_usage_external);
+        editAudioUsageCar = view.findViewById(R.id.edit_audio_usage_car);
+        editAudioSource = view.findViewById(R.id.edit_audio_source);
+        editMaxAmplification = view.findViewById(R.id.edit_max_amplification);
+        tvAmplificationWarning = view.findViewById(R.id.tv_amplification_warning);
+        btnEnumMics = view.findViewById(R.id.btn_enum_mics);
+        btnEnumOutputs = view.findViewById(R.id.btn_enum_outputs);
+        btnEnumCarOutputs = view.findViewById(R.id.btn_enum_car_outputs);
+        btnSaveAudioDevice = view.findViewById(R.id.btn_save_audio_device);
+        tvAudioDeviceStatus = view.findViewById(R.id.tv_audio_device_status);
+
+        btnAbout = view.findViewById(R.id.btn_about);
+
+        tvAudioRoutes.setMovementMethod(new android.text.method.ScrollingMovementMethod());
+
+        // 初始化配置（按领域拆分）
+        android.content.SharedPreferences prefs = requireContext().getSharedPreferences(
+                requireContext().getPackageName() + "_preferences", android.content.Context.MODE_PRIVATE);
+        themeConfig = new ThemeConfig(prefs);
+        audioConfig = new AudioConfig(prefs);
+        micConfig = new MicConfig(prefs);
+        ttsConfig = new TTSConfig(prefs);
+        floatingWindowConfig = new FloatingWindowConfig(prefs);
+
+        AudioServiceLocator locator = AudioServiceLocator.getInstance();
+        locator.init(requireContext());
+        audioOutputManager = locator.getAudioOutputManager();
+        ttsManager = locator.getTTSManager();
+
+        // 设置当前值
+        int currentTheme = themeConfig.getThemeMode();
+        switch (currentTheme) {
+            case AppConfig.THEME_MODE_SYSTEM:
+                themeSystemRadio.setChecked(true);
+                break;
+            case AppConfig.THEME_MODE_LIGHT:
+                themeLightRadio.setChecked(true);
+                break;
+            case AppConfig.THEME_MODE_DARK:
+                themeDarkRadio.setChecked(true);
+                break;
+        }
+
+        autoStartSwitch.setChecked(themeConfig.isAutoStartOnBoot());
+        floatingWindowSwitch.setChecked(floatingWindowConfig.isEnabled());
+
+        // 加载音频设备设置
+        loadAudioDeviceSettings();
+    }
+
+    /**
+     * 初始化数据。
+     *
+     * <p>SettingsFragment 的数据加载已在 initViews 中完成，
+     * 此方法仅作为基类抽象方法的空实现。
+     */
+    @Override
+    protected void initData() {
+        // 数据已在 initViews 中加载
+    }
+
+    /**
+     * 初始化事件监听器。
+     *
+     * <p>为主题切换、自启动、悬浮窗、TTS 设置、音频设备设置等
+     * 所有可交互控件设置监听器，用户操作时实时更新配置。
+     */
+    @Override
+    protected void initListeners() {
+        // 主题切换
+        themeRadioGroup.setOnCheckedChangeListener((group, checkedId) -> {
+            int themeMode = AppConfig.THEME_MODE_SYSTEM;
+            if (checkedId == R.id.theme_system) {
+                themeMode = AppConfig.THEME_MODE_SYSTEM;
+            } else if (checkedId == R.id.theme_light) {
+                themeMode = AppConfig.THEME_MODE_LIGHT;
+            } else if (checkedId == R.id.theme_dark) {
+                themeMode = AppConfig.THEME_MODE_DARK;
+            }
+            themeConfig.setThemeMode(themeMode);
+            try {
+                FloatingWindowService.notifyThemeChanged(requireContext());
+            } catch (Exception e) {
+                AppLog.d(TAG, "Failed to notify theme change");
+            }
+            try {
+                Intent intent = new Intent(requireContext(), MainActivity.class);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                requireContext().startActivity(intent);
+                requireActivity().finishAffinity();
+            } catch (Exception e) {
+                requireActivity().finishAffinity();
+            }
+        });
+
+        // 开机自启动开关
+        autoStartSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            themeConfig.setAutoStartOnBoot(isChecked);
+            BootReceiver.enable(requireContext());
+        });
+
+        // 悬浮窗开关
+        floatingWindowSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            floatingWindowConfig.setEnabled(isChecked);
+            if (isChecked) {
+                startFloatingWindowService();
+            } else {
+                stopFloatingWindowService();
+            }
+        });
+
+        // 返回按钮
+        btnBack.setOnClickListener(v -> {
+            MainActivity activity = (MainActivity) requireActivity();
+            activity.showMainInterface();
+        });
+
+        // 主页按钮
+        btnHome.setOnClickListener(v -> {
+            MainActivity activity = (MainActivity) requireActivity();
+            activity.showMainInterface();
+        });
+
+        // 调试音频路由
+        btnDebugAudioRoutes.setOnClickListener(v -> displayAudioRoutes());
+
+        // TTS 诊断
+        btnTestTTS.setOnClickListener(v -> testTTS());
+        btnCheckTTSStatus.setOnClickListener(v -> checkTTSStatus());
+
+        // TTS 设置
+        setupTTSSettingsListeners();
+
+        // 音频设备设置
+        setupAudioDeviceListeners();
+
+        // 关于按钮
+        if (btnAbout != null) {
+            btnAbout.setOnClickListener(v -> {
+                MainActivity activity = (MainActivity) requireActivity();
+                activity.showAboutFragment();
+            });
+        }
+    }
+
+    /** 显示音频路由信息 */
+    private void displayAudioRoutes() {
+        StringBuilder routesInfo = new StringBuilder();
+        routesInfo.append("# 音频路由信息\n\n");
+
+        try {
+            android.media.AudioManager audioManager = (android.media.AudioManager) requireContext().getSystemService(android.content.Context.AUDIO_SERVICE);
+            int mode = audioManager.getMode();
+            routesInfo.append("## 基本音频信息\n");
+            routesInfo.append("音频模式: ").append(getModeName(mode)).append("\n");
+
+            boolean isSpeakerphoneOn = audioManager.isSpeakerphoneOn();
+            boolean isBluetoothScoOn = audioManager.isBluetoothScoOn();
+            boolean isWiredHeadsetOn = audioManager.isWiredHeadsetOn();
+            boolean isBluetoothA2dpOn = audioManager.isBluetoothA2dpOn();
+
+            routesInfo.append("扬声器状态: ").append(isSpeakerphoneOn ? "开启" : "关闭").append("\n");
+            routesInfo.append("蓝牙SCO状态: ").append(isBluetoothScoOn ? "开启" : "关闭").append("\n");
+            routesInfo.append("有线耳机状态: ").append(isWiredHeadsetOn ? "已连接" : "未连接").append("\n");
+            routesInfo.append("蓝牙A2DP状态: ").append(isBluetoothA2dpOn ? "已连接" : "未连接").append("\n");
+
+            routesInfo.append("\n## 音量设置\n");
+            int streamVolume = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC);
+            int maxStreamVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC);
+            routesInfo.append("音乐流音量: ").append(streamVolume).append("/").append(maxStreamVolume).append("\n");
+
+            int ringerMode = audioManager.getRingerMode();
+            String ringerModeName;
+            switch (ringerMode) {
+                case android.media.AudioManager.RINGER_MODE_SILENT:
+                    ringerModeName = "静音模式";
+                    break;
+                case android.media.AudioManager.RINGER_MODE_VIBRATE:
+                    ringerModeName = "振动模式";
+                    break;
+                default:
+                    ringerModeName = "正常模式";
+                    break;
+            }
+            routesInfo.append("铃声模式: ").append(ringerModeName).append("\n");
+
+            routesInfo.append("\n## 系统信息\n");
+            routesInfo.append("Android 版本: ").append(android.os.Build.VERSION.RELEASE).append("\n");
+            routesInfo.append("API Level: ").append(android.os.Build.VERSION.SDK_INT).append("\n");
+            routesInfo.append("设备品牌: ").append(android.os.Build.BRAND).append("\n");
+            routesInfo.append("设备型号: ").append(android.os.Build.MODEL).append("\n");
+
+        } catch (Exception e) {
+            routesInfo.append("获取音频路由信息时出错: ").append(e.getMessage()).append("\n");
+        }
+
+        tvAudioRoutes.setText(routesInfo.toString());
+    }
+
+    /** 获取音频模式名称 */
+    private String getModeName(int mode) {
+        switch (mode) {
+            case android.media.AudioManager.MODE_NORMAL:
+                return "正常模式";
+            case android.media.AudioManager.MODE_RINGTONE:
+                return "铃声模式";
+            case android.media.AudioManager.MODE_IN_CALL:
+                return "通话模式";
+            case android.media.AudioManager.MODE_IN_COMMUNICATION:
+                return "通信模式";
+            default:
+                return "未知模式 (" + mode + ")";
+        }
+    }
+
+    /** 测试 TTS */
+    private void testTTS() {
+        String testMessage = "测试TTS发声功能，这是一条测试消息。";
+        try {
+            boolean success = ttsManager.speak(testMessage);
+            tvTTSStatus.setText(success ? "TTS测试成功！正在播放。" : "TTS测试失败。");
+        } catch (Exception e) {
+            tvTTSStatus.setText("TTS测试出错：" + e.getMessage());
+        }
+    }
+
+    /** 检查 TTS 状态 */
+    private void checkTTSStatus() {
+        StringBuilder statusInfo = new StringBuilder();
+        statusInfo.append("TTS状态诊断：\n\n");
+
+        try {
+            boolean initialized = ttsManager.isInitialized();
+            statusInfo.append("初始化状态：").append(initialized ? "已初始化" : "未初始化").append("\n");
+            statusInfo.append("Android版本：").append(android.os.Build.VERSION.RELEASE).append("\n");
+            statusInfo.append("设备品牌：").append(android.os.Build.BRAND).append("\n");
+
+            if (initialized) {
+                statusInfo.append("\nTTS引擎状态：正常\n");
+            } else {
+                statusInfo.append("\nTTS引擎状态：未初始化\n");
+            }
+
+            tvTTSStatus.setText(statusInfo.toString());
+        } catch (Exception e) {
+            tvTTSStatus.setText("检查TTS状态时出错：" + e.getMessage());
+        }
+    }
+
+    /** 加载音频设备设置 */
+    private void loadAudioDeviceSettings() {
+        editAudioUsageExternal.setText(String.valueOf(audioConfig.getUsageExternal()));
+        editAudioUsageCar.setText(String.valueOf(audioConfig.getUsageCar()));
+        editAudioSource.setText(String.valueOf(audioConfig.getAudioInputSource()));
+        editMaxAmplification.setText(String.valueOf(micConfig.getMaxAmplification()));
+        updateAmplificationWarning();
+    }
+
+    /** 设置 TTS 监听器 */
+    private void setupTTSSettingsListeners() {
+        float currentSpeed = ttsConfig.getTTSSpeed();
+        float currentPitch = ttsConfig.getTTSPitch();
+
+        int speedProgress = Math.round((currentSpeed - 0.5f) / 0.1f);
+        int pitchProgress = Math.round((currentPitch - 0.5f) / 0.1f);
+
+        tvTtsSpeedValue.setText(String.format("%.1fx", currentSpeed));
+        tvTtsPitchValue.setText(String.format("%.1fx", currentPitch));
+
+        if (speedProgress < 0) speedProgress = 0;
+        if (speedProgress > 25) speedProgress = 25;
+        if (pitchProgress < 0) pitchProgress = 0;
+        if (pitchProgress > 15) pitchProgress = 15;
+
+        sbTtsSpeed.setProgress(speedProgress);
+        sbTtsPitch.setProgress(pitchProgress);
+
+        sbTtsSpeed.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(android.widget.SeekBar seekBar, int progress, boolean fromUser) {
+                float speed = 0.5f + progress * 0.1f;
+                tvTtsSpeedValue.setText(String.format("%.1fx", speed));
+            }
+
+            @Override
+            public void onStartTrackingTouch(android.widget.SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(android.widget.SeekBar seekBar) {
+            }
+        });
+
+        sbTtsPitch.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(android.widget.SeekBar seekBar, int progress, boolean fromUser) {
+                float pitch = 0.5f + progress * 0.1f;
+                tvTtsPitchValue.setText(String.format("%.1fx", pitch));
+            }
+
+            @Override
+            public void onStartTrackingTouch(android.widget.SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(android.widget.SeekBar seekBar) {
+            }
+        });
+
+        btnTestTtsSettings.setOnClickListener(v -> {
+            try {
+                float speed = 0.5f + sbTtsSpeed.getProgress() * 0.1f;
+                float pitch = 0.5f + sbTtsPitch.getProgress() * 0.1f;
+                ttsManager.setSpeechRate(speed);
+                ttsManager.setPitch(pitch);
+                ttsManager.speak("这是一条TTS测试语音，用于测试当前语速和音调设置");
+            } catch (Exception e) {
+                AppLog.e(TAG, "Failed to test TTS settings", e);
+            }
+        });
+
+        btnSaveTtsSettings.setOnClickListener(v -> {
+            try {
+                float speed = 0.5f + sbTtsSpeed.getProgress() * 0.1f;
+                float pitch = 0.5f + sbTtsPitch.getProgress() * 0.1f;
+                ttsManager.setSpeechRate(speed);
+                ttsManager.setPitch(pitch);
+                ttsConfig.setTTSSpeed(speed);
+                ttsConfig.setTTSPitch(pitch);
+                ttsManager.speak("TTS设置已保存");
+            } catch (Exception e) {
+                AppLog.e(TAG, "Failed to save TTS settings", e);
+            }
+        });
+    }
+
+    /** 设置音频设备监听器 */
+    private void setupAudioDeviceListeners() {
+        btnEnumMics.setOnClickListener(v -> enumMicrophones());
+        btnEnumOutputs.setOnClickListener(v -> enumOutputDevices());
+        btnEnumCarOutputs.setOnClickListener(v -> enumCarOutputDevices());
+        btnSaveAudioDevice.setOnClickListener(v -> saveAudioDeviceSettings());
+
+        // 输入过滤器
+        android.text.InputFilter inputFilter = (source, start, end, dest, dstart, dend) -> {
+            try {
+                String newText = dest.subSequence(0, dstart).toString() +
+                                source.subSequence(start, end).toString() +
+                                dest.subSequence(dend, dest.length()).toString();
+                if (newText.isEmpty()) return null;
+                int value = Integer.parseInt(newText);
+                if (value >= 1 && value <= 20) return null;
+                return "";
+            } catch (NumberFormatException e) {
+                return "";
+            }
+        };
+
+        editMaxAmplification.setFilters(new android.text.InputFilter[]{
+                new android.text.InputFilter.LengthFilter(2),
+                inputFilter
+        });
+
+        editMaxAmplification.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                updateAmplificationWarning();
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {
+            }
+        });
+    }
+
+    /** 更新放大警告 */
+    private void updateAmplificationWarning() {
+        if (tvAmplificationWarning == null) return;
+        String text = editMaxAmplification.getText().toString().trim();
+        if (text.isEmpty()) {
+            tvAmplificationWarning.setVisibility(View.GONE);
+            return;
+        }
+        try {
+            int value = Integer.parseInt(text);
+            tvAmplificationWarning.setVisibility(value > 10 ? View.VISIBLE : View.GONE);
+        } catch (NumberFormatException e) {
+            tvAmplificationWarning.setVisibility(View.GONE);
+        }
+    }
+
+    /** 枚举麦克风 */
+    private void enumMicrophones() {
+        StringBuilder micInfo = new StringBuilder();
+        micInfo.append("麦克风设备列表:\n\n");
+        try {
+            android.media.AudioManager audioManager = (android.media.AudioManager) requireContext().getSystemService(android.content.Context.AUDIO_SERVICE);
+            micInfo.append("扬声器状态: ").append(audioManager.isSpeakerphoneOn() ? "开启" : "关闭").append("\n");
+            tvAudioDeviceStatus.setText(micInfo.toString());
+        } catch (Exception e) {
+            tvAudioDeviceStatus.setText("枚举麦克风时出错：" + e.getMessage());
+        }
+    }
+
+    /** 枚举输出设备 */
+    private void enumOutputDevices() {
+        StringBuilder outputInfo = new StringBuilder();
+        outputInfo.append("输出设备列表:\n\n");
+        try {
+            android.media.AudioManager audioManager = (android.media.AudioManager) requireContext().getSystemService(android.content.Context.AUDIO_SERVICE);
+            outputInfo.append("蓝牙SCO: ").append(audioManager.isBluetoothScoOn() ? "开启" : "关闭").append("\n");
+            outputInfo.append("有线耳机: ").append(audioManager.isWiredHeadsetOn() ? "已连接" : "未连接").append("\n");
+            outputInfo.append("蓝牙A2DP: ").append(audioManager.isBluetoothA2dpOn() ? "已连接" : "未连接").append("\n");
+            tvAudioDeviceStatus.setText(outputInfo.toString());
+        } catch (Exception e) {
+            tvAudioDeviceStatus.setText("枚举输出设备时出错：" + e.getMessage());
+        }
+    }
+
+    /** 枚举车内输出设备 */
+    private void enumCarOutputDevices() {
+        StringBuilder outputInfo = new StringBuilder();
+        outputInfo.append("车内输出设备列表:\n\n");
+        outputInfo.append("当前音频模式: ").append(getModeName(audioOutputManager.getMode())).append("\n");
+        tvAudioDeviceStatus.setText(outputInfo.toString());
+    }
+
+    /** 保存音频设备设置 */
+    private void saveAudioDeviceSettings() {
+        try {
+            String outputUsageExternalStr = editAudioUsageExternal.getText().toString().trim();
+            int audioOutputUsageExternal = !outputUsageExternalStr.isEmpty() ? Integer.parseInt(outputUsageExternalStr) : 9;
+
+            String outputUsageCarStr = editAudioUsageCar.getText().toString().trim();
+            int audioOutputUsageCar = !outputUsageCarStr.isEmpty() ? Integer.parseInt(outputUsageCarStr) : 1;
+
+            String inputSourceStr = editAudioSource.getText().toString().trim();
+            int audioInputSource = !inputSourceStr.isEmpty() ? Integer.parseInt(inputSourceStr) : 1;
+
+            String maxAmplificationStr = editMaxAmplification.getText().toString().trim();
+            int maxAmplification = !maxAmplificationStr.isEmpty() ? Integer.parseInt(maxAmplificationStr) : 2;
+            if (maxAmplification < 1) maxAmplification = 1;
+            else if (maxAmplification > 20) maxAmplification = 20;
+
+            audioConfig.setUsageExternal(audioOutputUsageExternal);
+            audioConfig.setUsageCar(audioOutputUsageCar);
+            audioConfig.setAudioInputSource(audioInputSource);
+            micConfig.setMaxAmplification(maxAmplification);
+
+            String message = "音频设备设置已保存<br>" +
+                    "车外输出: <font color='#FF0000'>" + audioOutputUsageExternal + "</font><br>" +
+                    "车内输出: <font color='#FF0000'>" + audioOutputUsageCar + "</font><br>" +
+                    "麦克风源: <font color='#FF0000'>" + audioInputSource + "</font><br>" +
+                    "最大放大: <font color='#FF0000'>" + maxAmplification + "</font>";
+            tvAudioDeviceStatus.setText(HtmlCompat.fromHtml(message, HtmlCompat.FROM_HTML_MODE_LEGACY));
+
+            try {
+                ttsManager.speakWithUsage("音频设备设置已保存", audioOutputUsageCar);
+            } catch (Exception e) {
+                AppLog.e(TAG, "Failed to speak", e);
+            }
+
+        } catch (NumberFormatException e) {
+            tvAudioDeviceStatus.setText("输入值无效，请输入有效的数字");
+        }
+    }
+
+    /** 启动悬浮窗服务 */
+    private void startFloatingWindowService() {
+        Intent serviceIntent = new Intent(requireContext(), FloatingWindowService.class);
+        ServiceCompat.startForegroundService(requireContext(), serviceIntent);
+    }
+
+    /** 停止悬浮窗服务 */
+    private void stopFloatingWindowService() {
+        Intent serviceIntent = new Intent(requireContext(), FloatingWindowService.class);
+        ServiceCompat.stopService(requireContext(), serviceIntent);
+    }
+}

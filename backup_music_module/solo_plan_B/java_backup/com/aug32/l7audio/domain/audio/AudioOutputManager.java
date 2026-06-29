@@ -1,0 +1,85 @@
+package com.aug32.l7audio.domain.audio;
+
+import android.content.Context;
+import android.media.AudioManager;
+
+import com.aug32.l7audio.data.local.AppConfig;
+import com.aug32.l7audio.utils.AppLog;
+
+/**
+ * 音频输出管理器
+ *
+ * 职责：
+ * - 管理车内/车外音频输出模式切换
+ * - 提供对应的 AudioAttributes.Usage 值
+ *
+ * 目标 SDK：Android 11 (API 30)
+ */
+public class AudioOutputManager {
+
+    private static final String TAG = "AudioOutputManager";
+
+    /** 车内输出模式 */
+    public static final int OUTPUT_CAR = 0;
+
+    /** 车外输出模式 */
+    public static final int OUTPUT_EXTERNAL = 1;
+
+    private final Context context;
+    private final AppConfig appConfig;
+    private volatile int currentOutputMode = OUTPUT_EXTERNAL;
+
+    /** 构造函数 */
+    public AudioOutputManager(Context context) {
+        this.context = context;
+        this.appConfig = new AppConfig(context);
+        this.currentOutputMode = appConfig.getAudioOutputMode();
+        AppLog.d(TAG, "AudioOutputManager initialized with mode: " + modeToString(currentOutputMode));
+    }
+
+    /** 设置音频输出模式 */
+    public synchronized void setOutputMode(int mode) {
+        if (mode < OUTPUT_CAR || mode > OUTPUT_EXTERNAL) {
+            AppLog.e(TAG, "Invalid output mode: " + mode);
+            return;
+        }
+        currentOutputMode = mode;
+        appConfig.setAudioOutputMode(mode);
+        AppLog.d(TAG, "Output mode set to: " + modeToString(mode));
+    }
+
+    /** 获取当前音频输出模式 */
+    public synchronized int getOutputMode() {
+        return currentOutputMode;
+    }
+
+    /** 获取当前 AudioAttributes.Usage 值 */
+    public synchronized int getAudioUsage() {
+        if (currentOutputMode == OUTPUT_CAR) {
+            return appConfig.getAudioOutputUsageCar();
+        } else {
+            return appConfig.getAudioOutputUsageExternal();
+        }
+    }
+
+    /** 恢复音频输出 */
+    public void resume() {
+        AppLog.d(TAG, "Audio output resumed");
+    }
+
+    /** 获取当前音频模式 */
+    public int getMode() {
+        return AudioManager.MODE_NORMAL;
+    }
+
+    private String modeToString(int mode) {
+        switch (mode) {
+            case OUTPUT_CAR:
+                return "OUTPUT_CAR (仅车内)";
+            case OUTPUT_EXTERNAL:
+                return "OUTPUT_EXTERNAL (仅车外)";
+            default:
+                return "UNKNOWN";
+        }
+    }
+}

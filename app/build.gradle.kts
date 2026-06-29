@@ -6,12 +6,16 @@ android {
     namespace = "com.aug32.l7audio"
     compileSdk = 36
 
+    buildFeatures {
+        buildConfig = true  // 启用 BuildConfig 类生成（release 模式用 BuildConfig.DEBUG 关闭日志）
+    }
+
     defaultConfig {
         applicationId = "com.aug32.l7audio"
         minSdk = 30
-        targetSdk = 36
-        versionCode = 5
-        versionName = "1.1.1"
+        targetSdk = 30
+        versionCode = 41
+        versionName = "1.4.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -27,7 +31,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = false  // 关闭混淆，确保应用能运行
+            isShrinkResources = false  // 资源压缩需要混淆开启
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -64,17 +69,19 @@ dependencies {
     // Media3库
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
-    implementation(libs.media3.session)
     implementation(libs.media3.common)
-
-    // 网络请求
-    implementation(libs.okhttp)
+    implementation(libs.media3.session)  // MediaSession
 
     // JSON 解析
     implementation(libs.gson)
 
     // WorkManager 定时任务（用于保活）
     implementation(libs.workRuntime)
+
+    // Lifecycle 组件（ViewModel / LiveData）
+    implementation(libs.lifecycle.viewmodel)
+    implementation(libs.lifecycle.livedata)
+    implementation(libs.lifecycle.runtime)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.extJunit)

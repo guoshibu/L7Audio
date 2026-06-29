@@ -1,0 +1,642 @@
+package com.aug32.l7audio.ui.activity;
+
+import android.Manifest;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.Settings;
+import android.view.View;
+import android.widget.Button;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.activity.result.ActivityResult;
+import androidx.activity.result.ActivityResultCallback;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import androidx.core.view.GravityCompat;
+import androidx.drawerlayout.widget.DrawerLayout;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentManager;
+import androidx.fragment.app.FragmentTransaction;
+
+import com.google.android.material.navigation.NavigationView;
+
+import com.aug32.l7audio.data.local.AppConfig;
+import com.aug32.l7audio.utils.AppLog;
+import com.aug32.l7audio.R;
+import com.aug32.l7audio.base.BaseActivity;
+import com.aug32.l7audio.domain.audio.AudioFocusManager;
+import com.aug32.l7audio.domain.audio.AudioOutputManager;
+import com.aug32.l7audio.domain.audio.AudioServiceLocator;
+import com.aug32.l7audio.domain.audio.MicrophoneManager;
+import com.aug32.l7audio.domain.audio.MusicPlayerManager;
+import com.aug32.l7audio.domain.audio.TTSManager;
+import com.aug32.l7audio.service.AudioForegroundService;
+import com.aug32.l7audio.service.FloatingWindowService;
+import com.aug32.l7audio.ui.fragment.AboutFragment;
+import com.aug32.l7audio.ui.fragment.MicAmplifierFragment;
+import com.aug32.l7audio.ui.fragment.MusicPlayerFragment;
+import com.aug32.l7audio.ui.fragment.SettingsFragment;
+import com.aug32.l7audio.ui.fragment.TTSFragment;
+import com.aug32.l7audio.utils.ServiceCompat;
+
+/**
+ * L7Audio 主界面 Activity
+ *
+ * 职责：
+ * - 权限请求与管理
+ * - 音频管理器初始化
+ * - Fragment 导航管理
+ * - 前台服务启停
+ * - 主题/状态栏设置
+ *
+ * 目标 SDK：Android 11 (API 30)
+ * 最低 SDK：Android 11 (API 30)
+ *
+ * 已继承 BaseActivity，公共方法见父类：
+ * - applyThemeMode() 主题模式设置
+ * - setupStatusBar() 状态栏设置
+ * - applyFontScale() 字体缩放
+ * - isDarkTheme() 判断深色主题
+ */
+public class MainActivity extends BaseActivity {
+
+    private static final String TAG = "MainActivity";
+    private static final int REQUEST_PERMISSIONS = 100;
+
+    // UI 控件
+    private DrawerLayout drawerLayout;
+    private NavigationView navigationView;
+    private View mainLayout;
+    private View fragmentContainer;
+
+    private Button btnMenu, btnExit;
+    private TextView tvAppTitle;
+    private Button btnMicAmplifier, btnTTS, btnMusicPlayer;
+    private Button btnOutputCar, btnOutputExternal;
+
+    // 音频管理器
+    private AudioOutputManager audioOutputManager;
+    private MicrophoneManager microphoneManager;
+    private TTSManager ttsManager;
+    private MusicPlayerManager musicPlayerManager;
+    private AudioFocusManager audioFocusManager;
+
+    // 状态
+    private int currentFunction = -1; // -1: 无, 0: 麦克风, 1: TTS, 2: 音乐
+
+    // Activity Result Launcher
+    private ActivityResultLauncher<Intent> manageExternalStorageLauncher;
+
+    // ==================== 生命周期 ====================
+
+    /** Activity 创建，初始化组件、权限检查、服务启动与状态恢复 */
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        AppLog.init(this);
+
+        // 初始化 ActivityResultLauncher
+        initActivityResultLaunchers();
+
+        // 初始化应用配置（BaseActivity 已创建 appConfig）
+        // appConfig = new AppConfig(this); // BaseActivity 中已初始化
+
+        // 【修复】先初始化音频管理器，确保 Fragment 中可访问
+        // 即使权限未授予也可以安全创建 Manager 实例
+        initAudioManagers();
+
+        // 设置主题（使用 BaseActivity 方法）
+        applyThemeMode(appConfig.getThemeMode());
+
+        // 设置字体缩放比例（车机专用 1.2 倍）
+        applyFontScale(1.2f);
+
+        // 设置布局
+        setContentView(R.layout.activity_main);
+
+        // 设置状态栏（使用 BaseActivity 方法）
+        setupStatusBarWithTheme(R.color.menu_background);
+
+        initViews();
+        setupNavigationDrawer();
+
+        // 权限检查
+        if (!checkPermissions()) {
+            requestPermissions();
+        }
+
+        // 启动前台服务（车机必需，始终开启）
+        startForegroundService();
+
+        // 检查是否是开机自启动
+        boolean autoStartFromBoot = getIntent().getBooleanExtra("auto_start_from_boot", false);
+        if (autoStartFromBoot) {
+            getIntent().removeExtra("auto_start_from_boot");
+            if (!appConfig.isAutoStartOnBoot()) {
+                AppLog.d(TAG, "开机自启动模式：未开启自动功能，移到后台");
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    moveTaskToBack(true);
+                }, 500);
+            }
+        }
+
+        // 如果权限已授予，加载功能页面（优先处理悬浮窗跳转，否则恢复上次状态）
+        if (checkPermissions()) {
+            loadFunctionPage();
+        }
+
+        // 根据配置启动悬浮窗服务
+        if (appConfig.isFloatingWindowEnabled()) {
+            startFloatingWindowService();
+        }
+    }
+
+    /** Activity 已在运行时，从悬浮窗等地方收到新 Intent 的处理 */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        AppLog.d(TAG, "onNewIntent: received new intent, action=" + intent.getAction());
+        setIntent(intent);
+        if (intent.getBooleanExtra("navigate_to_tts", false)) {
+            showTTSFragment();
+            intent.removeExtra("navigate_to_tts");
+        }
+    }
+
+    /** Activity 恢复 */
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (audioOutputManager != null) {
+            audioOutputManager.resume();
+        }
+        if (audioOutputManager != null) {
+            updateOutputButtons(audioOutputManager.getOutputMode());
+        }
+    }
+
+    /** Activity 暂停 */
+    @Override
+    protected void onPause() {
+        super.onPause();
+    }
+
+    /** Activity 销毁 */
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (microphoneManager != null) {
+            microphoneManager.stop();
+        }
+        if (ttsManager != null) {
+            ttsManager.shutdown();
+        }
+        if (audioFocusManager != null) {
+            audioFocusManager.abandonAll();
+        }
+        // 注销 ServiceLocator
+        AudioServiceLocator.getInstance().unregisterManagers();
+    }
+
+    // ==================== 权限管理 ====================
+
+    /** 根据 Android 版本动态获取需要的权限 */
+    private String[] getRequiredPermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // Android 13+
+            return new String[]{
+                    Manifest.permission.RECORD_AUDIO,
+                    Manifest.permission.READ_MEDIA_AUDIO
+            };
+        } else {
+            // Android 12 及以下
+            return new String[]{
+                    Manifest.permission.RECORD_AUDIO,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+            };
+        }
+    }
+
+    /** 检查当前所需权限是否已全部授予 */
+    private boolean checkPermissions() {
+        for (String permission : getRequiredPermissions()) {
+            if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** 请求运行时权限 */
+    private void requestPermissions() {
+        ActivityCompat.requestPermissions(this, getRequiredPermissions(), REQUEST_PERMISSIONS);
+    }
+
+    /** 处理权限请求结果 */
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_PERMISSIONS) {
+            boolean allGranted = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false;
+                    break;
+                }
+            }
+            if (allGranted) {
+                checkManageExternalStoragePermission();
+            } else {
+                Toast.makeText(this, "权限被拒绝，部分功能可能无法使用", Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    /** 初始化 ActivityResultLauncher */
+    private void initActivityResultLaunchers() {
+        manageExternalStorageLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                new ActivityResultCallback<ActivityResult>() {
+                    @Override
+                    public void onActivityResult(ActivityResult result) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            if (Environment.isExternalStorageManager()) {
+                                loadFunctionPage();
+                            } else {
+                                Toast.makeText(MainActivity.this, "存储权限被拒绝，部分功能可能无法使用", Toast.LENGTH_LONG).show();
+                            }
+                        }
+                    }
+                }
+        );
+    }
+
+    /** 检查并请求 MANAGE_EXTERNAL_STORAGE 权限（Android R 及以上） */
+    private void checkManageExternalStoragePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                intent.setData(Uri.parse("package:" + getPackageName()));
+                manageExternalStorageLauncher.launch(intent);
+            } else {
+                loadFunctionPage();
+            }
+        } else {
+            loadFunctionPage();
+        }
+    }
+
+    // ==================== 音频管理器 ====================
+
+    /** 初始化各类音频管理器 */
+    private void initAudioManagers() {
+        AudioServiceLocator locator = AudioServiceLocator.getInstance();
+
+        audioOutputManager = new AudioOutputManager(this);
+        microphoneManager = new MicrophoneManager(this, audioOutputManager);
+        ttsManager = new TTSManager(this, audioOutputManager);
+        audioFocusManager = AudioFocusManager.from(this);
+
+        musicPlayerManager = locator.getMusicPlayerManager();
+
+        locator.registerManagers(
+                audioOutputManager,
+                microphoneManager,
+                ttsManager,
+                musicPlayerManager,
+                audioFocusManager);
+    }
+
+    /** 获取音乐播放器管理器 */
+    public MusicPlayerManager getMusicPlayerManager() {
+        return musicPlayerManager;
+    }
+
+    /** 启动前台服务 */
+    private void startForegroundService() {
+        Intent serviceIntent = new Intent(this, AudioForegroundService.class);
+        ServiceCompat.startForegroundService(this, serviceIntent);
+    }
+
+    // ==================== UI 初始化 ====================
+
+    /** 初始化视图控件 */
+    private void initViews() {
+        drawerLayout = findViewById(R.id.drawer_layout);
+        navigationView = findViewById(R.id.nav_view);
+        mainLayout = findViewById(R.id.main);
+        fragmentContainer = findViewById(R.id.fragment_container);
+
+        // 设置导航头部版本号
+        if (navigationView != null) {
+            View headerView = navigationView.getHeaderView(0);
+            if (headerView != null) {
+                TextView versionText = headerView.findViewById(R.id.nav_header_version);
+                if (versionText != null) {
+                    try {
+                        String versionName = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+                        versionText.setText(getString(R.string.app_name) + " v" + versionName);
+                    } catch (PackageManager.NameNotFoundException e) {
+                        AppLog.e(TAG, "Failed to get version name", e);
+                    }
+                }
+            }
+        }
+
+        // 初始化按钮
+        btnMenu = findViewById(R.id.btn_menu);
+        btnExit = findViewById(R.id.btn_exit);
+        tvAppTitle = findViewById(R.id.tv_app_title);
+        btnMicAmplifier = findViewById(R.id.btn_mic_amplifier);
+        btnTTS = findViewById(R.id.btn_tts);
+        btnMusicPlayer = findViewById(R.id.btn_music_player);
+        btnOutputCar = findViewById(R.id.btn_output_car);
+        btnOutputExternal = findViewById(R.id.btn_output_external);
+
+        // 设置按钮点击事件
+        if (btnMenu != null) {
+            btnMenu.setOnClickListener(v -> openDrawer());
+        }
+        if (btnExit != null) {
+            btnExit.setOnClickListener(v -> finish());
+        }
+        if (btnMicAmplifier != null) {
+            btnMicAmplifier.setOnClickListener(v -> {
+                showMicAmplifierFragment();
+                currentFunction = 0;
+                updateFunctionButtons();
+            });
+        }
+        if (btnTTS != null) {
+            btnTTS.setOnClickListener(v -> {
+                showTTSFragment();
+                currentFunction = 1;
+                updateFunctionButtons();
+            });
+        }
+        if (btnMusicPlayer != null) {
+            btnMusicPlayer.setOnClickListener(v -> {
+                showMusicPlayerFragment();
+                currentFunction = 2;
+                updateFunctionButtons();
+            });
+        }
+        if (btnOutputCar != null) {
+            btnOutputCar.setOnClickListener(v -> setAudioOutput(AudioOutputManager.OUTPUT_CAR));
+        }
+        if (btnOutputExternal != null) {
+            btnOutputExternal.setOnClickListener(v -> setAudioOutput(AudioOutputManager.OUTPUT_EXTERNAL));
+        }
+    }
+
+    /** 设置侧边导航抽屉 */
+    private void setupNavigationDrawer() {
+        if (navigationView != null) {
+            navigationView.setNavigationItemSelectedListener(item -> {
+                int id = item.getItemId();
+                if (id == R.id.nav_home) {
+                    showMainInterface();
+                } else if (id == R.id.nav_settings) {
+                    showSettingsFragment();
+                } else if (id == R.id.nav_about) {
+                    showAboutFragment();
+                }
+                drawerLayout.closeDrawer(GravityCompat.START);
+                return true;
+            });
+        }
+    }
+
+    // ==================== 悬浮窗 ====================
+
+    /** 启动悬浮窗服务 */
+    private void startFloatingWindowService() {
+        Intent serviceIntent = new Intent(this, FloatingWindowService.class);
+        ServiceCompat.startForegroundService(this, serviceIntent);
+    }
+
+    /** 停止悬浮窗服务 */
+    private void stopFloatingWindowService() {
+        Intent serviceIntent = new Intent(this, FloatingWindowService.class);
+        ServiceCompat.stopService(this, serviceIntent);
+    }
+
+    // ==================== Fragment 导航 ====================
+
+    /** 打开左侧导航抽屉 */
+    private void openDrawer() {
+        if (drawerLayout != null) {
+            drawerLayout.openDrawer(GravityCompat.START);
+        }
+    }
+
+    /** 显示主界面 */
+    public void showMainInterface() {
+        if (mainLayout != null) {
+            mainLayout.setVisibility(View.VISIBLE);
+        }
+        if (fragmentContainer != null) {
+            fragmentContainer.setVisibility(View.GONE);
+        }
+    }
+
+    /** 显示设置 Fragment */
+    public void showSettingsFragment() {
+        if (mainLayout != null) {
+            mainLayout.setVisibility(View.GONE);
+        }
+        if (fragmentContainer != null) {
+            fragmentContainer.setVisibility(View.VISIBLE);
+        }
+        FragmentManager fragmentManager = getSupportFragmentManager();
+        FragmentTransaction transaction = fragmentManager.beginTransaction();
+        transaction.replace(R.id.fragment_container, new SettingsFragment());
+        transaction.commitAllowingStateLoss();
+    }
+
+    /** 显示关于 Fragment */
+    public void showAboutFragment() {
+        if (mainLayout != null) {
+            mainLayout.setVisibility(View.GONE);
+        }
+        if (fragmentContainer != null) {
+            fragmentContainer.setVisibility(View.VISIBLE);
+        }
+        FragmentManager fragmentManager = getSupportFragmentManager();
+        FragmentTransaction transaction = fragmentManager.beginTransaction();
+        transaction.replace(R.id.fragment_container, new AboutFragment());
+        transaction.commitAllowingStateLoss();
+    }
+
+    /** 显示麦克风放大 Fragment */
+    public void showMicAmplifierFragment() {
+        updateAppTitle("L7 Audio - 麦克风放大");
+        if (musicPlayerManager != null && musicPlayerManager.isPlaying()) {
+            musicPlayerManager.pause();
+        }
+        FragmentManager fragmentManager = getSupportFragmentManager();
+        FragmentTransaction transaction = fragmentManager.beginTransaction();
+        transaction.replace(R.id.function_content, new MicAmplifierFragment());
+        transaction.commitAllowingStateLoss();
+        saveCurrentFunctionState(0);
+    }
+
+    /** 启动麦克风放大 */
+    public void startMicAmplification() {
+        if (microphoneManager != null && !microphoneManager.isRecording()) {
+            microphoneManager.start();
+        }
+    }
+
+    /** 显示 TTS Fragment */
+    private void showTTSFragment() {
+        updateAppTitle("L7 Audio - TTS播报");
+        if (musicPlayerManager != null && musicPlayerManager.isPlaying()) {
+            musicPlayerManager.pause();
+        }
+        FragmentManager fragmentManager = getSupportFragmentManager();
+        FragmentTransaction transaction = fragmentManager.beginTransaction();
+        transaction.replace(R.id.function_content, new TTSFragment());
+        transaction.commitAllowingStateLoss();
+        saveCurrentFunctionState(1);
+    }
+
+    /** 显示音乐播放器 Fragment */
+    private void showMusicPlayerFragment() {
+        updateAppTitle("L7 Audio - 本地音乐");
+        FragmentManager fragmentManager = getSupportFragmentManager();
+        FragmentTransaction transaction = fragmentManager.beginTransaction();
+        transaction.replace(R.id.function_content, new MusicPlayerFragment());
+        transaction.commitAllowingStateLoss();
+        saveCurrentFunctionState(2);
+    }
+
+    /** 加载功能页面：优先处理悬浮窗跳转，否则恢复上次保存的状态 */
+    private void loadFunctionPage() {
+        if (getIntent() != null && getIntent().getBooleanExtra("navigate_to_tts", false)) {
+            AppLog.d(TAG, "loadFunctionPage: 从悬浮窗跳转，显示TTS页面");
+            showTTSFragment();
+            getIntent().removeExtra("navigate_to_tts");
+            return;
+        }
+        int savedFunction = appConfig.getCurrentFunction();
+        if (savedFunction == -1) {
+            savedFunction = 0;
+            appConfig.setCurrentFunction(savedFunction);
+        }
+        switch (savedFunction) {
+            case 0:
+                showMicAmplifierFragment();
+                break;
+            case 1:
+                showTTSFragment();
+                break;
+            case 2:
+                showMusicPlayerFragment();
+                break;
+        }
+        // 同步 currentFunction 字段，确保与实际显示的 Fragment 一致
+        currentFunction = savedFunction;
+        AppLog.d(TAG, "loadFunctionPage: 恢复上次页面，function=" + savedFunction);
+    }
+
+    /** 保存当前功能状态 */
+    private void saveCurrentFunctionState(int function) {
+        currentFunction = function;
+        appConfig.setCurrentFunction(function);
+    }
+
+    // ==================== UI 更新 ====================
+
+    /** 更新功能按钮高亮状态 */
+    private void updateFunctionButtons() {
+        if (btnMicAmplifier != null) {
+            btnMicAmplifier.setBackgroundColor(ContextCompat.getColor(this,
+                    currentFunction == 0 ? R.color.button_background_selected : R.color.colorPrimary));
+        }
+        if (btnTTS != null) {
+            btnTTS.setBackgroundColor(ContextCompat.getColor(this,
+                    currentFunction == 1 ? R.color.button_background_selected : R.color.colorPrimary));
+        }
+        if (btnMusicPlayer != null) {
+            btnMusicPlayer.setBackgroundColor(ContextCompat.getColor(this,
+                    currentFunction == 2 ? R.color.button_background_selected : R.color.colorPrimary));
+        }
+    }
+
+    /** 更新输出按钮状态 */
+    private void updateOutputButtons(int outputMode) {
+        if (btnOutputCar != null) {
+            btnOutputCar.setBackgroundColor(ContextCompat.getColor(this,
+                    outputMode == AudioOutputManager.OUTPUT_CAR ? R.color.button_background_selected : R.color.colorPrimary));
+        }
+        if (btnOutputExternal != null) {
+            btnOutputExternal.setBackgroundColor(ContextCompat.getColor(this,
+                    outputMode == AudioOutputManager.OUTPUT_EXTERNAL ? R.color.button_background_selected : R.color.colorPrimary));
+        }
+    }
+
+    /** 启用所有功能按钮 */
+    private void enableFunctionButtons() {
+        if (btnMicAmplifier != null) btnMicAmplifier.setEnabled(true);
+        if (btnTTS != null) btnTTS.setEnabled(true);
+        if (btnMusicPlayer != null) btnMusicPlayer.setEnabled(true);
+    }
+
+    /** 更新标题栏文本 */
+    private void updateAppTitle(String title) {
+        if (tvAppTitle != null) {
+            tvAppTitle.setText(title);
+        }
+    }
+
+    // ==================== 音频输出控制 ====================
+
+    /** 设置音频输出模式 */
+    public void setAudioOutput(int outputMode) {
+        if (audioOutputManager == null) {
+            Toast.makeText(this, "音频输出管理器未初始化", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        boolean wasAmplifying = false;
+
+        try {
+            if (microphoneManager != null && microphoneManager.isRecording()) {
+                wasAmplifying = true;
+                microphoneManager.stop();
+            }
+
+            audioOutputManager.setOutputMode(outputMode);
+
+            // 更新音乐播放器的音频输出属性（无需停止播放）
+            if (musicPlayerManager != null) {
+                musicPlayerManager.updateAudioOutputUsage(audioOutputManager.getAudioUsage());
+            }
+
+            if (wasAmplifying && microphoneManager != null) {
+                microphoneManager.start();
+            }
+
+            updateOutputButtons(outputMode);
+            enableFunctionButtons();
+
+            String outputText = outputMode == AudioOutputManager.OUTPUT_CAR ? "仅车内播放" : "仅车外播放";
+            Toast.makeText(this, "音频输出已设置为：" + outputText, Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            AppLog.e(TAG, "setAudioOutput failed", e);
+            Toast.makeText(this, "音频输出切换失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+}

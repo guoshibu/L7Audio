@@ -1,0 +1,51 @@
+﻿--------- beginning of main
+06-10 21:35:10.632 I/Zygote  ( 5864): fakeProductInfoIfNeed callded! com.aug32.l7audio
+06-10 21:35:10.633 I/Zygote  ( 5864): fake Product info com.aug32.l7audio not matched any pattern
+06-10 21:35:10.633 I/Zygote  ( 5864): fakeProductInfoFromProperties callded! com.aug32.l7audio
+06-10 21:35:10.640 E/NemuAppNameUtil( 5864): save data success
+06-10 21:35:10.656 I/Zygote  ( 5864): seccomp disabled by setenforce 0
+06-10 21:35:10.673 W/m.aug32.l7audi( 5864): Unexpected CPU variant for X86 using defaults: x86_64
+06-10 21:35:10.682 E/m.aug32.l7audi( 5864): Not starting debugger since process cannot load the jdwp agent.
+06-10 21:35:10.722 E/ashmem  ( 5864): memfd: ro.vndk.version not defined or invalid (), this is mandated since P.
+06-10 21:35:10.909 I/Typeface( 5864): Preloading /system/fonts/Roboto-Regular.ttf
+06-10 21:35:10.996 E/m.aug32.l7audi( 5864): vulkan version is 4211029
+06-10 21:35:11.018 E/GraphicsEnv( 5864): Failed to get gpu service
+06-10 21:35:11.086 E/m.aug32.l7audi( 5864): vulkan version is 4211029
+06-10 21:35:11.091 E/HidlServiceManagement( 5864): getService: Potential race detected, descriptor: android.hardware.configstore@1.0::ISurfaceFlingerConfigs instance: default
+06-10 21:35:11.092 W/OpenGLRenderer( 5864): Failed to initialize 101010-2 format, error = EGL_SUCCESS
+06-10 21:35:11.103 E/HidlServiceManagement( 5864): getService: Potential race detected, descriptor: android.hardware.graphics.mapper@4.0::IMapper instance: default
+06-10 21:35:11.104 I/Gralloc4( 5864): mapper 4.x is not supported
+06-10 21:35:11.104 E/HidlServiceManagement( 5864): getService: Potential race detected, descriptor: android.hardware.graphics.mapper@3.0::IMapper instance: default
+06-10 21:35:11.104 W/Gralloc3( 5864): mapper 3.x is not supported
+06-10 21:35:11.105 E/HidlServiceManagement( 5864): getService: Potential race detected, descriptor: android.hardware.graphics.mapper@2.0::IMapper instance: default
+06-10 21:35:11.106 E/HidlServiceManagement( 5864): getService: Potential race detected, descriptor: android.hardware.graphics.allocator@4.0::IAllocator instance: default
+06-10 21:35:11.106 W/Gralloc4( 5864): allocator 4.x is not supported
+06-10 21:35:11.106 E/HidlServiceManagement( 5864): getService: Potential race detected, descriptor: android.hardware.graphics.allocator@3.0::IAllocator instance: default
+06-10 21:35:11.106 W/Gralloc3( 5864): allocator 3.x is not supported
+06-10 21:35:11.107 E/HidlServiceManagement( 5864): getService: Potential race detected, descriptor: android.hardware.graphics.allocator@2.0::IAllocator instance: default
+06-10 21:35:11.113 E/m.aug32.l7audi( 5864): vulkan version is 4211029
+06-10 21:35:11.663 W/System.err( 5864): java.nio.file.NoSuchFileException: /system/lib64/null
+06-10 21:35:11.664 W/System.err( 5864): 	at sun.nio.fs.UnixFileSystemProvider.newByteChannel(UnixFileSystemProvider.java:214)
+06-10 21:35:11.665 W/System.err( 5864): 	at java.nio.file.Files.newByteChannel(Files.java:361)
+06-10 21:35:11.665 W/System.err( 5864): 	at java.nio.file.Files.newByteChannel(Files.java:407)
+06-10 21:35:11.665 W/System.err( 5864): 	at java.nio.file.Files.readAllBytes(Files.java:3152)
+06-10 21:35:11.665 W/System.err( 5864): 	at android.app.ActivityThread$ApplicationThread$2.run(ActivityThread.java:1859)
+06-10 21:35:11.665 W/System.err( 5864): 	at android.os.Handler.handleCallback(Handler.java:938)
+06-10 21:35:11.665 W/System.err( 5864): 	at android.os.Handler.dispatchMessage(Handler.java:99)
+06-10 21:35:11.665 W/System.err( 5864): 	at android.os.Looper.loopOnce(Looper.java:201)
+06-10 21:35:11.665 W/System.err( 5864): 	at android.os.Looper.loop(Looper.java:288)
+06-10 21:35:11.665 W/System.err( 5864): 	at android.app.ActivityThread.main(ActivityThread.java:8085)
+06-10 21:35:11.665 W/System.err( 5864): 	at java.lang.reflect.Method.invoke(Native Method)
+06-10 21:35:11.665 W/System.err( 5864): 	at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:571)
+06-10 21:35:11.665 W/System.err( 5864): 	at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1091)
+06-10 21:35:11.769 E/m.aug32.l7audi( 5864): vulkan version is 4211029
+06-10 21:36:03.849 I/Binder:5864_1( 5864): type=1400 audit(0.0:8533): avc: denied { getattr } for path="/system/framework/framework-res.apk" dev="sda6" ino=2338 scontext=u:r:untrusted_app:s0:c99,c256,c512,c768 tcontext=u:object_r:unlabeled:s0 tclass=file permissive=1 app=com.aug32.l7audio
+06-10 21:36:03.859 I/m.aug32.l7audio( 5864): type=1400 audit(0.0:8534): avc: denied { map } for path="/system/framework/framework-res.apk" dev="sda6" ino=2338 scontext=u:r:untrusted_app:s0:c99,c256,c512,c768 tcontext=u:object_r:unlabeled:s0 tclass=file permissive=1 app=com.aug32.l7audio
+06-10 21:36:03.899 E/TTSManager( 5864): Failed to initialize TTS engine, status: -1
+06-10 21:36:03.859 I/m.aug32.l7audio( 5864): type=1400 audit(0.0:8535): avc: denied { read } for path="/system/framework/framework-res.apk" dev="sda6" ino=2338 scontext=u:r:untrusted_app:s0:c99,c256,c512,c768 tcontext=u:object_r:unlabeled:s0 tclass=file permissive=1 app=com.aug32.l7audio
+06-10 21:36:03.903 D/MusicPlayerManager( 5864): MusicPlayerManager initialized with currentIndex: -1
+06-10 21:36:03.926 I/RenderThread( 5864): type=1400 audit(0.0:8538): avc: denied { open } for path="/system/etc/mumu-configs/currentApp" dev="sdc3" ino=4850194 scontext=u:r:untrusted_app:s0:c99,c256,c512,c768 tcontext=u:object_r:system_data_file:s0 tclass=file permissive=1 app=com.aug32.l7audio
+06-10 21:36:03.929 I/RenderThread( 5864): type=1400 audit(0.0:8539): avc: denied { read write } for name="vaddress" dev="tmpfs" ino=9853 scontext=u:r:untrusted_app:s0:c99,c256,c512,c768 tcontext=u:object_r:device:s0 tclass=chr_file permissive=1 app=com.aug32.l7audio
+06-10 21:36:03.976 E/m.aug32.l7audi( 5864): vulkan version is 4211029
+06-10 21:36:04.384 E/m.aug32.l7audi( 5864): vulkan version is 4211029
+06-10 21:36:11.243 E/m.aug32.l7audi( 5864): vulkan version is 4211029

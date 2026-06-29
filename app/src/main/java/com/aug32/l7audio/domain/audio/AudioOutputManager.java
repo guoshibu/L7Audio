@@ -1,0 +1,127 @@
+package com.aug32.l7audio.domain.audio;
+
+import android.content.Context;
+import android.media.AudioManager;
+
+import com.aug32.l7audio.data.local.AppConfig;
+import com.aug32.l7audio.utils.AppLog;
+
+/**
+ * 音频输出管理器
+ *
+ * 职责：
+ * - 管理车内/车外音频输出模式切换
+ * - 提供对应的 AudioAttributes.Usage 值
+ *
+ * 目标 SDK：Android 11 (API 30)
+ */
+public class AudioOutputManager {
+
+    private static final String TAG = "AudioOutputManager";
+
+    /** 车内输出模式 */
+    public static final int OUTPUT_CAR = 0;
+
+    /** 车外输出模式 */
+    public static final int OUTPUT_EXTERNAL = 1;
+
+    // 上下文对象
+    private final Context context;
+    // 应用配置
+    private final AppConfig appConfig;
+    // 当前音频输出模式（volatile 保证多线程可见性）
+    private volatile int currentOutputMode = OUTPUT_EXTERNAL;
+
+    /**
+     * 构造函数
+     * <p>
+     * 初始化时从 AppConfig 读取上次保存的输出模式。
+     * </p>
+     *
+     * @param context 上下文对象
+     */
+    public AudioOutputManager(Context context) {
+        this.context = context;
+        this.appConfig = new AppConfig(context);
+        this.currentOutputMode = appConfig.getAudioOutputMode();
+        AppLog.d(TAG, "AudioOutputManager initialized with mode: " + modeToString(currentOutputMode));
+    }
+
+    /**
+     * 设置音频输出模式
+     * <p>
+     * 设置后会自动保存到 AppConfig 持久化存储。
+     * 模式必须是 OUTPUT_CAR 或 OUTPUT_EXTERNAL，无效值会被忽略。
+     * </p>
+     *
+     * @param mode 音频输出模式，取值为 {@link #OUTPUT_CAR} 或 {@link #OUTPUT_EXTERNAL}
+     */
+    public synchronized void setOutputMode(int mode) {
+        // 边界检查：确保模式在有效范围内
+        if (mode < OUTPUT_CAR || mode > OUTPUT_EXTERNAL) {
+            AppLog.e(TAG, "Invalid output mode: " + mode);
+            return;
+        }
+        currentOutputMode = mode;
+        appConfig.setAudioOutputMode(mode);
+        AppLog.d(TAG, "Output mode set to: " + modeToString(mode));
+    }
+
+    /**
+     * 获取当前音频输出模式
+     *
+     * @return 当前输出模式，{@link #OUTPUT_CAR} 或 {@link #OUTPUT_EXTERNAL}
+     */
+    public synchronized int getOutputMode() {
+        return currentOutputMode;
+    }
+
+    /**
+     * 获取当前 AudioAttributes.Usage 值
+     * <p>
+     * 根据当前输出模式返回对应的 Usage 值，用于 AudioTrack、TTS 等音频播放。
+     * </p>
+     *
+     * @return AudioAttributes.Usage 值
+     */
+    public synchronized int getAudioUsage() {
+        if (currentOutputMode == OUTPUT_CAR) {
+            return appConfig.getAudioOutputUsageCar();
+        } else {
+            return appConfig.getAudioOutputUsageExternal();
+        }
+    }
+
+    /**
+     * 恢复音频输出
+     * <p>
+     * 预留方法，用于音频输出暂停后恢复。
+     * </p>
+     */
+    public void resume() {
+        AppLog.d(TAG, "Audio output resumed");
+    }
+
+    /**
+     * 获取当前音频模式
+     * <p>
+     * 返回 AudioManager.MODE_NORMAL，表示正常音频模式。
+     * </p>
+     *
+     * @return 音频模式，固定返回 AudioManager.MODE_NORMAL
+     */
+    public int getMode() {
+        return AudioManager.MODE_NORMAL;
+    }
+
+    private String modeToString(int mode) {
+        switch (mode) {
+            case OUTPUT_CAR:
+                return "OUTPUT_CAR (仅车内)";
+            case OUTPUT_EXTERNAL:
+                return "OUTPUT_EXTERNAL (仅车外)";
+            default:
+                return "UNKNOWN";
+        }
+    }
+}

@@ -1,94 +1,163 @@
-# L7音频工具
+# L7Audio 音频工具
+
+> 为银河 L7 车型量身打造的 Android 音频工具箱，集音乐播放、麦克风放大、文字转语音（TTS）、悬浮窗控制于一体。
+
+---
+
+## 目录
+
+- [项目简介](#项目简介)
+- [功能特性](#功能特性)
+- [技术架构](#技术架构)
+- [项目结构](#项目结构)
+- [核心模块说明](#核心模块说明)
+- [快速开始](#快速开始)
+- [构建与安装](#构建与安装)
+- [版本历史](#版本历史)
+- [常见问题](#常见问题)
+- [注意事项](#注意事项)
+- [联系方式](#联系方式)
+
+---
 
 ## 项目简介
-L7音频工具是一款功能强大的Android音频处理应用，为银河L7提供车内车外音乐播放、麦克风放大、文字转语音等多种音频相关功能。
-- 基于Trae开发，全程代码基本都是AI操刀。
-- 对了，23、24银河L7车型 设置页面的车外输出设备填9、15、22都行，但是音乐模块想要车外功能只能填9，否则报错。默认已改为9。
-- TTS页面的列表全部删除后恢复默认，不是bug就这么设计的。
-- ✅ 悬浮窗功能已实现，支持音乐播放控制和TTS播报快捷操作。
 
-## 主要功能
+L7Audio 是一款运行于 Android 系统的音频处理应用，专为吉利银河 L7 车型设计。应用提供车内 / 车外双输出通道的音乐播放、麦克风实时放大（车外喊话）、文字转语音播报等功能，并通过悬浮窗实现快捷操作，满足车主在不同场景下的音频需求。
+
+**开发背景**：基于 Trae AI 辅助开发，全程代码以 AI 生成与优化为主，持续迭代功能与稳定性。
+
+**适用车型**：
+- 银河 L7 2023 款
+- 银河 L7 2024 款
+
+> 💡 23 / 24 款银河 L7 设置页面的车外输出设备填 **9、15、22** 均可，但音乐模块的车外功能仅支持填 **9**，否则会报错。默认已配置为 9。
+
+---
+
+## 功能特性
 
 ### 🎵 音乐播放器
-- 支持本地音乐文件播放
-- 自动读取音乐文件的专辑封面和元数据
-- 支持播放列表管理，防止重复添加
-- 支持后台播放功能
-- 支持多种循环模式（单曲循环、列表循环、随机播放）
-- 支持播放进度保存和恢复
 
-### 🎤 麦克风放大器
-- 实时麦克风音频放大
-- 噪声抑制功能
-- 回声抑制功能
-- 啸叫抑制功能
-- 可调节放大级别
+- **本地音乐播放**：支持 MP3、FLAC、WAV、M4A、AAC、OGG、WMA、AMR 等 8 种格式
+- **内置文件浏览器**：
+  - 「扫描音乐」：弹窗选择文件夹，递归扫描目录下所有音频文件，支持多选
+  - 「添加音乐」：弹窗选择音频文件，支持多选
+  - 完全使用 File API，不依赖 MediaStore 或 SAF，实时性更强
+  - 零缓存复制：全部操作真实文件路径，无额外存储占用
+  - 多存储设备支持：自动检测内部存储、SD卡、U盘等外接存储
+  - 显示优化：两种模式均显示全部文件，不可选项灰色半透明区分
+- **三级元数据 fallback 机制**：
+  1. **系统 API 优先**：使用 MediaStore / MediaMetadataRetriever 提取元数据
+  2. **自解析 fallback**：WAV / FLAC / M4A 格式系统读取失败时，自行解析二进制文件头（RIFF INFO / Vorbis Comment / MP4 ilst）
+  3. **文件名兜底**：以上都失败时，使用去扩展名的文件名作为标题，绝不"智能"猜测艺术家，避免搞反
+- **路径规范化去重**：getCanonicalPath() + 统一大小写 + 统一分隔符，彻底避免重复添加
+- **播放列表管理**：支持手动添加、批量扫描、单首删除、清空列表
+- **多种循环模式**：
+  - 全部循环：按顺序循环播放整个列表
+  - 随机播放：随机选择下一首歌曲
+  - 单曲循环：重复播放当前歌曲
+  - 单曲播放：当前歌曲播放完毕后自动停止
+- **进度记忆**：自动保存播放进度，下次启动时可从上次位置继续
+- **歌词显示**：支持同目录 .lrc 格式歌词文件，播放时自动加载并滚动
+- **后台播放**：配合前台服务，支持后台持续播放与通知栏控制
+- **双输出通道**：车内扬声器 / 车外扬声器一键切换
+
+### 🎤 麦克风放大器（车外喊话）
+
+- **实时麦克风采集**：低延迟音频采集与播放
+- **多级放大增益**：可调节放大级别，适应不同喊话距离
+- **智能降噪处理**：
+  - 噪声抑制（NS）：降低环境背景噪声
+  - 回声抑制（AEC）：消除扬声器回授
+  - 啸叫抑制：防止高音啸叫
+- **车外喊话模式**：一键开启车外喊话，自动切换输出设备
 
 ### 📢 文字转语音（TTS）
-- 支持文本转语音功能
-- 可调节语速和音调（代码里，页面无）
-- 支持多种语音引擎
 
-### 🎯 悬浮窗
-- 悬浮窗快捷控制
-- 音乐播放快捷操作
-- TTS播报快捷功能
-- 悬浮窗显示/隐藏切换
+- **文本转语音播报**：输入文字即可合成语音输出
+- **TTS 列表管理**：支持添加、删除、自定义条目标题
+- **持久化存储**：TTS 列表通过 Gson 序列化保存，重启不丢失
+- **快速播报**：悬浮窗中可直接选择预设条目一键播报
+- **语速 / 音调调节**：代码层支持调节（UI 预留扩展）
 
-### ⚙️ 设置
-- 音频输出设备选择
-- 应用主题设置
-- 开机自启设置
+### 🎯 悬浮窗控制
 
-## 技术栈
+- **全局悬浮球**：始终显示在其他应用之上，一键展开 / 收起
+- **快捷功能面板**：
+  - 音乐播放控制（播放 / 暂停、上一曲 / 下一曲）
+  - TTS 快速列表选择与播报
+  - 车外喊话一键切换
+  - 主题切换（浅色 / 深色）
+- **智能自动收起**：10 秒无操作自动收起（车外喊话中保持展开）
+- **拖动交互**：支持拖动悬浮球调整位置，自动贴边
 
-### 核心技术
-- **开发语言**：Java
-- **开发工具**：Android Studio、Trae
-- **最低SDK**：Android 11 (API 30)
-- **目标SDK**：Android 14 (API 34)
+### ⚙️ 设置与其他
 
-### 第三方库
-- **Media3**：用于音乐播放
-- **OkHttp**：用于网络请求
-- **Gson**：用于JSON解析
-- **WorkManager**：用于应用保活
+- **音频输出设备**：自定义车内 / 车外输出设备编号
+- **主题切换**：支持浅色 / 深色主题，跟随系统或手动切换
+- **开机自启**：可配置开机自动启动应用
+- **前台服务保活**：基于 WorkManager 的保活机制，降低后台被系统杀死概率
+- **横屏 / 竖屏自适应**：通过 configChanges 避免页面重建
 
-## 安装说明
+---
 
-### 方法一：直接安装APK
-1. 下载项目生成的APK文件
-2. 在Android设备上允许安装来自"未知来源"的应用
-3. 点击APK文件进行安装
+## 技术架构
 
-### 方法二：从源码构建
-1. 克隆本项目到本地
-2. 使用Android Studio打开项目
-3. 同步Gradle依赖
-4. 构建并运行应用
+### 技术栈
 
-## 使用方法
+| 类别 | 技术 | 说明 |
+|------|------|------|
+| 开发语言 | Java | 主体代码采用 Java 11 |
+| 最低 SDK | API 30 (Android 11) | 适配车机系统 |
+| 目标 SDK | API 30 | 保证车机兼容性 |
+| 编译 SDK | API 36 | 使用最新 SDK 编译 |
+| 构建工具 | Gradle (KTS) | build.gradle.kts |
+| UI 框架 | AndroidX + Material Design | 兼容低版本系统 |
 
-### 音乐播放器
-1. 点击底部导航栏的"音乐"图标进入音乐播放器
-2. 点击"添加音乐"按钮选择本地音乐文件
-3. 点击"扫描音乐"按钮自动扫描设备中的音乐文件
-4. 点击播放列表中的歌曲开始播放
-5. 使用播放控制按钮控制播放、暂停、上一曲、下一曲
-6. 拖动进度条调整播放位置
+### 核心依赖
 
-### 麦克风放大器
-1. 点击底部导航栏的"麦克风"图标进入麦克风放大器
-2. 调整"放大级别"滑块设置合适的放大程度
-3. 启用或禁用"噪声抑制"、"回声抑制"、"啸叫抑制"功能
-4. 点击"开始放大"按钮开始使用麦克风放大功能
-5. 点击"停止放大"按钮停止使用
+| 依赖库 | 版本 | 用途 |
+|--------|------|------|
+| **Media3 ExoPlayer** | - | 音乐播放核心引擎 |
+| **Gson** | - | JSON 序列化 / 反序列化（TTS 列表、配置持久化） |
+| **WorkManager** | - | 后台保活任务调度 |
+| **Lifecycle** | - | ViewModel / LiveData，TTS 页面数据驱动 |
+| **Appcompat / Material** | - | UI 组件与主题 |
+| **RecyclerView / CardView** | - | 列表展示 |
 
-### 文字转语音
-1. 点击底部导航栏的"TTS"图标进入文字转语音功能
-2. 在文本输入框中输入要转换的文字
-3. 点击"播放"按钮开始语音播放
-4. 点击"停止"按钮停止语音播放
+### 架构设计
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                        UI 层                              │
+│  MainActivity / MusicPlayerFragment / TTSFragment / ...  │
+└───────────────────┬─────────────────────────────────────┘
+                    │ 调用
+┌───────────────────▼─────────────────────────────────────┐
+│                     Domain 层                             │
+│  MusicPlayerManager / TTSManager / MicrophoneManager     │
+│  AudioFocusManager / AudioOutputManager / PlaylistManager│
+└───────────────────┬─────────────────────────────────────┘
+                    │ 依赖
+┌───────────────────▼─────────────────────────────────────┐
+│                      Data 层                             │
+│  AppConfig (SharedPreferences) / TTSRepository           │
+└───────────────────┬─────────────────────────────────────┘
+                    │
+┌───────────────────▼─────────────────────────────────────┐
+│                    Service 层                            │
+│  AudioForegroundService / FloatingWindowService          │
+│  KeepAliveManager / KeepAliveWorker                      │
+└─────────────────────────────────────────────────────────┘
+```
+
+**设计原则**：
+- **单例管理**：核心管理器（MusicPlayerManager、AudioFocusManager 等）通过 `AudioServiceLocator` 统一管理，采用 DCL 双重检查锁实现懒加载单例
+- **关注点分离**：播放控制（PlaybackController）与播放列表（PlaylistManager）职责分离
+- **接口抽象**：`MusicSource` 接口预留扩展点，支持未来接入在线音乐等更多音乐源
+- **线程安全**：PlaylistManager 所有操作使用 `synchronized` 保证多线程安全
+
+---
 
 ## 项目结构
 
@@ -97,89 +166,447 @@ L7Audio/
 ├── app/
 │   ├── src/main/
 │   │   ├── java/com/aug32/l7audio/
-│   │   │   ├── audio/            # 音频相关核心类
-│   │   │   │   ├── AudioFocusManager.java
-│   │   │   │   ├── AudioOutputManager.java
-│   │   │   │   ├── MicrophoneManager.java
-│   │   │   │   ├── MusicPlayerManager.java
-│   │   │   │   └── TTSManager.java
-│   │   │   ├── service/          # 服务类
+│   │   │   ├── L7AudioApp.java              # Application 入口
+│   │   │   ├── base/                        # 基类
+│   │   │   │   ├── BaseActivity.java
+│   │   │   │   ├── BaseFragment.java
+│   │   │   │   └── BaseService.java
+│   │   │   ├── domain/audio/                # 音频核心领域层
+│   │   │   │   ├── AudioServiceLocator.java # 服务定位器（单例管理）
+│   │   │   │   ├── AudioFocusManager.java   # 音频焦点管理
+│   │   │   │   ├── AudioOutputManager.java  # 输出设备管理
+│   │   │   │   ├── MusicPlayerManager.java  # 音乐播放管理
+│   │   │   │   ├── PlaybackState.java       # 播放状态
+│   │   │   │   ├── MusicItem.java           # 音乐条目模型
+│   │   │   │   ├── LrcParser.java           # 歌词解析器
+│   │   │   │   ├── AudioVisualizerView.java # 音频可视化视图
+│   │   │   │   ├── MicrophoneManager.java   # 麦克风管理
+│   │   │   │   ├── TTSManager.java          # TTS 管理
+│   │   │   │   ├── player/                  # 播放控制器
+│   │   │   │   │   ├── PlaybackController.java
+│   │   │   │   │   └── PlaybackCallback.java
+│   │   │   │   └── playlist/                # 播放列表
+│   │   │   │       ├── PlaylistManager.java
+│   │   │   │       ├── MusicSource.java     # 音乐源接口（扩展点）
+│   │   │   │       └── ScannedMusicInfo.java
+│   │   │   ├── data/                        # 数据层
+│   │   │   │   ├── local/
+│   │   │   │   │   └── AppConfig.java       # 配置持久化
+│   │   │   │   ├── model/
+│   │   │   │   │   └── TTSItem.java         # TTS 数据模型
+│   │   │   │   └── repository/
+│   │   │   │       └── TTSRepository.java   # TTS 数据仓库
+│   │   │   ├── ui/                          # UI 层
+│   │   │   │   ├── activity/
+│   │   │   │   │   └── MainActivity.java    # 主 Activity
+│   │   │   │   ├── fragment/
+│   │   │   │   │   ├── MusicPlayerFragment.java
+│   │   │   │   │   ├── MicAmplifierFragment.java
+│   │   │   │   │   ├── TTSFragment.java
+│   │   │   │   │   ├── SettingsFragment.java
+│   │   │   │   │   └── AboutFragment.java
+│   │   │   │   ├── viewmodel/
+│   │   │   │   │   └── TTSViewModel.java    # TTS 页面 ViewModel
+│   │   │   │   └── adapter/
+│   │   │   │       └── MusicPlaylistAdapter.java
+│   │   │   ├── service/                     # 服务层
 │   │   │   │   ├── AudioForegroundService.java
 │   │   │   │   ├── FloatingWindowService.java
 │   │   │   │   ├── KeepAliveManager.java
 │   │   │   │   └── KeepAliveWorker.java
-│   │   │   ├── AppConfig.java    # 应用配置
-│   │   │   ├── AppLog.java       # 日志工具
-│   │   │   ├── BootReceiver.java # 开机启动接收器
-│   │   │   ├── MainActivity.java # 主活动
-│   │   │   ├── MicAmplifierFragment.java # 麦克风放大器界面
-│   │   │   ├── MusicPlayerFragment.java  # 音乐播放器界面
-│   │   │   ├── MusicPlaylistAdapter.java # 音乐播放列表适配器
-│   │   │   ├── SettingsFragment.java     # 设置界面
-│   │   │   └── TTSFragment.java          # 文字转语音界面
-│   │   ├── res/                  # 资源文件
-│   │   │   ├── layout/           # 布局文件
-│   │   │   ├── drawable/         # 图片资源
-│   │   │   ├── values/           # 字符串、颜色等资源
-│   │   │   └── menu/             # 菜单资源
-│   │   └── AndroidManifest.xml   # 应用清单文件
-│   ├── build.gradle.kts          # 应用级构建配置
-│   └── proguard-rules.pro        # 代码混淆规则
-├── build.gradle.kts              # 项目级构建配置
-├── settings.gradle.kts           # 项目设置
-├── gradlew                       # Gradle包装器脚本
-├── gradlew.bat                   # Windows Gradle包装器脚本
-└── README.md                     # 项目说明文档
+│   │   │   ├── receiver/                    # 广播接收器
+│   │   │   │   └── BootReceiver.java        # 开机自启
+│   │   │   └── utils/                       # 工具类
+│   │   │       ├── AppLog.java              # 日志工具
+│   │   │       ├── AppExecutors.java        # 线程池
+│   │   │       ├── AudioUtils.java          # 音频工具
+│   │   │       ├── FileUtils.java           # 文件工具
+│   │   │       └── ServiceCompat.java       # 服务兼容工具
+│   │   ├── res/                             # 资源文件
+│   │   │   ├── layout/                      # 布局（竖屏）
+│   │   │   ├── layout-land/                 # 布局（横屏）
+│   │   │   ├── drawable/                    # 图片 / 形状
+│   │   │   ├── values/                      # 字符串 / 颜色 / 主题
+│   │   │   ├── values-night/                # 深色主题
+│   │   │   ├── color/                       # 颜色选择器
+│   │   │   └── menu/                        # 菜单
+│   │   └── AndroidManifest.xml              # 应用清单
+│   ├── build.gradle.kts                     # 应用级构建配置
+│   └── proguard-rules.pro                   # 混淆规则
+├── backup_music_module/                     # 备份目录（重构用）
+├── CHANGELOG.md                             # 改动记录
+├── README.md                                # 本文件
+├── build.gradle.kts                         # 项目级构建配置
+├── settings.gradle.kts                      # 项目设置
+├── gradle.properties                        # Gradle 属性
+├── gradlew / gradlew.bat                    # Gradle 包装器
+└── release.keystore                         # 签名密钥（release 构建用）
 ```
 
-## 贡献指南
+---
 
-### 如何贡献
-1. Fork本项目
-2. 创建您的特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交您的更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 打开一个Pull Request
+## 核心模块说明
 
-### 代码规范
-- 遵循Java代码规范
-- 确保代码注释清晰
-- 保持代码风格一致
+### 1. AudioServiceLocator — 服务定位器
 
-## 许可证信息
+**文件**：`domain/audio/AudioServiceLocator.java`
 
-本项目采用MIT许可证：
+**职责**：统一管理所有音频相关管理器的单例实例，采用 DCL（Double-Checked Locking）双重检查锁实现懒加载。
 
+**特点**：
+- 全局唯一入口，避免静态单例滥用
+- 初始化时传入 Application Context，避免内存泄漏
+- 按需创建，启动时不占用过多资源
+
+### 2. MusicPlayerManager — 音乐播放管理器
+
+**文件**：`domain/audio/MusicPlayerManager.java`
+
+**职责**：音乐播放的顶层入口，封装播放控制、列表管理、状态保存等核心逻辑。
+
+**核心方法**：
+- `togglePlayPause()` — 播放 / 暂停切换
+- `playAt(int index)` — 播放指定位置歌曲
+- `seekTo(long positionMs)` — 跳转到指定播放位置
+- `next() / previous()` — 下一曲 / 上一曲
+- `addMusicFiles / addMusicFromScan()` — 添加音乐（手动 / 扫描）
+- `saveState / restoreState()` — 状态持久化
+
+### 3. PlaybackController — 播放控制器
+
+**文件**：`domain/audio/player/PlaybackController.java`
+
+**职责**：封装 ExoPlayer 的底层操作，与业务逻辑解耦。
+
+**关键点**：
+- ExoPlayer 实例创建与生命周期管理
+- 音频属性配置（`setAudioAttributes` 第二参数为 `false`，禁用内部焦点管理，避免与自定义 `AudioFocusManager` 冲突）
+- 播放回调分发（通过 `PlaybackCallback` 接口）
+- 音频使用场景切换（音乐 / TTS / 车外喊话）
+
+### 4. PlaylistManager — 播放列表管理器
+
+**文件**：`domain/audio/playlist/PlaylistManager.java`
+
+**职责**：播放列表数据管理与循环模式逻辑。
+
+**循环模式**：
+| 模式 | 常量 | 行为 |
+|------|------|------|
+| 全部循环 | `REPEAT_MODE_ALL` | 列表末尾自动回到开头 |
+| 随机播放 | `REPEAT_MODE_SHUFFLE` | 随机选择下一首 |
+| 单曲循环 | `REPEAT_MODE_ONE` | 重复播放当前歌曲 |
+| 单曲播放 | `REPEAT_MODE_OFF` | 当前歌曲结束后停止 |
+
+**线程安全**：所有修改列表的操作均使用 `synchronized` 保护。
+
+### 5. AudioFocusManager — 音频焦点管理器
+
+**文件**：`domain/audio/AudioFocusManager.java`
+
+**职责**：统一管理应用内的音频焦点请求与释放，避免内部冲突。
+
+**焦点类型**：
+- **永久焦点**（`AUDIOFOCUS_GAIN`）：音乐播放使用
+- **瞬时焦点**（`AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK`）：TTS / 车外喊话使用，支持闪避
+
+**特点**：
+- 同应用内切换时手动调度焦点事件（瞬时焦点 → 播放焦点）
+- 焦点被外部应用抢占时自动暂停音乐，归还时自动恢复
+
+### 6. AudioOutputManager — 音频输出管理器
+
+**文件**：`domain/audio/AudioOutputManager.java`
+
+**职责**：管理音频输出设备（车内 / 车外扬声器）的切换。
+
+### 7. FloatingWindowService — 悬浮窗服务
+
+**文件**：`service/FloatingWindowService.java`
+
+**职责**：全局悬浮窗的显示、交互、自动收起逻辑。
+
+**核心特性**：
+- 悬浮球 + 展开面板双形态
+- 10 秒无操作自动收起（车外喊话中暂停计时）
+- TTS 列表快速选择，点击后直接跳转 TTS 模块
+- 主题切换按钮，支持浅色 / 深色模式
+
+### 8. AppConfig — 应用配置
+
+**文件**：`data/local/AppConfig.java`
+
+**职责**：基于 SharedPreferences 的配置持久化，统一管理所有用户设置项。
+
+**配置项包括**：主题模式、音频输出设备、循环模式、开机自启、悬浮窗开关、TTS 列表、播放进度等。
+
+---
+
+## 快速开始
+
+### 环境要求
+
+- JDK 11+
+- Android Studio Hedgehog 或更高版本
+- Android SDK 30+
+- Gradle 8.x（随项目包装器自动下载）
+
+### 导入项目
+
+1. 克隆或下载项目代码到本地
+2. 使用 Android Studio 选择「Open an existing project」，选择项目根目录
+3. 等待 Gradle 同步完成
+4. 连接 Android 设备或启动模拟器
+5. 点击「Run」按钮安装并运行
+
+### 调试技巧
+
+- **日志标签**：全局日志使用 `AppLog` 工具类，标签统一为 `L7Audio`，可通过 `adb logcat -s L7Audio` 过滤
+- **Debug 构建**：Debug 模式下日志完整输出，Release 模式自动禁用日志
+- **悬浮窗权限**：首次使用悬浮窗需授权「悬浮窗 / 显示在其他应用之上」权限
+
+---
+
+## 构建与安装
+
+### 构建命令
+
+```powershell
+# Debug 构建（开发调试）
+.\gradlew.bat assembleDebug --no-daemon
+
+# Release 构建（带签名）
+.\gradlew.bat assembleRelease --no-daemon
+
+# 同时构建 Debug 和 Release
+.\gradlew.bat assemble --no-daemon
+
+# 清理构建产物
+.\gradlew.bat clean
 ```
-MIT License
 
-Copyright (c) 2026 L7音频工具
+> 💡 建议使用 `--no-daemon` 参数避免 Gradle 守护进程导致的内存占用问题。
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+### 构建产物
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+| 类型 | 路径 |
+|------|------|
+| Debug APK | `app/build/outputs/apk/debug/app-debug.apk` |
+| Release APK | `app/build/outputs/apk/release/app-release.apk` |
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+### Release 签名配置
+
+签名信息已内置在 `app/build.gradle.kts` 中：
+
+| 配置项 | 值 |
+|--------|-----|
+| Keystore 文件 | `../release.keystore` |
+| Keystore 密码 | `password123` |
+| Key 别名 | `l7audio` |
+| Key 密码 | `password123` |
+
+> ⚠️ 生产环境请妥善保管密钥文件和密码，避免泄露。
+
+### 安装到设备
+
+```powershell
+# 安装 Debug 包
+adb install app/build/outputs/apk/debug/app-debug.apk
+
+# 安装 Release 包
+adb install app/build/outputs/apk/release/app-release.apk
 ```
+
+---
+
+## 版本历史
+
+### v1.4.1 (versionCode: 41)
+- 🔧 接入 Android 媒体中心（MediaSession）：
+  - 新增 MediaSessionManager，管理 MediaSession 生命周期
+  - 同步播放状态到系统媒体中心（供车机按键、第三方APP读取）
+  - 通知栏升级为 MediaStyle，支持专辑封面显示
+  - 通知栏媒体控制按钮：上一首、播放/暂停、下一首
+  - 接入能力：车机方向盘/中控媒体按键控制、第三方APP读取歌曲信息、锁屏界面媒体控制
+
+### v1.3.12 (versionCode: 35)
+- 🔧 设置页枚举按钮重构与显示优化：
+  - 三个枚举按钮（枚举麦克风、枚举输出设备、枚举车内输出设备）统一调用共用方法，减少代码冗余
+  - 车内/车外输出设备枚举共用同一逻辑，均显示"输出设备列表"
+  - 麦克风与扬声器分开显示，保持当前 UI 结构不变
+  - 简洁显示：编号 + 设备名 + 设备类型中文名 + 类型ID，让用户清楚知道车机有几个麦克风/扬声器
+- 🔧 「显示音频路由」按钮内容增强：
+  - 新增基本音频信息（音频模式、铃声模式、蓝牙SCO状态）
+  - 新增音量设置（音乐流、铃声流、通话流、闹钟流）
+  - 新增系统音频设备列表（所有输入/输出设备的详细信息）
+  - 新增系统信息（Android版本、设备品牌/型号/厂商）
+- 🔧 添加重复音乐吐司提示优化：根据成功、重复、失败数量动态生成提示信息
+- 🔧 全项目 import 语句规范化整理：
+  - 统一分组顺序：Android系统包 → AndroidX/第三方 → JDK标准库 → 项目本地包
+  - 组内按字母顺序排序，组间空行分隔
+  - 移除未使用的 import（共清理 28 个冗余导入）
+- 🔧 Fragment 生命周期规范：为 SettingsFragment、TTSFragment、FileBrowserFragment 添加 onDestroyView 方法
+  - 置空所有 View 引用，防止 Fragment 视图销毁后内存泄漏
+  - 清理 TTSProgressListener 等回调监听器
+
+### v1.3.11 (versionCode: 34)
+- 🐛 修复文件浏览器目录层级导航问题：进入存储设备根目录后无"返回上级目录"项
+  - 统一导航逻辑：移除父目录可读检查，始终显示".."项
+  - 点击".."时判断父目录是否可读：可读则进入上级目录，不可读则返回存储设备选择页
+
+### v1.3.10 (versionCode: 33)
+- 🐛 修复扫描音乐完成后播放列表不自动刷新的问题（音乐文件多时等待时间长）
+- 🐛 修复TTS语音测试（车外）声音从车内喇叭发出的问题（使用车外音频输出模式）
+- 🐛 修复设置页枚举设备内容与1.1.1旧版不一致的问题
+  - 重新实现 `enumMicrophones()` / `enumOutputDevices()` / `enumCarOutputDevices()`，使用反射调用 AudioManager.getDevices() 遍历 AudioDeviceInfo
+  - 新增 `getDeviceTypeName()` 工具方法映射22种设备类型中文名
+- 🔧 文件选择器视觉效果优化：目录保持正常显示，只有非音频文件才显示半透明
+- 🔧 彻底移除状态栏管理：
+  - themes.xml 移除全部状态栏/导航栏属性
+  - BaseActivity.setupStatusBar() 改为空方法
+  - MainActivity 移除 setupStatusBarWithTheme() 调用
+  - Fragment 布局添加 fitsSystemWindows 属性
+- 🐛 修复歌曲封面无法显示的问题
+  - 新增 MusicItem.albumArt 字段存储封面字节数组
+  - 在添加音乐时通过 MediaMetadataRetriever 提取内嵌封面
+  - 在播放时将封面加载到 ImageView
+- 🔧 文件浏览器存储设备页添加"返回上级目录"按钮（点击返回主页）
+
+### v1.3.9 (versionCode: 32)
+- 🆕 文件浏览器支持多存储设备：内部存储、SD卡、U盘等外接存储自动检测
+- 🔧 文件浏览器显示优化：两种模式均显示全部文件，不可选项灰色半透明
+  - 目录模式：只有目录可选中，文件灰色不可选
+  - 文件模式：只有音频文件可选中，其他文件灰色不可选
+- 🔧 修复切换目录后多选模式未重置导致的无法进入子目录问题
+- 🔧 全选按钮只选中当前模式下可选的项目
+- 🐛 修复横竖屏切换后音乐模块布局不刷新问题（onConfigurationChanged 重新加载 Fragment）
+
+### v1.3.8 (versionCode: 31)
+- 🆕 内置文件浏览器：「扫描音乐」选择文件夹、「添加音乐」选择文件，均支持多选
+- 🔧 完全使用 File API，不依赖 MediaStore 或 SAF，实时性更强
+- 🔧 零缓存复制：全部操作真实文件路径，无额外存储占用
+- 🔧 路径规范化去重：getCanonicalPath() + 统一大小写 + 统一分隔符，彻底解决重复添加
+- 🔧 目录递归扫描：自动跳过隐藏文件和 .nomedia 目录
+
+### v1.3.7 (versionCode: 30)
+- 🔧 PlaylistManager 新增路径规范化去重机制
+- 🔧 优化音乐添加逻辑，避免重复条目
+
+### v1.3.6 (versionCode: 29)
+- 🔧 优化侧边栏菜单按钮尺寸（图标 32dp，文字 20sp，垂直间距 24dp），提升车机触控体验
+- 🐛 修复 WAV 格式中文元数据乱码问题：智能编码检测，GBK 优先，兼容 UTF-8
+- 🔧 新增 WAV 文件 ID3v2 尾部标签解析支持（部分 WAV 使用 ID3v2 而非 RIFF INFO）
+- 🐛 修复"添加音乐"按钮无法添加歌曲的问题：Android 11+ 上 content:// URI 无法获取文件路径时直接使用 content URI 添加
+
+### v1.3.5 (versionCode: 28)
+- 🐛 修复 WAV / FLAC / M4A 格式歌曲元数据读取失败问题（显示 `<unknown>`）
+- 🔧 新增三级元数据 fallback 机制：系统 API → 自解析二进制文件头 → 文件名兜底
+- 🔧 新增 WAV RIFF INFO 块自解析器
+- 🔧 新增 FLAC Vorbis Comment 自解析器
+- 🔧 新增 M4A / AAC MP4 ilst 元数据自解析器
+- ⚠️ 自解析失败时仅显示文件名，绝不"智能"拆分艺术家/标题，避免搞反
+
+### v1.3.4 (versionCode: 27)
+- 🐛 修复车内扬声器无声问题（ExoPlayer 内部音频焦点与自定义 AudioFocusManager 冲突）
+- 🐛 修复车外扬声器切换时报错（非 MEDIA/GAME audio usage 导致 IllegalArgumentException）
+- 🔄 循环模式优化：「不循环」改为「单曲播放」（当前歌曲结束后停止）
+- 🔄 「列表循环」改名为「全部循环」
+- 📝 全项目代码注释规范化（Javadoc 补全）
+
+### v1.3.3 (versionCode: 26)
+- TTS 删除按钮样式统一（与音乐列表删除按钮一致）
+- 悬浮窗「关闭」改「收起」
+- 代码清理与健壮性优化
+
+### v1.3.2 (versionCode: 25)
+- 悬浮窗 TTS 列表跳转优化（直接跳转，去除 Intent 中间层）
+- 500ms 延迟逻辑清理
+- 车外喊话时悬浮窗不自动收起
+
+### v1.3.1 (versionCode: 24)
+- TTS 列表数据模型修复（List<String> → List<TTSItem>）
+- 悬浮窗 UI 优化
+
+### v1.3.0 (versionCode: 23)
+- 首次点击播放修复（ExoPlayer 音频焦点配置）
+- 切后台状态丢失修复（MusicPlayerManager 单例化）
+- 进度条显示与 seek 优化
+
+### v1.2.x
+- 音乐播放器核心功能迭代
+- 悬浮窗功能初版
+- 音频焦点管理重构
+
+### v1.1.x
+- 基础框架搭建
+- 音乐、TTS、麦克风三大核心功能实现
+
+> 详细改动记录请参考 [CHANGELOG.md](file:///e:/JAVA/L7Audio/CHANGELOG.md)
+
+---
+
+## 常见问题
+
+### Q1：音乐模块车外播放报错？
+**A**：请在设置页将车外输出设备编号改为 **9**。23 / 24 款银河 L7 音乐模块仅支持设备 9 作为车外输出。
+
+### Q2：TTS 列表全部删除后又出现默认条目？
+**A**：这是正常设计。当列表为空时会自动恢复默认条目，避免功能不可用。
+
+### Q3：悬浮窗不显示？
+**A**：请检查以下几点：
+1. 是否已授予「悬浮窗 / 显示在其他应用之上」权限
+2. 设置页中「悬浮窗开关」是否开启
+3. 系统是否限制了应用后台弹出窗口权限
+
+### Q4：应用在后台容易被杀？
+**A**：
+1. 请确保已开启「开机自启」和「前台服务」
+2. 在系统设置中将应用加入「后台运行白名单」
+3. 关闭电池优化
+
+### Q5：横屏切换时页面重启？
+**A**：已通过 `AndroidManifest` 中 `configChanges` 配置避免了旋转和屏幕大小变化导致的 Activity 重建。如遇到其他配置变化导致的重启，请检查 `configChanges` 属性。
+
+### Q6：歌词不显示？
+**A**：歌词文件需满足以下条件：
+1. 与音乐文件同名（如 `song.mp3` 对应 `song.lrc`）
+2. 放在同一目录下
+3. 格式为标准 .lrc 格式（`[mm:ss.xx] 歌词内容`）
+
+---
+
+## 注意事项
+
+### 使用约束
+
+1. **车外喊话音量**：使用车外喊话功能时请遵守当地法律法规，避免扰民
+2. **驾驶安全**：驾驶过程中请勿操作复杂功能，确保行车安全
+3. **版权声明**：请确保播放的音乐拥有合法版权
+
+### 开发约束
+
+1. **不修改业务逻辑**：重构 / 优化时必须保证原有业务逻辑 100% 不变
+2. **单例模式**：核心管理器必须通过 `AudioServiceLocator` 获取，禁止直接 `new`
+3. **线程安全**：播放列表等共享数据操作必须加锁
+4. **内存泄漏**：
+   - Fragment 中在 `onDestroyView` 置空 View 引用
+   - 监听器 / 回调及时移除
+   - 不使用 Activity Context 注册长生命周期对象
+5. **ExoPlayer 音频焦点**：`setAudioAttributes` 第二参数必须为 `false`，由自定义 `AudioFocusManager` 统一管理焦点
+6. **备份机制**：每批次修改前必须备份，支持随时回滚
+
+### 安全提示
+
+- ⚠️ `release.keystore` 和签名密码仅用于开发 / 测试环境，生产环境请使用独立的安全密钥
+- ⚠️ 不要将密钥文件和密码提交到公开的代码仓库
+
+---
 
 ## 联系方式
 
-如果您有任何问题或建议，欢迎联系我：
-
-- 项目地址：[[GitHub链接](https://github.com/guoshibu/L7Audio)]()
-- 项目地址：企鹅群-159045907
+- **QQ 群**：159045907
+- **项目地址**：[GitHub](https://github.com/guoshibu/L7Audio)
 
 ---
 

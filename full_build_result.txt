@@ -1,0 +1,325 @@
+Starting a Gradle Daemon, 1 busy and 1 stopped Daemons could not be reused, use --status for details
+Daemon JVM discovery is an incubating feature.
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preReleaseBuild UP-TO-DATE
+> Task :app:mergeReleaseJniLibFolders UP-TO-DATE
+> Task :app:mergeReleaseNativeLibs NO-SOURCE
+> Task :app:stripReleaseDebugSymbols NO-SOURCE
+> Task :app:extractReleaseNativeSymbolTables NO-SOURCE
+> Task :app:mergeReleaseNativeDebugMetadata NO-SOURCE
+> Task :app:checkReleaseDuplicateClasses UP-TO-DATE
+> Task :app:generateReleaseResources UP-TO-DATE
+> Task :app:packageReleaseResources UP-TO-DATE
+> Task :app:processReleaseNavigationResources UP-TO-DATE
+> Task :app:parseReleaseLocalResources UP-TO-DATE
+> Task :app:generateReleaseRFile UP-TO-DATE
+> Task :app:compileReleaseKotlin NO-SOURCE
+> Task :app:javaPreCompileRelease UP-TO-DATE
+
+> Task :app:compileReleaseJavaWithJavac
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:44: 错误: 找不到符号
+    private SeekBar sbTtsSpeed;
+            ^
+  符号:   类 SeekBar
+  位置: 类 SettingsFragment
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:45: 错误: 找不到符号
+    private SeekBar sbTtsPitch;
+            ^
+  符号:   类 SeekBar
+  位置: 类 SettingsFragment
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\MainActivity.java:220: 警告: [deprecation] Resources中的updateConfiguration(Configuration,DisplayMetrics)已过时
+        getBaseContext().getResources().updateConfiguration(configuration, metrics);
+                                       ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\MainActivity.java:230: 警告: [deprecation] Window中的setStatusBarColor(int)已过时
+            getWindow().setStatusBarColor(ContextCompat.getColor(this, R.color.menu_background));
+                       ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\MainActivity.java:240: 警告: [deprecation] View中的setSystemUiVisibility(int)已过时
+                    getWindow().getDecorView().setSystemUiVisibility(0);
+                                              ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\MainActivity.java:247: 警告: [deprecation] View中的SYSTEM_UI_FLAG_LIGHT_STATUS_BAR已过时
+                            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                                ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\MainActivity.java:246: 警告: [deprecation] View中的setSystemUiVisibility(int)已过时
+                    getWindow().getDecorView().setSystemUiVisibility(
+                                              ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\MusicPlayerFragment.java:99: 警告: [deprecation] WindowManager中的getDefaultDisplay()已过时
+            getActivity().getWindowManager().getDefaultDisplay().getMetrics(displayMetrics);
+                                            ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\MusicPlayerFragment.java:99: 警告: [deprecation] Display中的getMetrics(DisplayMetrics)已过时
+            getActivity().getWindowManager().getDefaultDisplay().getMetrics(displayMetrics);
+                                                                ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:234: 警告: [deprecation] LayoutParams中的TYPE_PHONE已过时
+                    WindowManager.LayoutParams.TYPE_PHONE,
+                                              ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:295: 警告: [deprecation] Resources中的getColor(int)已过时
+            btnBall.setTextColor(getResources().getColor(android.R.color.white));
+                                               ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:299: 警告: [deprecation] Resources中的getColor(int)已过时
+            btnBall.setTextColor(getResources().getColor(android.R.color.black));
+                                               ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:313: 警告: [deprecation] Resources中的getColor(int)已过时
+            floatingListView.setBackgroundColor(getResources().getColor(R.color.button_background));
+                                                              ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:315: 警告: [deprecation] Resources中的getColor(int)已过时
+            floatingListView.setBackgroundColor(getResources().getColor(android.R.color.white));
+                                                              ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:321: 警告: [deprecation] Resources中的getColor(int)已过时
+            titleText.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                          ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:321: 警告: [deprecation] Resources中的getColor(int)已过时
+            titleText.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                                                           ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:332: 警告: [deprecation] Resources中的getColor(int)已过时
+            closeBtn.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                         ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:332: 警告: [deprecation] Resources中的getColor(int)已过时
+            closeBtn.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                                                          ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:338: 警告: [deprecation] Resources中的getColor(int)已过时
+            alphaText.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                          ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:338: 警告: [deprecation] Resources中的getColor(int)已过时
+            alphaText.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                                                           ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:349: 警告: [deprecation] Resources中的getColor(int)已过时
+            announcementBtn.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:349: 警告: [deprecation] Resources中的getColor(int)已过时
+            announcementBtn.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                                                                 ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:360: 警告: [deprecation] Resources中的getColor(int)已过时
+            selectTtsBtn.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                             ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:360: 警告: [deprecation] Resources中的getColor(int)已过时
+            selectTtsBtn.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                                                              ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:366: 警告: [deprecation] Resources中的getColor(int)已过时
+            ttsListLabel.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                             ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:366: 警告: [deprecation] Resources中的getColor(int)已过时
+            ttsListLabel.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                                                              ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:398: 警告: [deprecation] LayoutParams中的TYPE_PHONE已过时
+                        WindowManager.LayoutParams.TYPE_PHONE,
+                                                  ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:940: 警告: [deprecation] Resources中的getColor(int)已过时
+            button.setTextColor(getResources().getColor(android.R.color.white));
+                                              ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:949: 警告: [deprecation] Resources中的getColor(int)已过时
+            button.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                       ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:949: 警告: [deprecation] Resources中的getColor(int)已过时
+            button.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                                                        ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:968: 警告: [deprecation] Resources中的getColor(int)已过时
+        btnPlay.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                    ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:968: 警告: [deprecation] Resources中的getColor(int)已过时
+        btnPlay.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                                                     ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:976: 警告: [deprecation] Resources中的getColor(int)已过时
+        btnDelete.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                      ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:976: 警告: [deprecation] Resources中的getColor(int)已过时
+        btnDelete.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                                                       ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:289: 警告: [deprecation] AudioManager中的isSpeakerphoneOn()已过时
+                    isSpeakerphoneOn = audioManager.isSpeakerphoneOn();
+                                                   ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:290: 警告: [deprecation] AudioManager中的isBluetoothScoOn()已过时
+                    isBluetoothScoOn = audioManager.isBluetoothScoOn();
+                                                   ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:291: 警告: [deprecation] AudioManager中的isWiredHeadsetOn()已过时
+                    isWiredHeadsetOn = audioManager.isWiredHeadsetOn();
+                                                   ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:292: 警告: [deprecation] AudioManager中的isBluetoothA2dpOn()已过时
+                    isBluetoothA2dpOn = audioManager.isBluetoothA2dpOn();
+                                                    ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:299: 警告: [deprecation] AudioManager中的isSpeakerphoneOn()已过时
+                isSpeakerphoneOn = audioManager.isSpeakerphoneOn();
+                                               ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:300: 警告: [deprecation] AudioManager中的isBluetoothScoOn()已过时
+                isBluetoothScoOn = audioManager.isBluetoothScoOn();
+                                               ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:301: 警告: [deprecation] AudioManager中的isWiredHeadsetOn()已过时
+                isWiredHeadsetOn = audioManager.isWiredHeadsetOn();
+                                               ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:302: 警告: [deprecation] AudioManager中的isBluetoothA2dpOn()已过时
+                isBluetoothA2dpOn = audioManager.isBluetoothA2dpOn();
+                                                ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\TTSFragment.java:465: 警告: [deprecation] Resources中的getColor(int)已过时
+            positiveBtn.setTextColor(getResources().getColor(android.R.color.white));
+                                                   ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\TTSFragment.java:466: 警告: [deprecation] Resources中的getColor(int)已过时
+            positiveBtn.setBackgroundColor(getResources().getColor(R.color.button_background_selected));
+                                                         ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\TTSFragment.java:470: 警告: [deprecation] Resources中的getColor(int)已过时
+            negativeBtn.setTextColor(getResources().getColor(android.R.color.white));
+                                                   ^
+D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\TTSFragment.java:471: 警告: [deprecation] Resources中的getColor(int)已过时
+            negativeBtn.setBackgroundColor(getResources().getColor(R.color.button_background));
+                                                         ^
+2 个错误
+44 个警告
+
+> Task :app:compileReleaseJavaWithJavac FAILED
+
+[Incubating] Problems report is available at: file:///D:/L7/L7Audio/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileReleaseJavaWithJavac'.
+> Compilation failed; see the compiler output below.
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\MainActivity.java:220: 警告: [deprecation] Resources中的updateConfiguration(Configuration,DisplayMetrics)已过时
+          getBaseContext().getResources().updateConfiguration(configuration, metrics);
+                                         ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\MainActivity.java:230: 警告: [deprecation] Window中的setStatusBarColor(int)已过时
+              getWindow().setStatusBarColor(ContextCompat.getColor(this, R.color.menu_background));
+                         ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\MainActivity.java:240: 警告: [deprecation] View中的setSystemUiVisibility(int)已过时
+                      getWindow().getDecorView().setSystemUiVisibility(0);
+                                                ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\MainActivity.java:247: 警告: [deprecation] View中的SYSTEM_UI_FLAG_LIGHT_STATUS_BAR已过时
+                              View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                                  ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\MainActivity.java:246: 警告: [deprecation] View中的setSystemUiVisibility(int)已过时
+                      getWindow().getDecorView().setSystemUiVisibility(
+                                                ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\MusicPlayerFragment.java:99: 警告: [deprecation] WindowManager中的getDefaultDisplay()已过时
+              getActivity().getWindowManager().getDefaultDisplay().getMetrics(displayMetrics);
+                                              ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\MusicPlayerFragment.java:99: 警告: [deprecation] Display中的getMetrics(DisplayMetrics)已过时
+              getActivity().getWindowManager().getDefaultDisplay().getMetrics(displayMetrics);
+                                                                  ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:234: 警告: [deprecation] LayoutParams中的TYPE_PHONE已过时
+                      WindowManager.LayoutParams.TYPE_PHONE,
+                                                ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:295: 警告: [deprecation] Resources中的getColor(int)已过时
+              btnBall.setTextColor(getResources().getColor(android.R.color.white));
+                                                 ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:299: 警告: [deprecation] Resources中的getColor(int)已过时
+              btnBall.setTextColor(getResources().getColor(android.R.color.black));
+                                                 ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:313: 警告: [deprecation] Resources中的getColor(int)已过时
+              floatingListView.setBackgroundColor(getResources().getColor(R.color.button_background));
+                                                                ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:315: 警告: [deprecation] Resources中的getColor(int)已过时
+              floatingListView.setBackgroundColor(getResources().getColor(android.R.color.white));
+                                                                ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:321: 警告: [deprecation] Resources中的getColor(int)已过时
+              titleText.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                            ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:321: 警告: [deprecation] Resources中的getColor(int)已过时
+              titleText.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                                                             ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:332: 警告: [deprecation] Resources中的getColor(int)已过时
+              closeBtn.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                           ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:332: 警告: [deprecation] Resources中的getColor(int)已过时
+              closeBtn.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                                                            ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:338: 警告: [deprecation] Resources中的getColor(int)已过时
+              alphaText.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                            ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:338: 警告: [deprecation] Resources中的getColor(int)已过时
+              alphaText.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                                                             ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:349: 警告: [deprecation] Resources中的getColor(int)已过时
+              announcementBtn.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                  ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:349: 警告: [deprecation] Resources中的getColor(int)已过时
+              announcementBtn.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                                                                   ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:360: 警告: [deprecation] Resources中的getColor(int)已过时
+              selectTtsBtn.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                               ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:360: 警告: [deprecation] Resources中的getColor(int)已过时
+              selectTtsBtn.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                                                                ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:366: 警告: [deprecation] Resources中的getColor(int)已过时
+              ttsListLabel.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                               ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:366: 警告: [deprecation] Resources中的getColor(int)已过时
+              ttsListLabel.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                                                                ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:398: 警告: [deprecation] LayoutParams中的TYPE_PHONE已过时
+                          WindowManager.LayoutParams.TYPE_PHONE,
+                                                    ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:940: 警告: [deprecation] Resources中的getColor(int)已过时
+              button.setTextColor(getResources().getColor(android.R.color.white));
+                                                ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:949: 警告: [deprecation] Resources中的getColor(int)已过时
+              button.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                         ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:949: 警告: [deprecation] Resources中的getColor(int)已过时
+              button.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                                                          ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:968: 警告: [deprecation] Resources中的getColor(int)已过时
+          btnPlay.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                      ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:968: 警告: [deprecation] Resources中的getColor(int)已过时
+          btnPlay.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                                                       ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:976: 警告: [deprecation] Resources中的getColor(int)已过时
+          btnDelete.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                        ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\service\FloatingWindowService.java:976: 警告: [deprecation] Resources中的getColor(int)已过时
+          btnDelete.setTextColor(isDark ? getResources().getColor(android.R.color.white) : getResources().getColor(android.R.color.black));
+                                                                                                         ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:289: 警告: [deprecation] AudioManager中的isSpeakerphoneOn()已过时
+                      isSpeakerphoneOn = audioManager.isSpeakerphoneOn();
+                                                     ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:290: 警告: [deprecation] AudioManager中的isBluetoothScoOn()已过时
+                      isBluetoothScoOn = audioManager.isBluetoothScoOn();
+                                                     ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:291: 警告: [deprecation] AudioManager中的isWiredHeadsetOn()已过时
+                      isWiredHeadsetOn = audioManager.isWiredHeadsetOn();
+                                                     ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:292: 警告: [deprecation] AudioManager中的isBluetoothA2dpOn()已过时
+                      isBluetoothA2dpOn = audioManager.isBluetoothA2dpOn();
+                                                      ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:299: 警告: [deprecation] AudioManager中的isSpeakerphoneOn()已过时
+                  isSpeakerphoneOn = audioManager.isSpeakerphoneOn();
+                                                 ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:300: 警告: [deprecation] AudioManager中的isBluetoothScoOn()已过时
+                  isBluetoothScoOn = audioManager.isBluetoothScoOn();
+                                                 ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:301: 警告: [deprecation] AudioManager中的isWiredHeadsetOn()已过时
+                  isWiredHeadsetOn = audioManager.isWiredHeadsetOn();
+                                                 ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:302: 警告: [deprecation] AudioManager中的isBluetoothA2dpOn()已过时
+                  isBluetoothA2dpOn = audioManager.isBluetoothA2dpOn();
+                                                  ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\TTSFragment.java:465: 警告: [deprecation] Resources中的getColor(int)已过时
+              positiveBtn.setTextColor(getResources().getColor(android.R.color.white));
+                                                     ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\TTSFragment.java:466: 警告: [deprecation] Resources中的getColor(int)已过时
+              positiveBtn.setBackgroundColor(getResources().getColor(R.color.button_background_selected));
+                                                           ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\TTSFragment.java:470: 警告: [deprecation] Resources中的getColor(int)已过时
+              negativeBtn.setTextColor(getResources().getColor(android.R.color.white));
+                                                     ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\TTSFragment.java:471: 警告: [deprecation] Resources中的getColor(int)已过时
+              negativeBtn.setBackgroundColor(getResources().getColor(R.color.button_background));
+                                                           ^
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:44: 错误: 找不到符号
+      private SeekBar sbTtsSpeed;
+              ^
+    符号:   类 SeekBar
+    位置: 类 SettingsFragment
+  D:\L7\L7Audio\app\src\main\java\com\aug32\l7audio\SettingsFragment.java:45: 错误: 找不到符号
+      private SeekBar sbTtsPitch;
+              ^
+    符号:   类 SeekBar
+    位置: 类 SettingsFragment
+  2 个错误
+  44 个警告
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to generate a Build Scan (Powered by Develocity).
+
+BUILD FAILED in 45s
+9 actionable tasks: 1 executed, 8 up-to-date
+BUILD_EXIT_CODE=1 
