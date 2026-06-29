@@ -18,13 +18,41 @@ release.keystore
 /.idea/
 .idea/**/
 *.iml
+.vscode/
 
-# 日志文件
+# 日志目录和文件
+/logs/
 *.log
 
 # 临时文件
 *.tmp
 *.temp
+
+# 备份目录
+/backup_music_module/
+
+# 构建输出文件
+*.txt
+build*.txt
+*_log.txt
+*_result.txt
+*_output.txt
+*_stderr.txt
+*_stdout.txt
+l7audio*.txt
+install_output.txt
+release_*.txt
+
+# 脚本文件（本地构建用，不提交）
+build.ps1
+check_apk.ps1
+deploy.ps1
+diagnose.ps1
+test.ps1
+test2.ps1
+
+# 保留 gradlew 包装器（但删除其他 bat）
+gradlew.bat
 
 # 操作系统文件
 .DS_Store
@@ -32,3 +60,6 @@ Thumbs.db
 
 # 其他
 /.trae/
+
+# 保留 gradlew 包装器（但删除 gradlew.bat）
+# gradlew.bat 由 *.bat 规则忽略
