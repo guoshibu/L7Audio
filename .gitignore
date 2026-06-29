@@ -51,9 +51,9 @@ diagnose.ps1
 test.ps1
 test2.ps1
 
-# 保留 gradlew 和 do_build 包装器
-gradlew.bat
-do_build.bat
+# 保留 Gradle Wrapper（gradlew 和 gradlew.bat 必须提交）
+!gradlew
+!gradlew.bat
 
 # 操作系统文件
 .DS_Store
