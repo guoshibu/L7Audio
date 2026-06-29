@@ -1,1 +1,0 @@
-﻿06-25 10:38:45.765  2424  3329 W AdBannerWidgetManager: updateAppWidget: partiallyUpdated = true
