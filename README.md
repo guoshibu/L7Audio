@@ -119,6 +119,7 @@ L7Audio 是一款运行于 Android 系统的音频处理应用，专为吉利银
 | 依赖库 | 版本 | 用途 |
 |--------|------|------|
 | **Media3 ExoPlayer** | - | 音乐播放核心引擎 |
+| **Media3 Session** | - | Android 媒体中心会话管理（MediaSession） |
 | **Gson** | - | JSON 序列化 / 反序列化（TTS 列表、配置持久化） |
 | **WorkManager** | - | 后台保活任务调度 |
 | **Lifecycle** | - | ViewModel / LiveData，TTS 页面数据驱动 |
@@ -137,6 +138,7 @@ L7Audio 是一款运行于 Android 系统的音频处理应用，专为吉利银
 │                     Domain 层                             │
 │  MusicPlayerManager / TTSManager / MicrophoneManager     │
 │  AudioFocusManager / AudioOutputManager / PlaylistManager│
+│  MediaSessionManager（媒体中心会话）                      │
 └───────────────────┬─────────────────────────────────────┘
                     │ 依赖
 ┌───────────────────▼─────────────────────────────────────┐
@@ -176,6 +178,7 @@ L7Audio/
 │   │   │   │   ├── AudioFocusManager.java   # 音频焦点管理
 │   │   │   │   ├── AudioOutputManager.java  # 输出设备管理
 │   │   │   │   ├── MusicPlayerManager.java  # 音乐播放管理
+│   │   │   │   ├── MediaSessionManager.java # 媒体会话管理（Android 媒体中心）
 │   │   │   │   ├── PlaybackState.java       # 播放状态
 │   │   │   │   ├── MusicItem.java           # 音乐条目模型
 │   │   │   │   ├── LrcParser.java           # 歌词解析器
@@ -191,7 +194,14 @@ L7Audio/
 │   │   │   │       └── ScannedMusicInfo.java
 │   │   │   ├── data/                        # 数据层
 │   │   │   │   ├── local/
-│   │   │   │   │   └── AppConfig.java       # 配置持久化
+│   │   │   │   │   ├── AppConfig.java       # 配置持久化（总入口）
+│   │   │   │   │   └── config/              # 配置分类
+│   │   │   │   │       ├── AudioConfig.java
+│   │   │   │   │       ├── MusicConfig.java
+│   │   │   │   │       ├── MicConfig.java
+│   │   │   │   │       ├── TTSConfig.java
+│   │   │   │   │       ├── FloatingWindowConfig.java
+│   │   │   │   │       └── ThemeConfig.java
 │   │   │   │   ├── model/
 │   │   │   │   │   └── TTSItem.java         # TTS 数据模型
 │   │   │   │   └── repository/
@@ -204,11 +214,15 @@ L7Audio/
 │   │   │   │   │   ├── MicAmplifierFragment.java
 │   │   │   │   │   ├── TTSFragment.java
 │   │   │   │   │   ├── SettingsFragment.java
+│   │   │   │   │   ├── FileBrowserFragment.java
 │   │   │   │   │   └── AboutFragment.java
 │   │   │   │   ├── viewmodel/
 │   │   │   │   │   └── TTSViewModel.java    # TTS 页面 ViewModel
-│   │   │   │   └── adapter/
-│   │   │   │       └── MusicPlaylistAdapter.java
+│   │   │   │   ├── adapter/
+│   │   │   │   │   ├── MusicPlaylistAdapter.java
+│   │   │   │   │   └── FileBrowserAdapter.java
+│   │   │   │   └── model/
+│   │   │   │       └── FileItem.java        # 文件浏览器数据模型
 │   │   │   ├── service/                     # 服务层
 │   │   │   │   ├── AudioForegroundService.java
 │   │   │   │   ├── FloatingWindowService.java
@@ -221,7 +235,11 @@ L7Audio/
 │   │   │       ├── AppExecutors.java        # 线程池
 │   │   │       ├── AudioUtils.java          # 音频工具
 │   │   │       ├── FileUtils.java           # 文件工具
-│   │   │       └── ServiceCompat.java       # 服务兼容工具
+│   │   │       ├── ServiceCompat.java       # 服务兼容工具
+│   │   │       ├── AudioMetadataReader.java # 音频元数据读取（总入口）
+│   │   │       ├── WavMetadataReader.java   # WAV 元数据解析
+│   │   │       ├── FlacMetadataReader.java  # FLAC 元数据解析
+│   │   │       └── M4aMetadataReader.java   # M4A/AAC 元数据解析
 │   │   ├── res/                             # 资源文件
 │   │   │   ├── layout/                      # 布局（竖屏）
 │   │   │   ├── layout-land/                 # 布局（横屏）
@@ -320,7 +338,24 @@ L7Audio/
 
 **职责**：管理音频输出设备（车内 / 车外扬声器）的切换。
 
-### 7. FloatingWindowService — 悬浮窗服务
+### 7. MediaSessionManager — 媒体会话管理器
+
+**文件**：`domain/audio/MediaSessionManager.java`
+
+**职责**：管理 Android MediaSession，实现与系统媒体中心的交互。
+
+**核心功能**：
+- 创建并管理 MediaSession 生命周期
+- 同步播放状态（播放/暂停/位置）到系统媒体中心
+- 同步歌曲元数据（标题、艺术家、专辑封面）供第三方读取
+- 接收媒体按键事件（播放/暂停、上一曲、下一曲）
+
+**接入能力**：
+- 车机方向盘/中控媒体按键控制
+- 第三方音乐应用读取当前播放歌曲信息
+- 通知栏显示当前歌曲信息和控制按钮
+
+### 8. FloatingWindowService — 悬浮窗服务
 
 **文件**：`service/FloatingWindowService.java`
 
@@ -332,7 +367,7 @@ L7Audio/
 - TTS 列表快速选择，点击后直接跳转 TTS 模块
 - 主题切换按钮，支持浅色 / 深色模式
 
-### 8. AppConfig — 应用配置
+### 9. AppConfig — 应用配置
 
 **文件**：`data/local/AppConfig.java`
 
@@ -425,9 +460,8 @@ adb install app/build/outputs/apk/release/app-release.apk
 - 🔧 接入 Android 媒体中心（MediaSession）：
   - 新增 MediaSessionManager，管理 MediaSession 生命周期
   - 同步播放状态到系统媒体中心（供车机按键、第三方APP读取）
-  - 通知栏升级为 MediaStyle，支持专辑封面显示
-  - 通知栏媒体控制按钮：上一首、播放/暂停、下一首
-  - 接入能力：车机方向盘/中控媒体按键控制、第三方APP读取歌曲信息、锁屏界面媒体控制
+  - 通知栏添加媒体控制按钮：上一首、播放/暂停、下一首，显示专辑封面
+  - 接入能力：车机方向盘/中控媒体按键控制、第三方APP读取歌曲信息
 
 ### v1.3.12 (versionCode: 35)
 - 🔧 设置页枚举按钮重构与显示优化：
