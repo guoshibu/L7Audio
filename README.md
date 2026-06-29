@@ -254,10 +254,15 @@ L7Audio/
 ├── backup_music_module/                     # 备份目录（重构用）
 ├── CHANGELOG.md                             # 改动记录
 ├── README.md                                # 本文件
-├── build.gradle.kts                         # 项目级构建配置
 ├── settings.gradle.kts                      # 项目设置
 ├── gradle.properties                        # Gradle 属性
 ├── gradlew / gradlew.bat                    # Gradle 包装器
+├── gradle/                                  # Gradle 配置
+│   ├── wrapper/                             # Wrapper 文件
+│   │   ├── gradle-wrapper.jar               # Wrapper 核心 JAR
+│   │   └── gradle-wrapper.properties        # Wrapper 配置
+│   ├── libs.versions.toml                   # 版本目录（依赖版本管理）
+│   └── gradle-daemon-jvm.properties         # Daemon JVM 配置
 └── release.keystore                         # 签名密钥（release 构建用）
 ```
 
