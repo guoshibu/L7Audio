@@ -14,8 +14,8 @@ android {
         applicationId = "com.aug32.l7audio"
         minSdk = 30
         targetSdk = 30
-        versionCode = 41
-        versionName = "1.4.1"
+        versionCode = 42
+        versionName = "1.4.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -71,6 +71,9 @@ dependencies {
     implementation(libs.media3.ui)
     implementation(libs.media3.common)
     implementation(libs.media3.session)  // MediaSession
+
+    // Media 兼容库（MediaStyle 通知样式）
+    implementation(libs.media)
 
     // JSON 解析
     implementation(libs.gson)

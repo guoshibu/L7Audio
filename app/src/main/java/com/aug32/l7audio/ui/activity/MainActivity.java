@@ -653,6 +653,8 @@ public class MainActivity extends BaseActivity {
         }
         // 同步 currentFunction 字段，确保与实际显示的 Fragment 一致
         currentFunction = savedFunction;
+        // 更新底部导航按钮选中效果
+        updateFunctionButtons();
         AppLog.d(TAG, "loadFunctionPage: 恢复上次页面，function=" + savedFunction);
     }
 

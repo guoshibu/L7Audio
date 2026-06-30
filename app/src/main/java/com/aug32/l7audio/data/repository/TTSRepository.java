@@ -18,14 +18,18 @@ import com.aug32.l7audio.utils.AppExecutors;
 /**
  * TTS 数据仓库
  *
- * 职责：TTS 列表的持久化加载/保存（JSON ↔ List<TTSItem>），以及语速、音调配置的读写管理。
+ * <p>职责：TTS 列表的持久化加载/保存（JSON ↔ List<TTSItem>）。
  *
- * 设计意图：
- * 1. 采用单例模式确保全局唯一的数据访问入口，避免多实例导致的数据不一致
- * 2. 使用内存缓存（cachedItems）减少磁盘读取次数，提升性能
- * 3. 通过 LiveData 实现数据驱动的 UI 更新，观察者模式解耦数据层与表现层
- * 4. 区分同步/异步方法，同步方法用于立即获取数据，异步方法用于耗时 IO 操作
- * 5. 持久化存储基于 SharedPreferences，通过 Gson 进行 JSON 序列化/反序列化
+ * <p>设计意图：
+ * <ul>
+ *   <li>采用单例模式确保全局唯一的数据访问入口，避免多实例导致的数据不一致</li>
+ *   <li>使用内存缓存（cachedItems）减少磁盘读取次数，提升性能</li>
+ *   <li>通过 LiveData 实现数据驱动的 UI 更新，观察者模式解耦数据层与表现层</li>
+ *   <li>区分同步/异步方法，同步方法用于立即获取数据，异步方法用于耗时 IO 操作</li>
+ *   <li>持久化存储基于 SharedPreferences，通过 Gson 进行 JSON 序列化/反序列化</li>
+ * </ul>
+ *
+ * @author L7Audio Team
  */
 public class TTSRepository {
 
@@ -41,10 +45,6 @@ public class TTSRepository {
 
     /** TTS 列表的 LiveData 可观察数据 */
     private final MutableLiveData<List<TTSItem>> ttsItemsLiveData = new MutableLiveData<>();
-    /** 语速的 LiveData 可观察数据 */
-    private final MutableLiveData<Float> speedLiveData = new MutableLiveData<>();
-    /** 音调的 LiveData 可观察数据 */
-    private final MutableLiveData<Float> pitchLiveData = new MutableLiveData<>();
 
     /**
      * 获取 TTSRepository 单例实例
@@ -62,9 +62,6 @@ public class TTSRepository {
     private TTSRepository(Context context) {
         this.ttsConfig = new TTSConfig(
                 context.getSharedPreferences(context.getPackageName() + "_preferences", Context.MODE_PRIVATE));
-        speedLiveData.setValue(ttsConfig.getTTSSpeed());
-        pitchLiveData.setValue(ttsConfig.getTTSPitch());
-        // 构造时同步加载一次数据，确保 LiveData 有初始值
         List<TTSItem> initialItems = loadTTSItemsSync();
         ttsItemsLiveData.setValue(initialItems);
     }
@@ -72,7 +69,7 @@ public class TTSRepository {
     /**
      * 同步加载 TTS 列表
      *
-     * 优先从内存缓存读取，缓存未命中则从 SharedPreferences 加载 JSON 数据并反序列化。
+     * <p>优先从内存缓存读取，缓存未命中则从 SharedPreferences 加载 JSON 数据并反序列化。
      * 首次加载（无数据）时自动创建默认列表并持久化保存。
      *
      * @return TTS 项目列表的副本（防止外部修改内部缓存）
@@ -83,7 +80,6 @@ public class TTSRepository {
         }
         String json = ttsConfig.getTTSItems();
         if (json == null || json.isEmpty()) {
-            // 首次加载：初始化默认列表
             cachedItems = createDefaultTTSItems();
             saveDefaultTTSItems(cachedItems);
             return new ArrayList<>(cachedItems);
@@ -98,7 +94,11 @@ public class TTSRepository {
         return new ArrayList<>(cachedItems);
     }
 
-    /** 创建默认 TTS 列表（车机常用语音播报） */
+    /**
+     * 创建默认 TTS 列表（车机常用语音播报）
+     *
+     * @return 默认 TTS 项目列表
+     */
     private List<TTSItem> createDefaultTTSItems() {
         List<TTSItem> defaults = new ArrayList<>();
         defaults.add(new TTSItem("欢迎使用L7 Audio"));
@@ -117,7 +117,7 @@ public class TTSRepository {
     /**
      * 恢复默认 TTS 列表（异步执行）
      *
-     * 清空现有数据，重新生成默认 TTS 列表并持久化保存，同时通知 LiveData 观察者更新。
+     * <p>清空现有数据，重新生成默认 TTS 列表并持久化保存，同时通知 LiveData 观察者更新。
      * 通常在用户删除全部自定义条目后调用此方法恢复出厂默认配置。
      */
     public void restoreDefaultTTSItems() {
@@ -133,7 +133,7 @@ public class TTSRepository {
     /**
      * 获取默认 TTS 列表（同步）
      *
-     * 直接创建并返回默认 TTS 列表，不读取缓存也不进行持久化操作。
+     * <p>直接创建并返回默认 TTS 列表，不读取缓存也不进行持久化操作。
      * 适用于需要立即获取默认数据用于 UI 展示的场景。
      *
      * @return 默认 TTS 项目列表
@@ -145,7 +145,7 @@ public class TTSRepository {
     /**
      * 判断 TTS 列表是否为空
      *
-     * 同步加载列表数据后判断列表是否为 null 或无元素。
+     * <p>同步加载列表数据后判断列表是否为 null 或无元素。
      *
      * @return true 表示列表为空，false 表示列表包含至少一个元素
      */
@@ -154,7 +154,11 @@ public class TTSRepository {
         return items == null || items.isEmpty();
     }
 
-    /** 保存默认列表到 SharedPreferences */
+    /**
+     * 保存默认列表到 SharedPreferences
+     *
+     * @param items 要保存的 TTS 项目列表
+     */
     private void saveDefaultTTSItems(List<TTSItem> items) {
         String json = gson.toJson(items);
         ttsConfig.setTTSItems(json);
@@ -163,7 +167,7 @@ public class TTSRepository {
     /**
      * 异步加载 TTS 列表
      *
-     * 在计算线程中加载 TTS 列表数据，加载完成后通过回调接口返回结果，
+     * <p>在计算线程中加载 TTS 列表数据，加载完成后通过回调接口返回结果，
      * 同时更新 LiveData 通知观察者。
      *
      * @param callback 加载完成回调接口，可为 null（仅更新 LiveData，不触发回调）
@@ -181,7 +185,7 @@ public class TTSRepository {
     /**
      * 异步保存 TTS 列表
      *
-     * 在 IO 线程中将 TTS 列表序列化为 JSON 并持久化到 SharedPreferences，
+     * <p>在 IO 线程中将 TTS 列表序列化为 JSON 并持久化到 SharedPreferences，
      * 同时更新内存缓存和 LiveData 通知观察者。
      *
      * @param items 要保存的 TTS 项目列表
@@ -198,7 +202,7 @@ public class TTSRepository {
     /**
      * 异步添加 TTS 项
      *
-     * 先同步加载当前列表，将新项追加到列表末尾，然后异步保存更新后的列表。
+     * <p>先同步加载当前列表，将新项追加到列表末尾，然后异步保存更新后的列表。
      *
      * @param item 要添加的 TTS 项目
      */
@@ -211,7 +215,7 @@ public class TTSRepository {
     /**
      * 异步移除指定位置的 TTS 项
      *
-     * 先同步加载当前列表，移除指定位置的元素后异步保存更新后的列表。
+     * <p>先同步加载当前列表，移除指定位置的元素后异步保存更新后的列表。
      * 若位置越界则不执行任何操作。
      *
      * @param position 要移除的 TTS 项在列表中的索引位置
@@ -222,36 +226,6 @@ public class TTSRepository {
             items.remove(position);
             saveTTSItems(items);
         }
-    }
-
-    /**
-     * 设置并保存 TTS 语速（异步执行）
-     *
-     * 在 IO 线程中将语速配置持久化到 SharedPreferences，
-     * 同时更新 LiveData 通知观察者语速发生变化。
-     *
-     * @param speed 语速值
-     */
-    public void setTTSSpeed(float speed) {
-        AppExecutors.getInstance().executeOnIOThread(() -> {
-            ttsConfig.setTTSSpeed(speed);
-            speedLiveData.postValue(speed);
-        });
-    }
-
-    /**
-     * 设置并保存 TTS 音调（异步执行）
-     *
-     * 在 IO 线程中将音调配置持久化到 SharedPreferences，
-     * 同时更新 LiveData 通知观察者音调发生变化。
-     *
-     * @param pitch 音调值
-     */
-    public void setTTSPitch(float pitch) {
-        AppExecutors.getInstance().executeOnIOThread(() -> {
-            ttsConfig.setTTSPitch(pitch);
-            pitchLiveData.postValue(pitch);
-        });
     }
 
     /**
@@ -270,24 +244,6 @@ public class TTSRepository {
      */
     public LiveData<List<TTSItem>> getTTSItemsLiveData() {
         return ttsItemsLiveData;
-    }
-
-    /**
-     * 获取语速的 LiveData 可观察对象
-     *
-     * @return 语速的 LiveData
-     */
-    public LiveData<Float> getSpeedLiveData() {
-        return speedLiveData;
-    }
-
-    /**
-     * 获取音调的 LiveData 可观察对象
-     *
-     * @return 音调的 LiveData
-     */
-    public LiveData<Float> getPitchLiveData() {
-        return pitchLiveData;
     }
 
     /**

@@ -1,62 +1,49 @@
 package com.aug32.l7audio.ui.viewmodel;
 
 import android.app.Application;
-import android.content.Context;
 
 import androidx.annotation.NonNull;
 import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.LiveData;
-import androidx.lifecycle.MutableLiveData;
 
 import java.util.List;
 
-import com.aug32.l7audio.data.local.config.TTSConfig;
 import com.aug32.l7audio.data.model.TTSItem;
 import com.aug32.l7audio.data.repository.TTSRepository;
 
 /**
  * TTS 语音合成 ViewModel
  *
- * 职责：
- * - 管理 TTS 播报列表数据（通过 LiveData 驱动 UI 更新）
- * - 管理 TTS 语速、音调参数的状态持久化
- * - 作为 UI 层与数据层的中间层，通过 Repository 与持久层交互
+ * <p>职责：
+ * <ul>
+ *   <li>管理 TTS 播报列表数据（通过 LiveData 驱动 UI 更新）</li>
+ *   <li>作为 UI 层与数据层的中间层，通过 Repository 与持久层交互</li>
+ * </ul>
  *
- * 架构：UI 层（Fragment）→ ViewModel → Repository
+ * <p>架构：UI 层（Fragment）→ ViewModel → Repository
  *
- * 设计说明：
- * - 继承 AndroidViewModel，持有 Application 引用以便访问全局资源
- * - TTS 列表 LiveData 直接代理 Repository 的 LiveData，避免双重包装
- * - 语速/音调参数独立维护 MutableLiveData，同时同步到 Repository 和配置存储
+ * <p>设计说明：
+ * <ul>
+ *   <li>继承 AndroidViewModel，持有 Application 引用以便访问全局资源</li>
+ *   <li>TTS 列表 LiveData 直接代理 Repository 的 LiveData，避免双重包装</li>
+ * </ul>
+ *
+ * @author L7Audio Team
  */
 public class TTSViewModel extends AndroidViewModel {
 
     /** TTS 数据仓库，负责数据持久化和业务逻辑 */
     private final TTSRepository ttsRepository;
-    /** TTS 配置存储，负责语速、音调等参数的持久化 */
-    private final TTSConfig ttsConfig;
-
-    /** TTS 语速 LiveData，默认值 1.0f */
-    private final MutableLiveData<Float> ttsSpeed = new MutableLiveData<>(1.0f);
-    /** TTS 音调 LiveData，默认值 1.0f */
-    private final MutableLiveData<Float> ttsPitch = new MutableLiveData<>(1.0f);
 
     /**
-     * 构造函数，初始化 Repository 和配置，并从配置中读取当前语速/音调
+     * 构造函数，初始化 Repository
      *
      * @param application Application 上下文
      */
     public TTSViewModel(@NonNull Application application) {
         super(application);
         this.ttsRepository = TTSRepository.getInstance(application);
-        this.ttsConfig = new TTSConfig(
-                application.getSharedPreferences(application.getPackageName() + "_preferences", Context.MODE_PRIVATE));
-        // Repository 构造时已同步初始化 LiveData，无需再次加载
-        ttsSpeed.setValue(ttsConfig.getTTSSpeed());
-        ttsPitch.setValue(ttsConfig.getTTSPitch());
     }
-
-    // ==================== TTS 列表操作 ====================
 
     /**
      * 添加一条 TTS 播报项
@@ -116,50 +103,6 @@ public class TTSViewModel extends AndroidViewModel {
         return ttsRepository.isEmpty();
     }
 
-    // ==================== TTS 参数 ====================
-
-    /**
-     * 设置 TTS 语速
-     * 同步更新 Repository 和本地 LiveData
-     *
-     * @param speed 语速值，1.0f 为正常语速
-     */
-    public void setTTSSpeed(float speed) {
-        ttsRepository.setTTSSpeed(speed);
-        ttsSpeed.setValue(speed);
-    }
-
-    /**
-     * 设置 TTS 音调
-     * 同步更新 Repository 和本地 LiveData
-     *
-     * @param pitch 音调值，1.0f 为正常音调
-     */
-    public void setTTSPitch(float pitch) {
-        ttsRepository.setTTSPitch(pitch);
-        ttsPitch.setValue(pitch);
-    }
-
-    /**
-     * 获取当前语速（从配置中读取）
-     *
-     * @return 当前语速值
-     */
-    public float getCurrentSpeed() {
-        return ttsConfig.getTTSSpeed();
-    }
-
-    /**
-     * 获取当前音调（从配置中读取）
-     *
-     * @return 当前音调值
-     */
-    public float getCurrentPitch() {
-        return ttsConfig.getTTSPitch();
-    }
-
-    // ==================== LiveData Getter ====================
-
     /**
      * 获取 TTS 列表的 LiveData 观察对象
      * 直接返回 Repository 的 LiveData，避免双重包装
@@ -167,18 +110,4 @@ public class TTSViewModel extends AndroidViewModel {
      * @return TTS 列表 LiveData
      */
     public LiveData<List<TTSItem>> getTTSItems() { return ttsRepository.getTTSItemsLiveData(); }
-
-    /**
-     * 获取语速的 LiveData 观察对象
-     *
-     * @return 语速 LiveData
-     */
-    public LiveData<Float> getTtsSpeed() { return ttsSpeed; }
-
-    /**
-     * 获取音调的 LiveData 观察对象
-     *
-     * @return 音调 LiveData
-     */
-    public LiveData<Float> getTtsPitch() { return ttsPitch; }
 }

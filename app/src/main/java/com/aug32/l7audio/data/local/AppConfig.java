@@ -120,10 +120,6 @@ public class AppConfig {
     public void setMaxAmplification(int maxAmplification) { micConfig.setMaxAmplification(maxAmplification); }
 
     // TTS
-    public float getTTSSpeed() { return ttsConfig.getTTSSpeed(); }
-    public void setTTSSpeed(float speed) { ttsConfig.setTTSSpeed(speed); }
-    public float getTTSPitch() { return ttsConfig.getTTSPitch(); }
-    public void setTTSPitch(float pitch) { ttsConfig.setTTSPitch(pitch); }
     public String getTTSItems() { return ttsConfig.getTTSItems(); }
     public void setTTSItems(String ttsItemsJson) { ttsConfig.setTTSItems(ttsItemsJson); }
 

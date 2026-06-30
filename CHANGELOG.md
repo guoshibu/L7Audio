@@ -1,5 +1,140 @@
 # L7Audio 改动记录
 
+> 日期：2026-06-30
+> 版本：v1.4.2 (versionCode: 42)
+
+---
+
+## 一、修改文件总览
+
+| 类型 | 数量 | 文件 |
+|------|------|------|
+| 🗑️ 删除 | 1 | TTS 语速/音调设置 UI 及相关代码 |
+| ✨ 新增 | 1 | androidx.media:media:1.7.0 依赖（MediaStyle 通知） |
+| 🔧 优化 | 10 | TTSConfig.java、TTSManager.java、AppConfig.java、TTSRepository.java、TTSViewModel.java、SettingsFragment.java、MediaSessionManager.java、AudioForegroundService.java、MusicPlayerManager.java、MainActivity.java |
+| 🐛 修复 | 3 | 通知栏状态不联动、底部导航选中效果丢失、枚举设备显示不全 |
+| 📝 文档 | 2 | README.md、CHANGELOG.md |
+| 🔢 版本 | 1 | build.gradle.kts |
+
+---
+
+## 二、功能变更
+
+### 1️⃣ 删除 TTS 语速/音调设置功能
+
+**变更内容**：移除 TTS 语速/音调调节的 UI 和相关配置代码，简化 TTS 功能。
+
+**变更方案**：
+
+| 修改文件 | 改动内容 |
+|----------|----------|
+| [SettingsFragment.java](file:///e:/JAVA/L7Audio/app/src/main/java/com/aug32/l7audio/ui/fragment/SettingsFragment.java) | 删除 TTS 语速/音调滑块、测试按钮、保存按钮及相关事件监听 |
+| [fragment_settings.xml](file:///e:/JAVA/L7Audio/app/src/main/res/layout/fragment_settings.xml) | 删除 TTS 语速/音调设置 CardView，仅保留 TTS 诊断部分 |
+| [TTSConfig.java](file:///e:/JAVA/L7Audio/app/src/main/java/com/aug32/l7audio/data/local/config/TTSConfig.java) | 删除 `getTTSSpeed()` / `setTTSSpeed()` / `getTTSPitch()` / `setTTSPitch()` 方法及相关常量 |
+| [TTSManager.java](file:///e:/JAVA/L7Audio/app/src/main/java/com/aug32/l7audio/domain/audio/TTSManager.java) | 删除 `setSpeechRate()` / `setPitch()` 方法，语速和音调固定为默认值 1.0f |
+| [AppConfig.java](file:///e:/JAVA/L7Audio/app/src/main/java/com/aug32/l7audio/data/local/AppConfig.java) | 删除 TTS speed/pitch 代理方法 |
+| [TTSRepository.java](file:///e:/JAVA/L7Audio/app/src/main/java/com/aug32/l7audio/data/repository/TTSRepository.java) | 删除 speed/pitch 相关方法 |
+| [TTSViewModel.java](file:///e:/JAVA/L7Audio/app/src/main/java/com/aug32/l7audio/ui/viewmodel/TTSViewModel.java) | 删除 speed/pitch 相关 LiveData 和方法 |
+
+**说明**：TTS 核心播报功能、列表管理、悬浮窗快速播报等功能均不受影响。
+
+---
+
+### 2️⃣ 重构 MediaSession 为 Android 原生实现
+
+**优化内容**：使用 Android 原生 `android.media.session.MediaSession` 替代 media3-session 依赖，实现与系统媒体中心的标准接入。
+
+**优化方案**：
+
+| 修改文件 | 改动内容 |
+|----------|----------|
+| [MediaSessionManager.java](file:///e:/JAVA/L7Audio/app/src/main/java/com/aug32/l7audio/domain/audio/MediaSessionManager.java) | 重构为使用原生 `MediaSession`，DCL 单例模式，管理 MediaSession 生命周期 |
+
+**核心功能**：
+- 同步播放状态（播放/暂停、进度）到系统媒体中心
+- 同步歌曲元数据（歌名、艺术家、专辑、时长、封面）到系统媒体中心
+- 接收系统媒体按键事件（播放/暂停、上一曲、下一曲）并转发给播放器
+- 支持车机方向盘/中控媒体按键控制
+- 支持第三方音乐 APP 读取当前播放歌曲信息
+
+**技术要点**：
+- 使用 `MediaSession.Callback` 处理媒体按键回调
+- 使用 `PlaybackState.Builder` 同步播放状态
+- 使用 `MediaMetadata.Builder` 同步歌曲元数据
+- DCL 双重检查锁懒加载单例，确保全局唯一
+
+---
+
+### 3️⃣ 前台服务通知升级为 MediaStyle 标准样式
+
+**优化内容**：引入 `androidx.media:media:1.7.0` 依赖，使用 `NotificationCompat.MediaStyle` 实现标准 Android 媒体通知样式。
+
+**优化方案**：
+
+| 修改文件 | 改动内容 |
+|----------|----------|
+| [AudioForegroundService.java](file:///e:/JAVA/L7Audio/app/src/main/java/com/aug32/l7audio/service/AudioForegroundService.java) | 使用 MediaStyle 通知样式，显示专辑封面、歌曲名、艺术家，3 个媒体控制按钮 |
+| [build.gradle.kts](file:///e:/JAVA/L7Audio/app/build.gradle.kts) | 添加 `androidx.media:media:1.7.0` 依赖 |
+| [libs.versions.toml](file:///e:/JAVA/L7Audio/gradle/libs.versions.toml) | 添加 media 版本配置（1.7.0） |
+
+**通知特性**：
+- 系统原生媒体通知布局，与系统媒体中心联动
+- 显示当前播放歌曲名和艺术家
+- 显示专辑封面（LargeIcon）
+- 3 个媒体控制按钮：上一首、播放/暂停、下一首
+- 播放中通知为常驻（ongoing），暂停时自动取消常驻
+- 封面 Bitmap 自动回收，防止内存泄漏
+
+---
+
+### 4️⃣ 通知栏状态同步修复
+
+**问题描述**：在音乐模块内点击播放/暂停按钮后，通知栏状态未同步更新，只有点击通知栏按钮才能正常更新。
+
+**原因分析**：MusicPlayerManager 的状态变化回调中没有调用通知更新方法。
+
+**修复方案**：
+
+| 修改文件 | 改动内容 |
+|----------|----------|
+| [MusicPlayerManager.java](file:///e:/JAVA/L7Audio/app/src/main/java/com/aug32/l7audio/domain/audio/MusicPlayerManager.java) | 在播放开始、暂停、停止、切歌等状态变化时调用 `AudioForegroundService.notifyUpdate()` |
+
+---
+
+### 5️⃣ 底部导航选中效果修复
+
+**问题描述**：打开音乐模块后，底部三大模块（音乐、麦克风、TTS）的选中高亮效果丢失。
+
+**原因分析**：`loadFunctionPage()` 方法中缺少 `updateFunctionButtons()` 调用。
+
+**修复方案**：
+
+| 修改文件 | 改动内容 |
+|----------|----------|
+| [MainActivity.java](file:///e:/JAVA/L7Audio/app/src/main/java/com/aug32/l7audio/ui/activity/MainActivity.java) | 在 `loadFunctionPage()` 方法末尾添加 `updateFunctionButtons()` 调用 |
+
+---
+
+### 6️⃣ 枚举设备显示优化（添加滚动）
+
+**问题描述**：枚举麦克风/输出设备后，内容过多显示不全，无法查看完整列表。
+
+**修复方案**：
+
+| 修改文件 | 改动内容 |
+|----------|----------|
+| [fragment_settings.xml](file:///e:/JAVA/L7Audio/app/src/main/res/layout/fragment_settings.xml) | 为枚举设备状态显示区域添加 ScrollView，maxHeight=300dp，支持垂直滚动 |
+
+---
+
+## 三、版本历史摘要
+
+详细版本历史请参考 [README.md](file:///e:/JAVA/L7Audio/README.md)
+
+---
+
+## 四、旧版本记录
+
 > 日期：2026-06-29
 > 版本：v1.4.1 (versionCode: 41)
 

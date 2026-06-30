@@ -14,6 +14,7 @@ okhttp = "4.12.0"
 gson = "2.10.1"
 workRuntime = "2.9.0"
 media3 = "1.9.2"
+media = "1.7.0"
 lifecycle = "2.8.7"
 
 [libraries]
@@ -34,6 +35,7 @@ media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", versi
 media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
 media3-session = { group = "androidx.media3", name = "media3-session", version.ref = "media3" }
 media3-common = { group = "androidx.media3", name = "media3-common", version.ref = "media3" }
+media = { group = "androidx.media", name = "media", version.ref = "media" }
 lifecycle-viewmodel = { group = "androidx.lifecycle", name = "lifecycle-viewmodel", version.ref = "lifecycle" }
 lifecycle-livedata = { group = "androidx.lifecycle", name = "lifecycle-livedata", version.ref = "lifecycle" }
 lifecycle-runtime = { group = "androidx.lifecycle", name = "lifecycle-runtime", version.ref = "lifecycle" }

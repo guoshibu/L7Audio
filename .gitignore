@@ -66,3 +66,14 @@ Thumbs.db
 /.trae/
 *Trae CN*
 Trae*
+
+# APK 文件
+*.apk
+
+# 备份目录
+backup_*/
+
+# 本地构建脚本（不需要提交）
+*.bat
+do_build.bat
+构建脚本.bat

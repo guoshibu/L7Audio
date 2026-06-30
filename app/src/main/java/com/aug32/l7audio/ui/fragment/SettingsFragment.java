@@ -6,7 +6,6 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
-import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
 
@@ -39,7 +38,7 @@ import com.aug32.l7audio.utils.ServiceCompat;
  *   <li>主题模式设置（跟随系统/浅色/深色）</li>
  *   <li>开机自启动开关</li>
  *   <li>悬浮窗开关</li>
- *   <li>TTS 语速/音调配置</li>
+ *   <li>TTS 诊断功能</li>
  *   <li>音频设备参数配置</li>
  *   <li>音频路由调试信息</li>
  * </ul>
@@ -83,20 +82,6 @@ public class SettingsFragment extends BaseFragment {
     private Button btnTestTTS;
     /** 检查 TTS 状态按钮 */
     private Button btnCheckTTSStatus;
-
-    // ========== TTS 设置 UI ==========
-    /** TTS 语速滑块 */
-    private SeekBar sbTtsSpeed;
-    /** TTS 音调滑块 */
-    private SeekBar sbTtsPitch;
-    /** TTS 语速数值显示 */
-    private TextView tvTtsSpeedValue;
-    /** TTS 音调数值显示 */
-    private TextView tvTtsPitchValue;
-    /** 测试 TTS 设置按钮 */
-    private Button btnTestTtsSettings;
-    /** 保存 TTS 设置按钮 */
-    private Button btnSaveTtsSettings;
 
     // ========== 音频设备设置 UI ==========
     /** 车外音频用途输入框 */
@@ -172,13 +157,6 @@ public class SettingsFragment extends BaseFragment {
         tvTTSStatus = view.findViewById(R.id.tv_tts_status);
         btnTestTTS = view.findViewById(R.id.btn_test_tts);
         btnCheckTTSStatus = view.findViewById(R.id.btn_check_tts_status);
-
-        sbTtsSpeed = view.findViewById(R.id.sb_tts_speed);
-        sbTtsPitch = view.findViewById(R.id.sb_tts_pitch);
-        tvTtsSpeedValue = view.findViewById(R.id.tv_tts_speed_value);
-        tvTtsPitchValue = view.findViewById(R.id.tv_tts_pitch_value);
-        btnTestTtsSettings = view.findViewById(R.id.btn_test_tts_settings);
-        btnSaveTtsSettings = view.findViewById(R.id.btn_save_tts_settings);
 
         editAudioUsageExternal = view.findViewById(R.id.edit_audio_usage_external);
         editAudioUsageCar = view.findViewById(R.id.edit_audio_usage_car);
@@ -264,13 +242,6 @@ public class SettingsFragment extends BaseFragment {
         tvTTSStatus = null;
         btnTestTTS = null;
         btnCheckTTSStatus = null;
-        // 置空 TTS 设置 UI
-        sbTtsSpeed = null;
-        sbTtsPitch = null;
-        tvTtsSpeedValue = null;
-        tvTtsPitchValue = null;
-        btnTestTtsSettings = null;
-        btnSaveTtsSettings = null;
         // 置空音频设备设置 UI
         editAudioUsageExternal = null;
         editAudioUsageCar = null;
@@ -353,9 +324,6 @@ public class SettingsFragment extends BaseFragment {
         // TTS 诊断
         btnTestTTS.setOnClickListener(v -> testTTS());
         btnCheckTTSStatus.setOnClickListener(v -> checkTTSStatus());
-
-        // TTS 设置
-        setupTTSSettingsListeners();
 
         // 音频设备设置
         setupAudioDeviceListeners();
@@ -573,84 +541,6 @@ public class SettingsFragment extends BaseFragment {
         editAudioSource.setText(String.valueOf(audioConfig.getAudioInputSource()));
         editMaxAmplification.setText(String.valueOf(micConfig.getMaxAmplification()));
         updateAmplificationWarning();
-    }
-
-    /** 设置 TTS 监听器 */
-    private void setupTTSSettingsListeners() {
-        float currentSpeed = ttsConfig.getTTSSpeed();
-        float currentPitch = ttsConfig.getTTSPitch();
-
-        int speedProgress = Math.round((currentSpeed - 0.5f) / 0.1f);
-        int pitchProgress = Math.round((currentPitch - 0.5f) / 0.1f);
-
-        tvTtsSpeedValue.setText(String.format("%.1fx", currentSpeed));
-        tvTtsPitchValue.setText(String.format("%.1fx", currentPitch));
-
-        if (speedProgress < 0) speedProgress = 0;
-        if (speedProgress > 25) speedProgress = 25;
-        if (pitchProgress < 0) pitchProgress = 0;
-        if (pitchProgress > 15) pitchProgress = 15;
-
-        sbTtsSpeed.setProgress(speedProgress);
-        sbTtsPitch.setProgress(pitchProgress);
-
-        sbTtsSpeed.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
-            @Override
-            public void onProgressChanged(android.widget.SeekBar seekBar, int progress, boolean fromUser) {
-                float speed = 0.5f + progress * 0.1f;
-                tvTtsSpeedValue.setText(String.format("%.1fx", speed));
-            }
-
-            @Override
-            public void onStartTrackingTouch(android.widget.SeekBar seekBar) {
-            }
-
-            @Override
-            public void onStopTrackingTouch(android.widget.SeekBar seekBar) {
-            }
-        });
-
-        sbTtsPitch.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
-            @Override
-            public void onProgressChanged(android.widget.SeekBar seekBar, int progress, boolean fromUser) {
-                float pitch = 0.5f + progress * 0.1f;
-                tvTtsPitchValue.setText(String.format("%.1fx", pitch));
-            }
-
-            @Override
-            public void onStartTrackingTouch(android.widget.SeekBar seekBar) {
-            }
-
-            @Override
-            public void onStopTrackingTouch(android.widget.SeekBar seekBar) {
-            }
-        });
-
-        btnTestTtsSettings.setOnClickListener(v -> {
-            try {
-                float speed = 0.5f + sbTtsSpeed.getProgress() * 0.1f;
-                float pitch = 0.5f + sbTtsPitch.getProgress() * 0.1f;
-                ttsManager.setSpeechRate(speed);
-                ttsManager.setPitch(pitch);
-                ttsManager.speak("这是一条TTS测试语音，用于测试当前语速和音调设置");
-            } catch (Exception e) {
-                AppLog.e(TAG, "Failed to test TTS settings", e);
-            }
-        });
-
-        btnSaveTtsSettings.setOnClickListener(v -> {
-            try {
-                float speed = 0.5f + sbTtsSpeed.getProgress() * 0.1f;
-                float pitch = 0.5f + sbTtsPitch.getProgress() * 0.1f;
-                ttsManager.setSpeechRate(speed);
-                ttsManager.setPitch(pitch);
-                ttsConfig.setTTSSpeed(speed);
-                ttsConfig.setTTSPitch(pitch);
-                ttsManager.speak("TTS设置已保存");
-            } catch (Exception e) {
-                AppLog.e(TAG, "Failed to save TTS settings", e);
-            }
-        });
     }
 
     /** 设置音频设备监听器 */

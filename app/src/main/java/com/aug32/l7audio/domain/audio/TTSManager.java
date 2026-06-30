@@ -8,27 +8,33 @@ import android.speech.tts.UtteranceProgressListener;
 
 import java.util.Locale;
 
-import com.aug32.l7audio.data.local.AppConfig;
 import com.aug32.l7audio.utils.AppLog;
 
 /**
  * TTS语音播报管理器
  *
- * 职责：
- * - 文本转语音播报
- * - 语速/音调设置
- * - 车内外音频输出模式切换
+ * <p>职责：
+ * <ul>
+ *   <li>文本转语音播报</li>
+ *   <li>车内外音频输出模式切换</li>
+ * </ul>
  *
- * 目标 SDK：Android 11 (API 30)
+ * <p>目标 SDK：Android 11 (API 30)
+ *
+ * @author L7Audio Team
  */
 public class TTSManager implements TextToSpeech.OnInitListener {
     private static final String TAG = "TTSManager";
 
+    /** 默认语速 */
+    private static final float DEFAULT_SPEECH_RATE = 1.0f;
+    /** 默认音调 */
+    private static final float DEFAULT_PITCH = 1.0f;
+
     /**
      * TTS播报进度监听器接口
-     * <p>
-     * 用于监听TTS播报的开始、完成、错误和进度更新事件。
-     * </p>
+     *
+     * <p>用于监听TTS播报的开始、完成、错误和进度更新事件。
      */
     public interface TTSProgressListener {
         /**
@@ -54,64 +60,51 @@ public class TTSManager implements TextToSpeech.OnInitListener {
         void onTTSProgress(int progress);
     }
 
-    // 上下文对象
+    /** 上下文对象 */
     private final Context context;
-    // 音频输出管理器
+    /** 音频输出管理器 */
     private final AudioOutputManager audioOutputManager;
-    // 应用配置
-    private final AppConfig appConfig;
 
-    // TTS引擎实例
+    /** TTS引擎实例 */
     private TextToSpeech textToSpeech;
-    // TTS引擎是否已初始化
+    /** TTS引擎是否已初始化 */
     private boolean isInitialized = false;
-    // 语速（默认1.0f）
-    private float speechRate = 1.0f;
-    // 音调（默认1.0f）
-    private float pitch = 1.0f;
-    // 进度监听器
+    /** 进度监听器 */
     private TTSProgressListener progressListener;
-    // 进度更新Handler
+    /** 进度更新Handler */
     private android.os.Handler progressHandler;
-    // 进度更新Runnable
+    /** 进度更新Runnable */
     private Runnable progressRunnable;
-    // 当前播报进度（0-100）
+    /** 当前播报进度（0-100） */
     private int currentProgress = 0;
-    // 是否正在播报
+    /** 是否正在播报 */
     private boolean isSpeaking = false;
-    
+
     /**
      * 构造函数
-     * <p>
-     * 初始化TTS引擎，从配置中读取语速和音调设置，并启动进度更新定时器。
-     * </p>
      *
-     * @param context             上下文对象
-     * @param audioOutputManager  音频输出管理器，用于获取音频输出模式
+     * <p>初始化TTS引擎，使用默认语速和音调（1.0f），并启动进度更新定时器。
+     *
+     * @param context            上下文对象
+     * @param audioOutputManager 音频输出管理器，用于获取音频输出模式
      */
     public TTSManager(Context context, AudioOutputManager audioOutputManager) {
         this.context = context;
         this.audioOutputManager = audioOutputManager;
-        this.appConfig = new AppConfig(context);
-        this.speechRate = appConfig.getTTSSpeed();
-        this.pitch = appConfig.getTTSPitch();
 
         textToSpeech = new TextToSpeech(context, this);
         AppLog.d(TAG, "TTSManager initialized");
-        
+
         progressHandler = new android.os.Handler();
         progressRunnable = new Runnable() {
             @Override
             public void run() {
-                // 模拟进度更新：每200ms增加5%，用于UI显示进度
                 if (isSpeaking && progressListener != null) {
                     currentProgress += 5;
-                    // 进度上限保护，避免超过100%
                     if (currentProgress > 100) {
                         currentProgress = 100;
                     }
                     progressListener.onTTSProgress(currentProgress);
-                    // 未达到100%时继续定时更新
                     if (currentProgress < 100) {
                         progressHandler.postDelayed(this, 200);
                     }
@@ -119,14 +112,13 @@ public class TTSManager implements TextToSpeech.OnInitListener {
             }
         };
     }
-        
+
     /**
      * TTS引擎初始化回调
-     * <p>
-     * 初始化成功后，按优先级依次尝试设置语言：简体中文 → 中文(中国) → 繁体中文 → 英语。
+     *
+     * <p>初始化成功后，按优先级依次尝试设置语言：简体中文 → 中文(中国) → 繁体中文 → 英语。
      * 多级回退机制确保在各种设备上都能找到可用的语音。
      * 设置成功后配置语速、音调和音频属性，并注册播报进度监听器。
-     * </p>
      *
      * @param status 初始化状态，TextToSpeech.SUCCESS 表示成功，其他值表示失败
      */
@@ -134,10 +126,9 @@ public class TTSManager implements TextToSpeech.OnInitListener {
     public void onInit(int status) {
         if (status == TextToSpeech.SUCCESS) {
             AppLog.d(TAG, "TTS engine initialized successfully");
-            
+
             boolean languageSet = false;
-            
-            // 第一优先级：简体中文
+
             if (!languageSet) {
                 int result = textToSpeech.setLanguage(Locale.SIMPLIFIED_CHINESE);
                 if (result == TextToSpeech.LANG_AVAILABLE) {
@@ -147,8 +138,7 @@ public class TTSManager implements TextToSpeech.OnInitListener {
                     AppLog.w(TAG, "Simplified Chinese not available, result: " + result);
                 }
             }
-            
-            // 第二优先级：中文(中国)
+
             if (!languageSet) {
                 int result = textToSpeech.setLanguage(Locale.CHINA);
                 if (result == TextToSpeech.LANG_AVAILABLE) {
@@ -158,8 +148,7 @@ public class TTSManager implements TextToSpeech.OnInitListener {
                     AppLog.w(TAG, "Chinese (China) not available, result: " + result);
                 }
             }
-            
-            // 第三优先级：繁体中文
+
             if (!languageSet) {
                 int result = textToSpeech.setLanguage(Locale.TRADITIONAL_CHINESE);
                 if (result == TextToSpeech.LANG_AVAILABLE) {
@@ -169,8 +158,7 @@ public class TTSManager implements TextToSpeech.OnInitListener {
                     AppLog.w(TAG, "Traditional Chinese not available, result: " + result);
                 }
             }
-            
-            // 第四优先级（兜底）：英语
+
             if (!languageSet) {
                 int result = textToSpeech.setLanguage(Locale.ENGLISH);
                 if (result == TextToSpeech.LANG_AVAILABLE) {
@@ -181,17 +169,15 @@ public class TTSManager implements TextToSpeech.OnInitListener {
                 }
             }
 
-            // 语言设置成功后，配置TTS参数
             if (languageSet) {
-                textToSpeech.setSpeechRate(speechRate);
-                textToSpeech.setPitch(pitch);
+                textToSpeech.setSpeechRate(DEFAULT_SPEECH_RATE);
+                textToSpeech.setPitch(DEFAULT_PITCH);
 
-                // 获取音频输出模式：优先从AudioOutputManager获取，兜底用配置中的车外模式
                 int audioUsage;
                 if (audioOutputManager != null) {
                     audioUsage = audioOutputManager.getAudioUsage();
                 } else {
-                    audioUsage = appConfig.getAudioOutputUsageExternal();
+                    audioUsage = AudioAttributes.USAGE_MEDIA;
                 }
                 AudioAttributes audioAttributes = new AudioAttributes.Builder()
                         .setUsage(audioUsage)
@@ -199,7 +185,6 @@ public class TTSManager implements TextToSpeech.OnInitListener {
                         .build();
                 textToSpeech.setAudioAttributes(audioAttributes);
 
-                // 注册播报进度监听器，用于回调UI更新
                 textToSpeech.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                     @Override
                     public void onStart(String utteranceId) {
@@ -208,7 +193,6 @@ public class TTSManager implements TextToSpeech.OnInitListener {
                         currentProgress = 0;
                         if (progressListener != null) {
                             progressListener.onTTSStart();
-                            // 启动模拟进度更新
                             progressHandler.post(progressRunnable);
                         }
                     }
@@ -219,11 +203,9 @@ public class TTSManager implements TextToSpeech.OnInitListener {
                         isSpeaking = false;
                         currentProgress = 100;
                         if (progressListener != null) {
-                            // 确保进度到达100%再回调完成
                             progressListener.onTTSProgress(100);
                             progressListener.onTTSDone();
                         }
-                        // 移除进度更新回调，避免内存泄漏
                         progressHandler.removeCallbacks(progressRunnable);
                     }
 
@@ -236,7 +218,6 @@ public class TTSManager implements TextToSpeech.OnInitListener {
                             progressListener.onTTSProgress(0);
                             progressListener.onTTSError();
                         }
-                        // 移除进度更新回调，避免内存泄漏
                         progressHandler.removeCallbacks(progressRunnable);
                     }
 
@@ -249,7 +230,6 @@ public class TTSManager implements TextToSpeech.OnInitListener {
                             progressListener.onTTSProgress(0);
                             progressListener.onTTSError();
                         }
-                        // 移除进度更新回调，避免内存泄漏
                         progressHandler.removeCallbacks(progressRunnable);
                     }
                 });
@@ -257,7 +237,6 @@ public class TTSManager implements TextToSpeech.OnInitListener {
                 isInitialized = true;
                 AppLog.d(TAG, "TTS initialized successfully with language support");
             } else {
-                // 所有语言都不可用，标记初始化失败
                 AppLog.e(TAG, "No supported language found");
                 isInitialized = false;
             }
@@ -269,10 +248,9 @@ public class TTSManager implements TextToSpeech.OnInitListener {
 
     /**
      * 播报文本
-     * <p>
-     * 使用当前默认的音频输出模式播报文本。
+     *
+     * <p>使用当前默认的音频输出模式播报文本。
      * 若当前正在播报，则不会重复播报。
-     * </p>
      *
      * @param text 要播报的文本内容
      * @return true 表示播报成功启动，false 表示播报失败
@@ -280,47 +258,41 @@ public class TTSManager implements TextToSpeech.OnInitListener {
     public synchronized boolean speak(String text) {
         return speakWithUsage(text, -1);
     }
-    
+
     /**
      * 使用指定的 usage 类型播报文本
-     * <p>
-     * 支持自定义 AudioAttributes.Usage 类型，用于特殊场景的音频输出。
+     *
+     * <p>支持自定义 AudioAttributes.Usage 类型，用于特殊场景的音频输出。
      * 播报前会先停止当前正在进行的播报。
-     * </p>
      *
      * @param text  要播报的文本内容
      * @param usage AudioAttributes.Usage 值，传 -1 表示使用当前输出模式的默认值
      * @return true 表示播报成功启动，false 表示播报失败
      */
     public synchronized boolean speakWithUsage(String text, int usage) {
-        // 未初始化直接返回失败
         if (!isInitialized || textToSpeech == null) {
             AppLog.e(TAG, "TTS not initialized");
             return false;
         }
 
-        // 空文本不播报
         if (text == null || text.isEmpty()) {
             AppLog.e(TAG, "Empty text");
             return false;
         }
 
         try {
-            // 确定音频输出模式：-1 表示使用默认模式
             int audioUsage;
             if (usage == -1) {
-                // 优先从AudioOutputManager获取，兜底用配置中的车外模式
                 if (audioOutputManager != null) {
                     audioUsage = audioOutputManager.getAudioUsage();
                 } else {
-                    audioUsage = appConfig.getAudioOutputUsageExternal();
+                    audioUsage = AudioAttributes.USAGE_MEDIA;
                 }
             } else {
                 audioUsage = usage;
             }
             AppLog.d(TAG, "Using audio usage type: " + audioUsage);
-            
-            // 构建音频属性，设置FLAG_AUDIBILITY_ENFORCED确保声音可听
+
             AudioAttributes audioAttributes = new AudioAttributes.Builder()
                     .setUsage(audioUsage)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -328,15 +300,13 @@ public class TTSManager implements TextToSpeech.OnInitListener {
                     .build();
             textToSpeech.setAudioAttributes(audioAttributes);
             AppLog.d(TAG, "Updated TTS AudioAttributes with usage: " + audioUsage);
-            
-            // 先停止当前播报，确保新的播报可以立即开始
+
             textToSpeech.stop();
-            
+
             Bundle params = new Bundle();
             String utteranceId = "utterance_" + System.currentTimeMillis();
             params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId);
-            
-            // 双重检查：确认TTS不在播报状态后再启动
+
             if (!textToSpeech.isSpeaking()) {
                 int result = textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId);
                 boolean success = (result == TextToSpeech.SUCCESS);
@@ -347,7 +317,6 @@ public class TTSManager implements TextToSpeech.OnInitListener {
                 return false;
             }
         } catch (Exception e) {
-            // 捕获所有异常，避免TTS崩溃导致应用崩溃
             AppLog.e(TAG, "Failed to speak text", e);
             return false;
         }
@@ -355,9 +324,8 @@ public class TTSManager implements TextToSpeech.OnInitListener {
 
     /**
      * 播报预设文本
-     * <p>
-     * 根据预设ID播报预定义的文本内容。
-     * </p>
+     *
+     * <p>根据预设ID播报预定义的文本内容。
      *
      * @param presetId 预设文本ID，取值范围 1-5，其他值使用默认文本
      * @return true 表示播报成功启动，false 表示播报失败
@@ -367,7 +335,12 @@ public class TTSManager implements TextToSpeech.OnInitListener {
         return speak(text);
     }
 
-    /** 获取预设文本 */
+    /**
+     * 获取预设文本
+     *
+     * @param presetId 预设文本ID
+     * @return 对应的预设文本内容
+     */
     private String getPresetText(int presetId) {
         switch (presetId) {
             case 1:
@@ -386,71 +359,18 @@ public class TTSManager implements TextToSpeech.OnInitListener {
     }
 
     /**
-     * 设置语速
-     * <p>
-     * 语速范围限制在 0.5f - 3.0f 之间，超出范围会被自动截断。
-     * 设置后会自动保存到配置中，并同步到TTS引擎。
-     * </p>
-     *
-     * @param rate 语速值，范围 0.5f - 3.0f，1.0f 为正常语速
-     */
-    public void setSpeechRate(float rate) {
-        // 边界处理：限制语速在有效范围内
-        if (rate < 0.5f) {
-            rate = 0.5f;
-        } else if (rate > 3.0f) {
-            rate = 3.0f;
-        }
-        this.speechRate = rate;
-        appConfig.setTTSSpeed(rate);
-        // TTS引擎已初始化则同步更新
-        if (textToSpeech != null) {
-            textToSpeech.setSpeechRate(rate);
-        }
-        AppLog.d(TAG, "Speech rate set to: " + rate);
-    }
-
-    /**
-     * 设置音调
-     * <p>
-     * 音调范围限制在 0.5f - 2.0f 之间，超出范围会被自动截断。
-     * 设置后会自动保存到配置中，并同步到TTS引擎。
-     * </p>
-     *
-     * @param pitch 音调值，范围 0.5f - 2.0f，1.0f 为正常音调
-     */
-    public void setPitch(float pitch) {
-        // 边界处理：限制音调在有效范围内
-        if (pitch < 0.5f) {
-            pitch = 0.5f;
-        } else if (pitch > 2.0f) {
-            pitch = 2.0f;
-        }
-        this.pitch = pitch;
-        appConfig.setTTSPitch(pitch);
-        // TTS引擎已初始化则同步更新
-        if (textToSpeech != null) {
-            textToSpeech.setPitch(pitch);
-        }
-        AppLog.d(TAG, "Pitch set to: " + pitch);
-    }
-
-    /**
      * 停止播报
-     * <p>
-     * 立即停止当前正在进行的TTS播报，并重置进度状态。
-     * </p>
+     *
+     * <p>立即停止当前正在进行的TTS播报，并重置进度状态。
      */
     public synchronized void stop() {
         if (textToSpeech != null && isInitialized) {
             textToSpeech.stop();
             isSpeaking = false;
             currentProgress = 0;
-            // 通知监听器进度重置
             if (progressListener != null) {
                 progressListener.onTTSProgress(0);
             }
-            // 移除进度更新回调，避免内存泄漏
             progressHandler.removeCallbacks(progressRunnable);
             AppLog.d(TAG, "TTS stopped");
         }
@@ -458,9 +378,8 @@ public class TTSManager implements TextToSpeech.OnInitListener {
 
     /**
      * 关闭 TTS 引擎
-     * <p>
-     * 释放TTS引擎资源，调用后需重新创建才能使用。
-     * </p>
+     *
+     * <p>释放TTS引擎资源，调用后需重新创建才能使用。
      */
     public synchronized void shutdown() {
         if (textToSpeech != null) {
@@ -488,7 +407,7 @@ public class TTSManager implements TextToSpeech.OnInitListener {
     public void setProgressListener(TTSProgressListener listener) {
         this.progressListener = listener;
     }
-    
+
     /**
      * 检查是否正在播报
      *

@@ -78,7 +78,6 @@ L7Audio 是一款运行于 Android 系统的音频处理应用，专为吉利银
 - **TTS 列表管理**：支持添加、删除、自定义条目标题
 - **持久化存储**：TTS 列表通过 Gson 序列化保存，重启不丢失
 - **快速播报**：悬浮窗中可直接选择预设条目一键播报
-- **语速 / 音调调节**：代码层支持调节（UI 预留扩展）
 
 ### 🎯 悬浮窗控制
 
@@ -118,11 +117,12 @@ L7Audio 是一款运行于 Android 系统的音频处理应用，专为吉利银
 
 | 依赖库 | 版本 | 用途 |
 |--------|------|------|
-| **Media3 ExoPlayer** | - | 音乐播放核心引擎 |
-| **Media3 Session** | - | Android 媒体中心会话管理（MediaSession） |
-| **Gson** | - | JSON 序列化 / 反序列化（TTS 列表、配置持久化） |
-| **WorkManager** | - | 后台保活任务调度 |
-| **Lifecycle** | - | ViewModel / LiveData，TTS 页面数据驱动 |
+| **Media3 ExoPlayer** | 1.9.2 | 音乐播放核心引擎 |
+| **Android MediaSession** | - | 系统媒体中心会话（原生 API，无额外依赖） |
+| **AndroidX Media** | 1.7.0 | MediaStyle 通知样式（NotificationCompat.MediaStyle） |
+| **Gson** | 2.10.1 | JSON 序列化 / 反序列化（TTS 列表、配置持久化） |
+| **WorkManager** | 2.9.0 | 后台保活任务调度 |
+| **Lifecycle** | 2.8.7 | ViewModel / LiveData，TTS 页面数据驱动 |
 | **Appcompat / Material** | - | UI 组件与主题 |
 | **RecyclerView / CardView** | - | 列表展示 |
 
@@ -458,6 +458,33 @@ adb install app/build/outputs/apk/release/app-release.apk
 ---
 
 ## 版本历史
+
+### v1.4.2 (versionCode: 42)
+- 🗑️ 删除 TTS 语速/音调设置功能（UI 滑块 + 配置方法 + 持久化）
+  - SettingsFragment 移除 TTS 语速/音调调节界面
+  - TTSConfig / TTSManager / AppConfig / TTSRepository / TTSViewModel 移除 speed/pitch 相关方法
+  - TTS 播报使用默认语速和音调（1.0f），简化功能
+- 🔧 重构 MediaSession 为 Android 原生实现：
+  - 使用 `android.media.session.MediaSession` 替代 media3-session
+  - DCL 双重检查锁懒加载单例，确保全局唯一
+  - 支持车机方向盘/中控媒体按键控制（播放/暂停、上一曲、下一曲）
+  - 同步歌曲元数据到系统媒体中心（歌名、艺术家、专辑、时长、封面）
+  - 第三方 APP 可读取当前播放歌曲信息
+- ✨ 前台服务通知升级为 MediaStyle 标准样式：
+  - 引入 `androidx.media:media:1.7.0` 依赖
+  - 使用 `NotificationCompat.MediaStyle` 系统原生媒体通知布局
+  - 通知栏显示媒体控制按钮（上一首、播放/暂停、下一首）
+  - 显示专辑封面、歌曲名、艺术家
+  - 封面 Bitmap 自动回收，防止内存泄漏
+- 🐛 修复通知栏状态不联动问题：
+  - 音乐模块内播放/暂停操作后通知栏同步更新状态
+  - MusicPlayerManager 状态变化时调用 AudioForegroundService.notifyUpdate()
+- 🐛 修复底部导航选中效果丢失问题：
+  - loadFunctionPage() 中添加 updateFunctionButtons() 调用
+  - 切换页面后底部导航按钮正确显示选中高亮
+- 🔧 枚举设备显示优化：
+  - 设置页枚举设备结果区域添加 ScrollView
+  - maxHeight=300dp，支持垂直滚动，解决内容显示不全问题
 
 ### v1.4.1 (versionCode: 41)
 - 🔧 接入 Android 媒体中心（MediaSession）：

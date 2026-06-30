@@ -10,6 +10,7 @@ import com.aug32.l7audio.domain.audio.player.PlaybackCallback;
 import com.aug32.l7audio.domain.audio.player.PlaybackController;
 import com.aug32.l7audio.domain.audio.playlist.PlaylistManager;
 import com.aug32.l7audio.domain.audio.playlist.ScannedMusicInfo;
+import com.aug32.l7audio.service.AudioForegroundService;
 import com.aug32.l7audio.utils.AppExecutors;
 import com.aug32.l7audio.utils.AppLog;
 
@@ -274,6 +275,9 @@ public class MusicPlayerManager {
 
         // 同步更新 MediaSession（歌曲信息 + 播放状态）
         notifyMediaSession(item, true, startPosition);
+
+        // 通知前台服务更新通知栏
+        AudioForegroundService.notifyUpdate(context);
     }
 
     /**
@@ -283,6 +287,8 @@ public class MusicPlayerManager {
         playbackController.pause();
         // 同步更新 MediaSession 播放状态
         notifyMediaSessionPlaybackState(false, playbackController.getCurrentPosition());
+        // 通知前台服务更新通知栏
+        AudioForegroundService.notifyUpdate(context);
     }
 
     /**
@@ -307,6 +313,8 @@ public class MusicPlayerManager {
         playbackController.resume();
         // 同步更新 MediaSession 播放状态
         notifyMediaSessionPlaybackState(true, playbackController.getCurrentPosition());
+        // 通知前台服务更新通知栏
+        AudioForegroundService.notifyUpdate(context);
     }
 
     /**
@@ -318,6 +326,8 @@ public class MusicPlayerManager {
         playbackController.resume(startPosition);
         // 同步更新 MediaSession 播放状态
         notifyMediaSessionPlaybackState(true, startPosition);
+        // 通知前台服务更新通知栏
+        AudioForegroundService.notifyUpdate(context);
     }
 
     /**
@@ -327,6 +337,8 @@ public class MusicPlayerManager {
         playbackController.stop();
         // 同步更新 MediaSession 播放状态
         notifyMediaSessionPlaybackState(false, 0);
+        // 通知前台服务更新通知栏
+        AudioForegroundService.notifyUpdate(context);
     }
 
     /**
@@ -674,9 +686,13 @@ public class MusicPlayerManager {
             switch (state.getState()) {
                 case PLAYING:
                     callback.onPlaybackStarted(playlistManager.getCurrentIndex());
+                    notifyMediaSessionPlaybackState(true, playbackController.getCurrentPosition());
+                    AudioForegroundService.notifyUpdate(context);
                     break;
                 case PAUSED:
                     callback.onPlaybackPaused();
+                    notifyMediaSessionPlaybackState(false, playbackController.getCurrentPosition());
+                    AudioForegroundService.notifyUpdate(context);
                     break;
                 case STOPPED:
                 case IDLE:

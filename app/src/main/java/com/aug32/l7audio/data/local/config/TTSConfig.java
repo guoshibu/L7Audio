@@ -5,13 +5,13 @@ import android.content.SharedPreferences;
 /**
  * TTS（语音合成）配置
  *
- * 职责：管理 TTS 语速、音调以及 TTS 预设文本列表等配置
+ * <p>职责：管理 TTS 预设文本列表等配置
  * 通过 SharedPreferences 持久化存储语音合成相关参数
+ *
+ * @author L7Audio Team
  */
 public class TTSConfig {
 
-    private static final String PREF_TTS_SPEED = "tts_speed";
-    private static final String PREF_TTS_PITCH = "tts_pitch";
     private static final String PREF_TTS_ITEMS = "tts_items";
 
     private final SharedPreferences preferences;
@@ -23,22 +23,6 @@ public class TTSConfig {
      */
     public TTSConfig(SharedPreferences preferences) {
         this.preferences = preferences;
-    }
-
-    public float getTTSSpeed() {
-        return preferences.getFloat(PREF_TTS_SPEED, 1.0f);
-    }
-
-    public void setTTSSpeed(float speed) {
-        preferences.edit().putFloat(PREF_TTS_SPEED, speed).apply();
-    }
-
-    public float getTTSPitch() {
-        return preferences.getFloat(PREF_TTS_PITCH, 1.0f);
-    }
-
-    public void setTTSPitch(float pitch) {
-        preferences.edit().putFloat(PREF_TTS_PITCH, pitch).apply();
     }
 
     public String getTTSItems() {

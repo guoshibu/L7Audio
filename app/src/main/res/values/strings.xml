@@ -22,8 +22,6 @@
     <string name="settings_title">设置</string>
     <string name="settings_auto_start">开机自启动</string>
     <string name="settings_mic_amplification">麦克风放大级别</string>
-    <string name="settings_tts_speed">TTS 语速</string>
-    <string name="settings_tts_pitch">TTS 音调</string>
 
     <!-- About -->
     <string name="about_title">关于</string>
