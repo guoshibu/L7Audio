@@ -605,7 +605,8 @@ adb install app/build/outputs/apk/release/app-release.apk
 - 基础框架搭建
 - 音乐、TTS、麦克风三大核心功能实现
 
-> 详细改动记录请参考 [CHANGELOG.md]
+> 详细改动记录请参考 [CHANGELOG.md](CHANGELOG.md)
+
 ---
 
 ## 常见问题
