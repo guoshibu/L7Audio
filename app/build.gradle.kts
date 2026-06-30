@@ -56,6 +56,15 @@ android {
         options.compilerArgs.add("-Xlint:deprecation")
     }
 
+    // 配置 APK 输出文件名：L7音频工具-{版本名}-{versionCode}-{调试/正式}.apk
+    applicationVariants.all {
+        outputs.all {
+            val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            val variantName = if (buildType.name == "debug") "调试" else "正式"
+            output.outputFileName = "L7音频工具-${versionName}-${versionCode}-${variantName}.apk"
+        }
+    }
+
 }
 
 dependencies {
