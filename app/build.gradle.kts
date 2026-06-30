@@ -1,3 +1,7 @@
+import java.nio.file.Files
+import java.nio.file.Paths
+import java.nio.file.StandardCopyOption
+
 plugins {
     alias(libs.plugins.androidApplication)
 }
@@ -56,15 +60,38 @@ android {
         options.compilerArgs.add("-Xlint:deprecation")
     }
 
-    // 配置 APK 输出文件名：L7音频工具-{版本名}-{versionCode}-{调试/正式}.apk
-    applicationVariants.all {
-        outputs.all {
-            val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
-            val variantName = if (buildType.name == "debug") "调试" else "正式"
-            output.outputFileName = "L7音频工具-${versionName}-${versionCode}-${variantName}.apk"
+}
+
+androidComponents {
+    onVariants { variant ->
+        afterEvaluate {
+            val capitalizedVariantName = variant.name.replaceFirstChar { it.uppercase() }
+            tasks.named("assemble${capitalizedVariantName}") {
+                doLast {
+                    val apkFolder = Paths.get(
+                        variant.artifacts.get(
+                            com.android.build.api.artifact.SingleArtifact.APK
+                        ).get().toString()
+                    )
+                    val buildTypeName = when (variant.buildType) {
+                        "debug" -> "调试"
+                        "release" -> "正式"
+                        else -> variant.buildType
+                    }
+                    val appName = "L7音频工具"
+                    val versionName = project.android.defaultConfig.versionName.orEmpty()
+                    val versionCode = project.android.defaultConfig.versionCode ?: 0
+                    val originalApkName = "app-${variant.buildType}.apk"
+                    val originalApkPath = apkFolder.resolve(originalApkName)
+                    val newApkName = "${appName}-${versionName}-${versionCode}-${buildTypeName}.apk"
+                    val newApkPath = apkFolder.resolve(newApkName)
+                    if (Files.exists(originalApkPath)) {
+                        Files.move(originalApkPath, newApkPath, StandardCopyOption.REPLACE_EXISTING)
+                    }
+                }
+            }
         }
     }
-
 }
 
 dependencies {
