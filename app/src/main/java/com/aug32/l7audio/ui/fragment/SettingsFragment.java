@@ -83,6 +83,18 @@ public class SettingsFragment extends BaseFragment {
     /** 检查 TTS 状态按钮 */
     private Button btnCheckTTSStatus;
 
+    // ========== 车外喊话设置 UI ==========
+    /** 防抖间隔输入框 */
+    private EditText editDebounceInterval;
+    /** 静音检测开关 */
+    private Switch swSilenceDetection;
+    /** 静音超时输入框 */
+    private EditText editSilenceTimeout;
+    /** 静音阈值输入框 */
+    private EditText editSilenceThreshold;
+    /** 保存车外喊话设置按钮 */
+    private Button btnSaveAnnouncement;
+
     // ========== 音频设备设置 UI ==========
     /** 车外音频用途输入框 */
     private EditText editAudioUsageExternal;
@@ -104,6 +116,8 @@ public class SettingsFragment extends BaseFragment {
     private Button btnSaveAudioDevice;
     /** 音频设备状态显示文本 */
     private TextView tvAudioDeviceStatus;
+    /** 车外喊话状态显示文本 */
+    private TextView tvAnnouncementStatus;
     /** 关于页面按钮 */
     private Button btnAbout;
 
@@ -158,6 +172,13 @@ public class SettingsFragment extends BaseFragment {
         btnTestTTS = view.findViewById(R.id.btn_test_tts);
         btnCheckTTSStatus = view.findViewById(R.id.btn_check_tts_status);
 
+        editDebounceInterval = view.findViewById(R.id.edit_debounce_interval);
+        swSilenceDetection = view.findViewById(R.id.sw_silence_detection);
+        editSilenceTimeout = view.findViewById(R.id.edit_silence_timeout);
+        editSilenceThreshold = view.findViewById(R.id.edit_silence_threshold);
+        btnSaveAnnouncement = view.findViewById(R.id.btn_save_announcement);
+        tvAnnouncementStatus = view.findViewById(R.id.tv_announcement_status);
+
         editAudioUsageExternal = view.findViewById(R.id.edit_audio_usage_external);
         editAudioUsageCar = view.findViewById(R.id.edit_audio_usage_car);
         editAudioSource = view.findViewById(R.id.edit_audio_source);
@@ -181,6 +202,9 @@ public class SettingsFragment extends BaseFragment {
         micConfig = new MicConfig(prefs);
         ttsConfig = new TTSConfig(prefs);
         floatingWindowConfig = new FloatingWindowConfig(prefs);
+
+        // 加载车外喊话设置（在 micConfig 初始化之后调用）
+        loadAnnouncementSettings();
 
         AudioServiceLocator locator = AudioServiceLocator.getInstance();
         locator.init(requireContext());
@@ -242,6 +266,13 @@ public class SettingsFragment extends BaseFragment {
         tvTTSStatus = null;
         btnTestTTS = null;
         btnCheckTTSStatus = null;
+        // 置空车外喊话设置 UI
+        editDebounceInterval = null;
+        swSilenceDetection = null;
+        editSilenceTimeout = null;
+        editSilenceThreshold = null;
+        btnSaveAnnouncement = null;
+        tvAnnouncementStatus = null;
         // 置空音频设备设置 UI
         editAudioUsageExternal = null;
         editAudioUsageCar = null;
@@ -324,6 +355,9 @@ public class SettingsFragment extends BaseFragment {
         // TTS 诊断
         btnTestTTS.setOnClickListener(v -> testTTS());
         btnCheckTTSStatus.setOnClickListener(v -> checkTTSStatus());
+
+        // 车外喊话设置
+        btnSaveAnnouncement.setOnClickListener(v -> saveAnnouncementSettings());
 
         // 音频设备设置
         setupAudioDeviceListeners();
@@ -744,6 +778,58 @@ public class SettingsFragment extends BaseFragment {
                 return "内置安全扬声器 (BUILTIN_SPEAKER_SAFE)";
             default:
                 return "未知设备类型 (" + deviceType + ")";
+        }
+    }
+
+    /** 加载车外喊话设置 */
+    private void loadAnnouncementSettings() {
+        editDebounceInterval.setText(String.valueOf(micConfig.getDebounceInterval()));
+        swSilenceDetection.setChecked(micConfig.isSilenceDetectionEnabled());
+        editSilenceTimeout.setText(String.valueOf(micConfig.getSilenceTimeout()));
+        editSilenceThreshold.setText(String.valueOf(micConfig.getSilenceThreshold()));
+    }
+
+    /** 保存车外喊话设置 */
+    private void saveAnnouncementSettings() {
+        try {
+            String debounceIntervalStr = editDebounceInterval.getText().toString().trim();
+            int debounceInterval = !debounceIntervalStr.isEmpty() ? Integer.parseInt(debounceIntervalStr) : 800;
+            if (debounceInterval < 500) debounceInterval = 500;
+            else if (debounceInterval > 2000) debounceInterval = 2000;
+
+            boolean silenceDetectionEnabled = swSilenceDetection.isChecked();
+
+            String silenceTimeoutStr = editSilenceTimeout.getText().toString().trim();
+            int silenceTimeout = !silenceTimeoutStr.isEmpty() ? Integer.parseInt(silenceTimeoutStr) : 30;
+            if (silenceTimeout < 5) silenceTimeout = 5;
+            else if (silenceTimeout > 300) silenceTimeout = 300;
+
+            String silenceThresholdStr = editSilenceThreshold.getText().toString().trim();
+            float silenceThreshold = !silenceThresholdStr.isEmpty() ? Float.parseFloat(silenceThresholdStr) : 0.05f;
+            if (silenceThreshold < 0.03f) silenceThreshold = 0.03f;
+            else if (silenceThreshold > 0.3f) silenceThreshold = 0.3f;
+
+            micConfig.setDebounceInterval(debounceInterval);
+            micConfig.setSilenceDetectionEnabled(silenceDetectionEnabled);
+            micConfig.setSilenceTimeout(silenceTimeout);
+            micConfig.setSilenceThreshold(silenceThreshold);
+
+            String message = "车外喊话设置已保存<br>" +
+                    "防抖间隔: <font color='#FF0000'>" + debounceInterval + "ms</font><br>" +
+                    "静音检测: <font color='#FF0000'>" + (silenceDetectionEnabled ? "开启" : "关闭") + "</font><br>" +
+                    "静音超时: <font color='#FF0000'>" + silenceTimeout + "秒</font><br>" +
+                    "静音阈值: <font color='#FF0000'>" + silenceThreshold + "</font>";
+            tvAnnouncementStatus.setText(HtmlCompat.fromHtml(message, HtmlCompat.FROM_HTML_MODE_LEGACY));
+
+            try {
+                int carUsage = audioConfig.getUsageCar();
+                ttsManager.speakWithUsage("车外喊话设置已保存", carUsage);
+            } catch (Exception e) {
+                AppLog.e(TAG, "Failed to speak", e);
+            }
+
+        } catch (NumberFormatException e) {
+            tvAudioDeviceStatus.setText("输入值无效，请输入有效的数字");
         }
     }
 

@@ -10,6 +10,8 @@
         android:layout_height="77dp"
         android:text="L7"
         android:textSize="22sp"
+        android:includeFontPadding="false"
+        android:padding="0dp"
         android:backgroundTint="@color/colorPrimary"
         android:textColor="@color/button_text"
         android:elevation="8dp" />

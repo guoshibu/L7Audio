@@ -1,5 +1,190 @@
 # L7Audio 改动记录
 
+> 日期：2026-07-02
+> 版本：v1.4.3 (versionCode: 43)
+
+---
+
+## 一、修改文件总览
+
+| 类型 | 数量 | 文件 |
+|------|------|------|
+| ✨ 新增 | 6 | AnnouncementController.java、AnnouncementReceiver.java、AudioProcessor.java、AudioPipeline.java、GainLimiterProcessor.java、AudioSuppressionProcessor.java |
+| 🐛 修复 | 2 | 关闭主界面后悬浮窗车外喊话不可用、悬浮窗按钮文字显示不全 |
+| 🔧 优化 | 8 | MicConfig.java、MicrophoneManager.java（重构为管线模式）、FloatingWindowService.java、MicAmplifierFragment.java、MainActivity.java、SettingsFragment.java、fragment_settings.xml、AndroidManifest.xml |
+| 📝 文档 | 2 | README.md、CHANGELOG.md |
+
+---
+
+## 二、核心问题修复
+
+### 1️⃣ 关闭主界面后悬浮窗车外喊话不可用
+
+**问题描述**：关闭软件主界面仅保留悬浮窗时，车外喊话功能 UI 显示正常但实际不发声，需进入麦克风页面才能使用。
+
+**原因分析**：`MainActivity.onDestroy()` 注销了 `AudioServiceLocator` 中的管理器，导致悬浮窗中获取的是新实例，输出模式未正确设置。
+
+**修复方案**：
+
+| 修改文件 | 改动内容 |
+|----------|----------|
+| [MainActivity.java](app/src/main/java/com/aug32/l7audio/ui/activity/MainActivity.java) | `onDestroy()` 不再注销音频管理器（麦克风、音频输出、音频焦点），确保全局使用同一实例 |
+
+---
+
+### 2️⃣ 悬浮窗按钮文字显示不全
+
+**问题描述**：车机上悬浮窗按钮的"L7"字符显示不完整。
+
+**原因分析**：按钮内边距和字体大小导致文字显示不全。
+
+**修复方案**：
+
+| 修改文件 | 改动内容 |
+|----------|----------|
+| [view_floating_ball.xml](app/src/main/res/layout/view_floating_ball.xml) | 移除按钮内边距，设置 `android:includeFontPadding="false"`，避免字体额外间距 |
+
+---
+
+## 三、新增功能
+
+### 1️⃣ 车外喊话统一管理（AnnouncementController）
+
+**功能描述**：创建 `AnnouncementController` 单例类，集中处理车外喊话状态切换、防抖、静音检测和焦点管理。
+
+**新增文件**：
+
+| 文件 | 职责 |
+|------|------|
+| [AnnouncementController.java](app/src/main/java/com/aug32/l7audio/domain/audio/AnnouncementController.java) | DCL 单例，管理喊话状态、防抖检查、静音检测线程、音频焦点协调 |
+
+**核心功能**：
+
+- **状态管理**：统一管理 `isAnnouncing` 状态，支持多个入口（悬浮窗、麦克风页面、第三方按键）
+- **防抖处理**：记录上次触发时间，过滤短时间内的连续触发请求（默认 800ms）
+- **静音检测**：通过 RMS 音量检测判断是否有声音输入，超时后自动关闭（默认 30 秒）
+- **焦点管理**：申请短暂独占焦点暂停音乐，结束后释放焦点恢复音乐
+- **观察者模式**：`AnnouncementListener` 接口实现悬浮窗和麦克风页面状态同步
+
+---
+
+### 2️⃣ 第三方 APP 按键控制支持
+
+**功能描述**：支持第三方 APP 通过实体按键发送广播控制车外喊话（触发后开启，再次触发关闭）。
+
+**新增文件**：
+
+| 文件 | 职责 |
+|------|------|
+| [AnnouncementReceiver.java](app/src/main/java/com/aug32/l7audio/receiver/AnnouncementReceiver.java) | 接收广播 `com.aug32.l7audio.OUTSIDE_MIC_TOGGLE`，调用控制器切换状态 |
+
+**使用方式**：
+
+```java
+Intent intent = new Intent("com.aug32.l7audio.OUTSIDE_MIC_TOGGLE");
+context.sendBroadcast(intent);
+```
+
+---
+
+### 3️⃣ 车外喊话设置配置项
+
+**功能描述**：设置页面新增车外喊话相关配置项，支持用户自定义参数。
+
+**修改文件**：
+
+| 文件 | 改动内容 |
+|------|----------|
+| [fragment_settings.xml](app/src/main/res/layout/fragment_settings.xml) | 新增"车外喊话设置"卡片，包含防抖间隔、静音检测开关、静音超时、静音阈值输入框 |
+| [SettingsFragment.java](app/src/main/java/com/aug32/l7audio/ui/fragment/SettingsFragment.java) | 加载/保存车外喊话配置，含范围校验和 Toast 提示 |
+| [MicConfig.java](app/src/main/java/com/aug32/l7audio/data/local/config/MicConfig.java) | 新增配置字段：`debounceInterval`、`silenceDetectionEnabled`、`silenceTimeout`、`silenceThreshold` |
+
+**配置项说明**：
+
+| 配置项 | 范围 | 默认值 | 说明 |
+|--------|------|--------|------|
+| 防抖间隔 | 500-2000ms | 800ms | 屏蔽快速连续触发，避免麦克风频繁启停啸叫、硬件损伤 |
+| 静音检测 | 开启/关闭 | 开启 | 无声音输入时自动关闭功能 |
+| 静音超时 | 5-300秒 | 30秒 | 静音持续多久后自动关闭 |
+| 静音阈值 | 0.03-0.3 | 0.05 | 判定为静音的 RMS 音量阈值（适配车内环境噪音） |
+
+---
+
+### 4️⃣ 状态同步机制
+
+**功能描述**：悬浮窗和麦克风页面通过观察者模式同步 UI 状态。
+
+**修改文件**：
+
+| 文件 | 改动内容 |
+|------|----------|
+| [FloatingWindowService.java](app/src/main/java/com/aug32/l7audio/service/FloatingWindowService.java) | 添加 `AnnouncementListener`，在 `showListView()` 注册、`hideListView()` 注销 |
+| [MicAmplifierFragment.java](app/src/main/java/com/aug32/l7audio/ui/fragment/MicAmplifierFragment.java) | 添加 `AnnouncementListener`，在 `onViewCreated()` 注册、`onDestroyView()` 注销 |
+
+---
+
+### 5️⃣ RMS 音量检测
+
+**功能描述**：`MicrophoneManager` 新增 `getCurrentRms()` 方法，计算音频帧的均方根值用于静音检测。
+
+**修改文件**：
+
+| 文件 | 改动内容 |
+|------|----------|
+| [MicrophoneManager.java](app/src/main/java/com/aug32/l7audio/domain/audio/MicrophoneManager.java) | 新增 `currentRms` 变量和 `calculateRms()` 方法，实时计算音频 RMS 值 |
+
+---
+
+### 6️⃣ Toast 提示增强
+
+**功能描述**：车外喊话开启/关闭时显示 Toast 提示，自动关闭时显示原因。
+
+**修改文件**：
+
+| 文件 | 改动内容 |
+|------|----------|
+| [AnnouncementController.java](app/src/main/java/com/aug32/l7audio/domain/audio/AnnouncementController.java) | 开启时显示"车外喊话已开启"，关闭时显示"车外喊话已关闭"，自动关闭时显示"车外喊话已关闭：{原因}" |
+
+---
+
+### 7️⃣ MicrophoneManager 管线模式重构
+
+**功能描述**：将 MicrophoneManager 从 ~900 行重构为 ~685 行，采用管线模式拆分音频处理逻辑。
+
+**架构变更**：
+- 新增 `AudioProcessor` 接口：定义音频处理器的统一契约
+- 新增 `AudioPipeline` 管线类：按注册顺序串联执行处理器
+- 新增 `GainLimiterProcessor`：增益放大 + tanh 软限幅（替代 clamp 硬限幅，减少削波失真）
+- 新增 `AudioSuppressionProcessor`：噪声门 + 回声消除 + 啸叫抑制（三合一，共享 reset() 消除状态泄漏）
+
+**修复的问题**：
+- 状态泄漏：`releaseResources()` 遗漏 `previousAvgVolume`、`previousEnergy`、`mCurrentGain` 重置 → 通过 `pipeline.reset()` 统一清零
+- 死代码移除：`detectSteadyNoise()` 计算未使用
+- 处理顺序优化：增益→限幅→噪声门→回声→啸叫（原为噪声→回声→增益→限幅→啸叫）
+- 噪声抑制算法升级：从能量阈值法改为噪声门（Noise Gate），避免将正常语音误判为噪声
+- 回声消除优化：能量比判断 + 动态衰减，替代固定条件判断
+- 啸叫抑制强化：动态衰减根据啸叫强度自动调整，替代固定衰减系数
+
+**对外接口**：零变化，所有调用方无需修改。
+
+**修改文件**：
+
+| 文件 | 改动内容 |
+|------|----------|
+| [AudioProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/AudioProcessor.java) | 新增：音频处理器接口 |
+| [AudioPipeline.java](app/src/main/java/com/aug32/l7audio/domain/audio/AudioPipeline.java) | 新增：管线编排类 |
+| [GainLimiterProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/processor/GainLimiterProcessor.java) | 新增：增益+软限幅处理器 |
+| [AudioSuppressionProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/processor/AudioSuppressionProcessor.java) | 新增：三合一抑制处理器 |
+| [MicrophoneManager.java](app/src/main/java/com/aug32/l7audio/domain/audio/MicrophoneManager.java) | 重构：退化为协调者，委托管线处理 |
+
+---
+
+详细版本历史请参考 [README.md](README.md)
+
+---
+
+## 四、旧版本记录
+
 > 日期：2026-06-30
 > 版本：v1.4.2 (versionCode: 42)
 

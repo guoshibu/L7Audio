@@ -31,6 +31,7 @@ import java.util.Map;
 
 import com.aug32.l7audio.data.local.AppConfig;
 import com.aug32.l7audio.data.model.TTSItem;
+import com.aug32.l7audio.domain.audio.AnnouncementController;
 import com.aug32.l7audio.domain.audio.AudioFocusManager;
 import com.aug32.l7audio.domain.audio.AudioOutputManager;
 import com.aug32.l7audio.domain.audio.AudioServiceLocator;
@@ -78,16 +79,27 @@ public class FloatingWindowService extends Service {
     // 悬浮窗列表是否可见
     private boolean isListViewVisible = false;
     
-    // 车外喊话状态
-    private boolean isAnnouncing = false;
     // 车外喊话按钮
     private Button announcementBtn;
-    // 喊话前保存的输出模式（喊话结束后恢复），-1表示无效值
-    private int savedOutputModeBeforeAnnouncement = -1;
     // TTS 播放期间是否暂停了音乐（用于 TTS 结束时决定是否恢复焦点）
     private boolean ttsPausedMusic = false;
     // 音频焦点管理器，管理TTS/喊话与音乐的焦点协调
     private AudioFocusManager audioFocusManager;
+    // 当前是否在喊话（本地缓存，用于自动收起判断）
+    private boolean isAnnouncing = false;
+    // 喊话状态监听器，用于同步 UI
+    private AnnouncementController.AnnouncementListener announcementListener = new AnnouncementController.AnnouncementListener() {
+        @Override
+        public void onAnnouncementStateChanged(boolean announcing) {
+            isAnnouncing = announcing;
+            updateAnnouncementButton();
+        }
+
+        @Override
+        public void onAnnouncementAutoClosed(String reason) {
+            isAnnouncing = false;
+        }
+    };
 
     // Audio 组件服务定位器
     private AudioServiceLocator audioServiceLocator;
@@ -136,6 +148,8 @@ public class FloatingWindowService extends Service {
         audioServiceLocator = AudioServiceLocator.getInstance();
         audioServiceLocator.init(this);
         audioFocusManager = audioServiceLocator.getAudioFocusManager();
+        // 初始化车外喊话控制器
+        AnnouncementController.getInstance().init(this);
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         // 为什么用主线程Looper：悬浮窗操作必须在主线程，Handler也用于postDelayed延迟任务
         handler = new Handler(Looper.getMainLooper());
@@ -522,6 +536,9 @@ public class FloatingWindowService extends Service {
             // 更新车外喊话按钮状态
             updateAnnouncementButton();
 
+            // 注册喊话状态监听器，悬浮窗展开时同步状态
+            AnnouncementController.getInstance().addListener(announcementListener);
+
             resetAutoHideTimer();
         } catch (Exception e) {
             AppLog.e(TAG, "Error in showListView", e);
@@ -549,6 +566,9 @@ public class FloatingWindowService extends Service {
         if (handler != null && autoHideRunnable != null) {
             handler.removeCallbacks(autoHideRunnable);
         }
+
+        // 注销喊话状态监听器，悬浮窗收起时停止同步
+        AnnouncementController.getInstance().removeListener(announcementListener);
         
         showFloatingBall();
         AppLog.d(TAG, "hideListView done");
@@ -755,86 +775,9 @@ public class FloatingWindowService extends Service {
         AppLog.d(TAG, "TTS progress listener registered successfully");
     }
 
-    /** 切换车外喊话的开启/关闭，基于音频焦点自动管理音乐暂停恢复 */
+    /** 切换车外喊话的开启/关闭，通过 AnnouncementController 统一管理 */
     private void toggleAnnouncement() {
-        AudioOutputManager outputManager = audioServiceLocator.getAudioOutputManager();
-        if (outputManager == null) {
-            AppLog.w(TAG, "AudioOutputManager is null, cannot toggle announcement");
-            return;
-        }
-
-        if (isAnnouncing) {
-            // 停止喊话
-            try {
-                if (audioServiceLocator.getMicrophoneManager() != null) {
-                    audioServiceLocator.getMicrophoneManager().stop();
-                }
-            } catch (Exception e) {
-                AppLog.e(TAG, "Failed to stop microphone", e);
-            }
-            isAnnouncing = false;
-
-            // 为什么先恢复输出模式再释放焦点：
-            // 先恢复输出模式，再释放焦点让音乐恢复，确保音乐从正确的输出设备播放
-            if (outputManager != null && savedOutputModeBeforeAnnouncement >= 0) {
-                outputManager.setOutputMode(savedOutputModeBeforeAnnouncement);
-                AppLog.d(TAG, "Restored output mode to: " + savedOutputModeBeforeAnnouncement);
-                savedOutputModeBeforeAnnouncement = -1;
-            }
-
-            // 释放短暂独占焦点，MusicPlayerManager 通过焦点回调自动恢复音乐
-            // 为什么不用手动恢复音乐：通过音频焦点机制统一管理，避免状态不一致
-            if (audioFocusManager != null) {
-                audioFocusManager.abandonTransientFocus();
-                AppLog.d(TAG, "Announcement stopped, abandoned transient focus");
-            }
-
-            // 喊话结束后重启自动收起定时器
-            resetAutoHideTimer();
-        } else {
-            // 停止 TTS 播放（互斥）
-            // 为什么互斥：车外喊话和TTS都用车外喇叭，同时播放会混乱
-            try {
-                if (audioServiceLocator.getTTSManager() != null && audioServiceLocator.getTTSManager().isSpeaking()) {
-                    audioServiceLocator.getTTSManager().stop();
-                    updateTTSButtonColors(null);
-                }
-            } catch (Exception e) {
-                AppLog.e(TAG, "Failed to stop TTS", e);
-            }
-
-            // 记录当前输出模式（喊话结束后恢复）
-            if (outputManager != null) {
-                savedOutputModeBeforeAnnouncement = outputManager.getOutputMode();
-            }
-
-            // 申请短暂独占焦点：MusicPlayerManager 通过 onFocusLostTransient 回调自动暂停音乐
-            // 为什么用音频焦点而不是直接暂停音乐：统一的焦点管理机制，
-            // 避免多个组件同时操作音乐播放状态导致混乱
-            if (audioFocusManager != null) {
-                boolean granted = audioFocusManager.requestTransientFocus();
-                AppLog.d(TAG, "Announcement started, transient focus granted=" + granted);
-            }
-
-            // 直接切换输出模式到车外（不调用 setAudioOutput 避免 stop/restart 音乐）
-            // 为什么不用 setAudioOutput：setAudioOutput 可能会停止并重启音乐播放，
-            // 而我们只想切换输出通道，让音乐通过焦点机制自然暂停
-            if (outputManager != null) {
-                outputManager.setOutputMode(AudioOutputManager.OUTPUT_EXTERNAL);
-                AppLog.d(TAG, "Switched output mode to external");
-            }
-
-            try {
-                if (audioServiceLocator.getMicrophoneManager() != null) {
-                    audioServiceLocator.getMicrophoneManager().start();
-                }
-            } catch (Exception e) {
-                AppLog.e(TAG, "Failed to start mic amplification", e);
-            }
-            isAnnouncing = true;
-        }
-
-        updateAnnouncementButton();
+        AnnouncementController.getInstance().toggle(true);
     }
     
     /** 根据当前是否在喊话状态更新喊话按钮的 UI */

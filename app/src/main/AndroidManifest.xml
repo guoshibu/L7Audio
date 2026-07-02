@@ -56,6 +56,14 @@
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
+
+        <receiver
+            android:name=".receiver.AnnouncementReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.aug32.l7audio.OUTSIDE_MIC_TOGGLE" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

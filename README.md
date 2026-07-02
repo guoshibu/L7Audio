@@ -66,11 +66,16 @@ L7Audio 是一款运行于 Android 系统的音频处理应用，专为吉利银
 
 - **实时麦克风采集**：低延迟音频采集与播放
 - **多级放大增益**：可调节放大级别，适应不同喊话距离
-- **智能降噪处理**：
-  - 噪声抑制（NS）：降低环境背景噪声
-  - 回声抑制（AEC）：消除扬声器回授
-  - 啸叫抑制：防止高音啸叫
+- **智能降噪处理**（管线模式 Pipeline Pattern）：
+  - 噪声门（Noise Gate）：静音低能量帧，保留语音
+  - 回声消除（AEC）：能量比检测 + 动态衰减，硬件 AEC 可用时自动切换
+  - 啸叫抑制（Howling Suppression）：动态衰减根据啸叫强度自适应调整
+  - tanh 软限幅：替代 clamp 硬限幅，减少削波失真
 - **车外喊话模式**：一键开启车外喊话，自动切换输出设备
+- **防抖保护**：屏蔽快速连续触发（500-2000ms可配置），避免麦克风频繁启停导致啸叫和硬件损伤
+- **闲置自动关闭**：无声音输入超时后自动关闭（5-300秒可配置），防止忘记关闭
+- **状态同步**：悬浮窗和麦克风页面状态实时同步
+- **第三方按键支持**：接收广播 `com.aug32.l7audio.OUTSIDE_MIC_TOGGLE` 触发车外喊话（触发后开启，再次触发关闭）
 
 ### 📢 文字转语音（TTS）
 
@@ -139,6 +144,9 @@ L7Audio 是一款运行于 Android 系统的音频处理应用，专为吉利银
 │  MusicPlayerManager / TTSManager / MicrophoneManager     │
 │  AudioFocusManager / AudioOutputManager / PlaylistManager│
 │  MediaSessionManager（媒体中心会话）                      │
+│  AnnouncementController（车外喊话统一管理）               │
+│  AudioPipeline → GainLimiterProcessor →                  │
+│  AudioSuppressionProcessor（管线模式音频处理）            │
 └───────────────────┬─────────────────────────────────────┘
                     │ 依赖
 ┌───────────────────▼─────────────────────────────────────┐
@@ -177,14 +185,20 @@ L7Audio/
 │   │   │   │   ├── AudioServiceLocator.java # 服务定位器（单例管理）
 │   │   │   │   ├── AudioFocusManager.java   # 音频焦点管理
 │   │   │   │   ├── AudioOutputManager.java  # 输出设备管理
+│   │   │   │   ├── AnnouncementController.java # 车外喊话统一管理（防抖、静音检测、状态同步）
 │   │   │   │   ├── MusicPlayerManager.java  # 音乐播放管理
 │   │   │   │   ├── MediaSessionManager.java # 媒体会话管理（Android 媒体中心）
 │   │   │   │   ├── PlaybackState.java       # 播放状态
 │   │   │   │   ├── MusicItem.java           # 音乐条目模型
 │   │   │   │   ├── LrcParser.java           # 歌词解析器
 │   │   │   │   ├── AudioVisualizerView.java # 音频可视化视图
-│   │   │   │   ├── MicrophoneManager.java   # 麦克风管理
+│   │   │   │   ├── MicrophoneManager.java   # 麦克风管理（协调者）
 │   │   │   │   ├── TTSManager.java          # TTS 管理
+│   │   │   │   ├── AudioProcessor.java      # 音频处理器接口（管线模式）
+│   │   │   │   ├── AudioPipeline.java       # 音频处理管线编排
+│   │   │   │   └── processor/               # 音频处理器实现
+│   │   │   │       ├── GainLimiterProcessor.java      # 增益+软限幅
+│   │   │   │       └── AudioSuppressionProcessor.java  # 噪声门+回声+啸叫抑制
 │   │   │   │   ├── player/                  # 播放控制器
 │   │   │   │   │   ├── PlaybackController.java
 │   │   │   │   │   └── PlaybackCallback.java
@@ -229,7 +243,8 @@ L7Audio/
 │   │   │   │   ├── KeepAliveManager.java
 │   │   │   │   └── KeepAliveWorker.java
 │   │   │   ├── receiver/                    # 广播接收器
-│   │   │   │   └── BootReceiver.java        # 开机自启
+│   │   │   │   ├── BootReceiver.java        # 开机自启
+│   │   │   │   └── AnnouncementReceiver.java # 车外喊话广播接收（第三方按键控制）
 │   │   │   └── utils/                       # 工具类
 │   │   │       ├── AppLog.java              # 日志工具
 │   │   │       ├── AppExecutors.java        # 线程池
@@ -378,6 +393,65 @@ L7Audio/
 
 **配置项包括**：主题模式、音频输出设备、循环模式、开机自启、悬浮窗开关、TTS 列表、播放进度等。
 
+### 10. AnnouncementController — 车外喊话统一管理
+
+**文件**：`domain/audio/AnnouncementController.java`
+
+**职责**：集中处理车外喊话的状态切换、防抖、静音检测、焦点管理和状态通知。
+
+**核心功能**：
+- **状态管理**：统一管理 `isAnnouncing` 状态，支持多个入口（悬浮窗、麦克风页面、第三方按键）
+- **防抖处理**：记录上次触发时间，过滤短时间内的连续触发请求（默认 800ms，可配置 500-2000ms）
+- **静音检测**：通过 RMS 音量检测判断是否有声音输入，超时后自动关闭（默认 30 秒，可配置 5-300 秒）
+- **焦点管理**：申请短暂独占焦点暂停音乐，结束后释放焦点恢复音乐
+- **观察者模式**：`AnnouncementListener` 接口实现悬浮窗和麦克风页面状态同步
+
+**设计特点**：
+- DCL 双重检查锁懒加载单例，确保全局唯一
+- 支持第三方 APP 通过广播 `com.aug32.l7audio.OUTSIDE_MIC_TOGGLE` 触发控制
+- Toast 提示增强：开启/关闭/自动关闭均显示提示
+
+### 11. AudioProcessor / AudioPipeline — 音频处理管线
+
+**文件**：`domain/audio/AudioProcessor.java`、`domain/audio/AudioPipeline.java`
+
+**职责**：采用管线模式（Pipeline Pattern）将音频处理拆分为独立的处理器，由管线按注册顺序串联执行。
+
+**核心功能**：
+- **AudioProcessor**：定义音频处理器的统一契约（`process`、`reset`、`isEnabled`、`setEnabled`）
+- **AudioPipeline**：按注册顺序执行处理器链，支持运行时启用/禁用，统一重置所有处理器状态
+
+**设计特点**：
+- 单一职责：每个处理器只做一种音频处理，可独立测试和替换
+- 处理顺序：增益→限幅→噪声门→回声消除→啸叫抑制
+- 线程安全：在录制线程中单线程调用，无需加锁
+
+### 12. GainLimiterProcessor — 增益+软限幅处理器
+
+**文件**：`domain/audio/processor/GainLimiterProcessor.java`
+
+**职责**：对音频采样进行增益放大，并用 tanh 软限幅防止溢出。
+
+**设计特点**：
+- 使用 tanh 函数替代 clamp 硬限幅，减少削波失真
+- 增益倍数实时可调，响应录制过程中的配置变化
+
+### 13. AudioSuppressionProcessor — 三合一抑制处理器
+
+**文件**：`domain/audio/processor/AudioSuppressionProcessor.java`
+
+**职责**：统一管理噪声门、回声消除、啸叫抑制三种算法，共享 reset() 消除状态泄漏。
+
+**核心功能**：
+- **噪声门**：RMS < 0.02 完全静音，0.02~0.05 软衰减，> 0.05 不处理
+- **回声消除**：互相关法检测能量比在 0.5~2.0 之间的帧，动态衰减
+- **啸叫抑制**：连续 3 帧能量 > 历史 1.8 倍判定为啸叫，衰减强度根据啸叫强度动态调整
+
+**设计特点**：
+- 三种抑制共享 `reset()`，一次清零所有累积状态，彻底解决状态泄漏
+- 每个抑制算法独立开关，互不影响
+- 硬件 AEC 可用时自动禁用软件回声消除，避免冲突
+
 ---
 
 ## 快速开始
@@ -429,8 +503,8 @@ L7Audio/
 
 | 类型 | 路径 |
 |------|------|
-| Debug APK | `app/build/outputs/apk/debug/app-debug.apk` |
-| Release APK | `app/build/outputs/apk/release/app-release.apk` |
+| Debug APK | `app/build/outputs/apk/debug/L7音频工具-versionName-versionCode-debug.apk` |
+| Release APK | `app/build/outputs/apk/release/L7音频工具-versionName-versionCode-release.apk` |
 
 ### Release 签名配置
 
@@ -449,15 +523,39 @@ L7Audio/
 
 ```powershell
 # 安装 Debug 包
-adb install app/build/outputs/apk/debug/app-debug.apk
+adb install app/build/outputs/apk/debug/L7音频工具-versionName-versionCode-debug.apk
 
 # 安装 Release 包
-adb install app/build/outputs/apk/release/app-release.apk
+adb install app/build/outputs/apk/release/L7音频工具-versionName-versionCode-release.apk
 ```
+也可以运行根目录下方的“构建脚本.bat”，按提示进行即可。
 
 ---
 
 ## 版本历史
+
+### v1.4.3 (versionCode: 43)
+- 🐛 修复关闭主界面后悬浮窗车外喊话不可用问题（MainActivity.onDestroy 不再注销音频管理器）
+- 🐛 修复悬浮窗按钮文字显示不全问题（移除内边距，设置 includeFontPadding=false）
+- ✨ 新增车外喊话统一管理（AnnouncementController）：
+  - DCL 单例模式，集中处理状态切换、防抖、静音检测和焦点管理
+  - 观察者模式实现悬浮窗和麦克风页面状态同步
+- ✨ 新增第三方 APP 按键控制支持：接收广播 `com.aug32.l7audio.OUTSIDE_MIC_TOGGLE`
+- ✨ 新增防抖保护（500-2000ms可配置），避免麦克风频繁启停啸叫和硬件损伤
+- ✨ 新增闲置自动关闭功能（静音检测 5-300秒可配置），防止忘记关闭
+- ✨ 设置页面新增车外喊话配置项：防抖间隔、静音检测开关、静音超时、静音阈值（0.03-0.3）
+- ✨ Toast 提示增强：开启/关闭/自动关闭均显示提示（仅第三方广播调用时显示）
+- ✨ 保存结果显示位置修复：车外喊话设置卡片内新增独立状态显示
+- ✨ 防抖间隔添加解释文字 + 第三方调用说明
+- 🔧 MicrophoneManager 重构为管线模式（Pipeline Pattern）：
+  - 新增 AudioProcessor 接口 + AudioPipeline 管线编排类
+  - 新增 GainLimiterProcessor（tanh 软限幅替代 clamp 硬限幅）
+  - 新增 AudioSuppressionProcessor（噪声门+回声消除+啸叫抑制三合一）
+  - 修复状态泄漏：reset() 统一清零所有累积检测状态
+  - 移除死代码：detectSteadyNoise 计算未使用
+  - 处理顺序优化：增益→限幅→噪声门→回声→啸叫
+  - 噪声抑制算法升级：从能量阈值法改为噪声门（Noise Gate）
+  - 对外接口零变化
 
 ### v1.4.2 (versionCode: 42)
 - 🗑️ 删除 TTS 语速/音调设置功能（UI 滑块 + 配置方法 + 持久化）

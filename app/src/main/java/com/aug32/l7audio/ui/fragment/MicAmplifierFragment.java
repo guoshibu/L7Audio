@@ -2,6 +2,7 @@ package com.aug32.l7audio.ui.fragment;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
 import android.widget.SeekBar;
@@ -13,6 +14,7 @@ import androidx.core.content.ContextCompat;
 
 import com.aug32.l7audio.base.BaseFragment;
 import com.aug32.l7audio.data.local.config.MicConfig;
+import com.aug32.l7audio.domain.audio.AnnouncementController;
 import com.aug32.l7audio.domain.audio.AudioServiceLocator;
 import com.aug32.l7audio.domain.audio.MicrophoneManager;
 import com.aug32.l7audio.R;
@@ -54,8 +56,22 @@ public class MicAmplifierFragment extends BaseFragment {
     private MicrophoneManager microphoneManager;
     /** 麦克风配置（持久化存储） */
     private MicConfig micConfig;
-    /** 是否正在放大的状态标志 */
+    /** 是否正在放大的状态标志（与Controller同步） */
     private boolean isAmplifying;
+    /** 喊话状态监听器，用于同步 UI */
+    private AnnouncementController.AnnouncementListener announcementListener = new AnnouncementController.AnnouncementListener() {
+        @Override
+        public void onAnnouncementStateChanged(boolean isAnnouncing) {
+            isAmplifying = isAnnouncing;
+            updateStatus();
+        }
+
+        @Override
+        public void onAnnouncementAutoClosed(String reason) {
+            isAmplifying = false;
+            updateStatus();
+        }
+    };
 
     /**
      * 返回布局资源 ID。
@@ -188,22 +204,9 @@ public class MicAmplifierFragment extends BaseFragment {
         }
     }
 
-    /** 切换麦克风放大的启动/停止状态 */
+    /** 切换麦克风放大的启动/停止状态（通过AnnouncementController统一管理） */
     private void toggleAmplifier() {
-        if (microphoneManager == null) {
-            Toast.makeText(getSafeContext(), "麦克风管理器未初始化", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        if (isAmplifying) {
-            microphoneManager.stop();
-            isAmplifying = false;
-        } else {
-            microphoneManager.start();
-            isAmplifying = true;
-        }
-
-        updateStatus();
+        AnnouncementController.getInstance().toggle(false);
     }
 
     /** 根据 isAmplifying 状态刷新界面 */
@@ -231,16 +234,37 @@ public class MicAmplifierFragment extends BaseFragment {
     }
 
     /**
+     * Fragment 视图创建完成时调用
+     * <p>
+     * 注册喊话状态监听器，确保视图可见时能同步状态。
+     */
+    @Override
+    public void onViewCreated(View view, Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+        AnnouncementController.getInstance().addListener(announcementListener);
+        isAmplifying = AnnouncementController.getInstance().isAnnouncing();
+        updateStatus();
+    }
+
+    /**
+     * Fragment 视图销毁时的回调。
+     * <p>
+     * 注销喊话状态监听器，避免内存泄漏。
+     * 麦克风停止由 AnnouncementController 统一管理。
+     */
+    @Override
+    public void onDestroyView() {
+        super.onDestroyView();
+        AnnouncementController.getInstance().removeListener(announcementListener);
+    }
+
+    /**
      * Fragment 销毁时的回调。
-     *
-     * <p>停止麦克风放大，释放音频资源，
-     * 避免 Fragment 销毁后仍在后台占用麦克风。
+     * <p>
+     * 麦克风停止由 AnnouncementController 统一管理，此处不做操作。
      */
     @Override
     public void onDestroy() {
         super.onDestroy();
-        if (microphoneManager != null) {
-            microphoneManager.stop();
-        }
     }
 }

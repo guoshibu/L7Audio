@@ -18,8 +18,8 @@ android {
         applicationId = "com.aug32.l7audio"
         minSdk = 30
         targetSdk = 30
-        versionCode = 42
-        versionName = "1.4.2"
+        versionCode = 43
+        versionName = "1.4.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -86,12 +86,13 @@ androidComponents {
                     )
 
                     // 构建类型映射：debug->调试，release->正式
-                    val buildTypeName = when (variant.buildType) {
-                        "debug" -> "调试"
-                        "release" -> "正式"
-                        else -> variant.buildType
-                    }
+                    //val buildTypeName = when (variant.buildType) {
+                    //    "debug" -> "调试"
+                   //     "release" -> "正式"
+                    //    else -> variant.buildType
+                    //}
 
+		    val buildTypeName = variant.buildType
                     // 从 defaultConfig 读取版本信息
                     val appName = "L7音频工具"
                     val versionName = project.android.defaultConfig.versionName.orEmpty()

@@ -263,23 +263,16 @@ public class MainActivity extends BaseActivity {
     }
 
     /**
-     * Activity 销毁时调用，释放音频相关资源
-     * 按顺序停止麦克风、TTS、音频焦点，并注销服务定位器中的管理器
+     * Activity 销毁时调用
+     * <p>
+     * 注意：不注销音频管理器，确保悬浮窗（FloatingWindowService）可以继续使用同一实例。
+     * 音频资源由 FloatingWindowService.onDestroy() 和 AnnouncementController 统一管理。
      */
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (microphoneManager != null) {
-            microphoneManager.stop();
-        }
-        if (ttsManager != null) {
-            ttsManager.shutdown();
-        }
-        if (audioFocusManager != null) {
-            audioFocusManager.abandonAll();
-        }
-        // 注销 ServiceLocator
-        AudioServiceLocator.getInstance().unregisterManagers();
+        // 不注销音频管理器，允许悬浮窗继续使用
+        // 资源释放由 FloatingWindowService 和 AnnouncementController 统一管理
     }
 
     // ==================== 权限管理 ====================

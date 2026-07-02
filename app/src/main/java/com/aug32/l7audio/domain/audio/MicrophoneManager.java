@@ -13,17 +13,28 @@ import android.media.MediaRecorder;
 import androidx.core.content.ContextCompat;
 
 import com.aug32.l7audio.data.local.AppConfig;
+import com.aug32.l7audio.domain.audio.processor.AudioSuppressionProcessor;
+import com.aug32.l7audio.domain.audio.processor.GainLimiterProcessor;
 import com.aug32.l7audio.utils.AppLog;
 
 /**
  * 麦克风放大管理器
  *
- * 职责：
- * - 麦克风音频录制
- * - 音频放大和播放
- * - 噪声抑制、回声消除、啸叫抑制
+ * <p>职责：
+ * <ul>
+ *   <li>麦克风音频录制与播放生命周期管理</li>
+ *   <li>硬件回声消除器（AEC）的初始化与释放</li>
+ *   <li>通过 {@link AudioPipeline} 串联音频处理管线</li>
+ * </ul>
  *
- * 目标 SDK：Android 11 (API 30)
+ * <p>架构：采用管线模式（Pipeline Pattern），将增益放大、噪声门、回声消除、
+ * 啸叫抑制拆分为独立的 {@link AudioProcessor} 处理器，由 {@link AudioPipeline} 按序执行。
+ * MicrophoneManager 退化为协调者，负责录制/播放生命周期和硬件 AEC 管理。
+ *
+ * <p>目标 SDK：Android 11 (API 30)
+ *
+ * @author L7Audio
+ * @since 1.4.3
  */
 public class MicrophoneManager {
     private static final String TAG = "MicrophoneManager";
@@ -54,61 +65,29 @@ public class MicrophoneManager {
     private Thread recordingThread;
     // 是否正在录制（volatile 保证多线程可见性）
     private volatile boolean isRecording = false;
+    // 当前音频帧的 RMS 均值（volatile 保证静音检测线程可见性）
+    private volatile float currentRms = 0.0f;
     // 放大级别（0-10）
     private int amplificationLevel = 5;
-    // 是否启用噪声抑制
-    private boolean noiseReductionEnabled;
-    // 是否启用回声消除
-    private boolean echoCancellationEnabled;
-    // 是否启用啸叫抑制
-    private boolean howlingSuppressionEnabled;
-    // 是否使用系统音频处理
-    private boolean useSystemAudioProcessing = false;
+
     // 硬件AEC是否可用
     private boolean hardwareAecAvailable = false;
     // 硬件回声消除器
     private AcousticEchoCanceler acousticEchoCanceler;
-    
-    // 自动增益控制目标音量（dB）
-    private static final float TARGET_DB = -20.0f;
-    // 自动增益控制最大增益
-    private static final float MAX_GAIN = 2.0f;
-    // 自动增益调整步长（平滑处理）
-    private static final float GAIN_ADJUST_STEP = 0.1f;
-    // 当前自动增益值
-    private float mCurrentGain = 1.0f;
-    
-    // 回声检测阈值
-    private static final float ECHO_THRESHOLD = 0.05f;
-    // 回声最大衰减系数
-    private static final float MAX_ECHO_ATTENUATION = 0.3f;
-    // 回声能量衰减因子（平滑处理）
-    private static final float ECHO_DECAY_FACTOR = 0.95f;
-    // 当前回声能量
-    private float echoEnergy = 0.0f;
-    
-    // 啸叫检测阈值
-    private static final float HOWLING_THRESHOLD = 0.1f;
-    // 啸叫最大衰减系数
-    private static final float MAX_HOWLING_ATTENUATION = 0.4f;
-    // 啸叫能量衰减因子（平滑处理）
-    private static final float HOWLING_DECAY_FACTOR = 0.98f;
-    // 当前啸叫能量
-    private float howlingEnergy = 0.0f;
-    // 啸叫检测计数器（连续检测到多少次才判定为啸叫）
-    private int howlingCounter = 0;
-    // 啸叫检测次数阈值
-    private static final int HOWLING_DETECTION_COUNT = 3;
 
-    // 上一帧平均音量（用于噪声抑制平滑）
-    private float previousAvgVolume = 0.0f;
-    // 上一帧能量（用于稳态噪声检测）
-    private float previousEnergy = 0.0f;
+    // ========== 音频处理管线 ==========
+    /** 音频处理管线，按序执行增益→限幅→噪声门→回声消除→啸叫抑制 */
+    private final AudioPipeline pipeline;
+    /** 增益限幅处理器 */
+    private final GainLimiterProcessor gainProcessor;
+    /** 抑制处理器（噪声门、回声消除、啸叫抑制） */
+    private final AudioSuppressionProcessor suppressionProcessor;
 
     /**
      * 构造函数
      * <p>
-     * 从配置中读取放大级别和各音频处理开关的状态。
+     * 从配置中读取放大级别和各音频处理开关的初始状态，
+     * 并初始化音频处理管线。
      * </p>
      *
      * @param context             上下文对象
@@ -119,13 +98,22 @@ public class MicrophoneManager {
         this.audioOutputManager = audioOutputManager;
         this.appConfig = new AppConfig(context);
         this.amplificationLevel = appConfig.getMicAmplificationLevel();
-        this.noiseReductionEnabled = appConfig.isNoiseReductionEnabled();
-        this.echoCancellationEnabled = appConfig.isEchoCancellationEnabled();
-        this.howlingSuppressionEnabled = appConfig.isHowlingSuppressionEnabled();
+
+        // 初始化处理管线
+        this.gainProcessor = new GainLimiterProcessor();
+        this.suppressionProcessor = new AudioSuppressionProcessor();
+        this.suppressionProcessor.setNoiseGateEnabled(appConfig.isNoiseReductionEnabled());
+        this.suppressionProcessor.setEchoCancelEnabled(appConfig.isEchoCancellationEnabled());
+        this.suppressionProcessor.setHowlingSuppressionEnabled(appConfig.isHowlingSuppressionEnabled());
+
+        this.pipeline = new AudioPipeline();
+        pipeline.addProcessor(gainProcessor);
+        pipeline.addProcessor(suppressionProcessor);
+
         AppLog.d(TAG, "MicrophoneManager initialized");
-        AppLog.d(TAG, "Noise reduction: " + noiseReductionEnabled);
-        AppLog.d(TAG, "Echo cancellation: " + echoCancellationEnabled);
-        AppLog.d(TAG, "Howling suppression: " + howlingSuppressionEnabled);
+        AppLog.d(TAG, "Noise gate: " + suppressionProcessor.isNoiseGateEnabled());
+        AppLog.d(TAG, "Echo cancel: " + suppressionProcessor.isEchoCancelEnabled());
+        AppLog.d(TAG, "Howling suppression: " + suppressionProcessor.isHowlingSuppressionEnabled());
     }
 
     /**
@@ -133,7 +121,7 @@ public class MicrophoneManager {
      * <p>
      * 启动麦克风录制和音频播放，实现实时麦克风放大功能。
      * 若已在录制则直接返回成功。
-     * 启动流程：检查权限 → 释放旧资源 → 初始化音频组件 → 初始化回声消除 → 启动音频 → 启动录制线程
+     * 启动流程：检查权限 → 释放旧资源 → 初始化音频组件 → 重置管线 → 初始化回声消除 → 启动音频 → 启动录制线程
      * </p>
      *
      * @return true 表示启动成功，false 表示启动失败
@@ -155,14 +143,18 @@ public class MicrophoneManager {
             // 先释放旧资源，确保每次启动都是全新初始化
             releaseResources();
             AppLog.d(TAG, "Starting microphone amplifier with fresh initialization");
-            
+
             // 初始化音频录制和播放组件
             if (!initializeAudioComponents()) {
                 return false;
             }
 
+            // 重置管线状态（清除上一轮会话的累积检测数据）
+            pipeline.reset();
+
             // 初始化硬件回声消除器
             initializeEchoCanceler();
+
             // 启动音频录制和播放
             startAudioComponents();
             // 启动录制处理线程
@@ -198,7 +190,6 @@ public class MicrophoneManager {
     @SuppressLint("MissingPermission")
     private boolean initializeAudioComponents() {
         int audioSource = appConfig.getAudioInputSource();
-        useSystemAudioProcessing = true;
 
         // 第一级：使用用户配置的音频源
         audioRecord = new AudioRecord(
@@ -213,8 +204,7 @@ public class MicrophoneManager {
         if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
             AppLog.e(TAG, "Failed to initialize AudioRecord with user configured source, falling back to MIC");
             audioSource = MediaRecorder.AudioSource.MIC;
-            useSystemAudioProcessing = true;
-            
+
             audioRecord = new AudioRecord(
                     audioSource,
                     SAMPLE_RATE,
@@ -222,13 +212,12 @@ public class MicrophoneManager {
                     AUDIO_FORMAT,
                     BUFFER_SIZE
             );
-            
+
             // 第三级回退：MIC也失败，回退到DEFAULT
             if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
                 AppLog.e(TAG, "Failed to initialize AudioRecord with MIC, falling back to DEFAULT");
                 audioSource = MediaRecorder.AudioSource.DEFAULT;
-                useSystemAudioProcessing = false;
-                
+
                 audioRecord = new AudioRecord(
                         audioSource,
                         SAMPLE_RATE,
@@ -236,7 +225,7 @@ public class MicrophoneManager {
                         AUDIO_FORMAT,
                         BUFFER_SIZE
                 );
-                
+
                 // 三级都失败，返回失败
                 if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
                     AppLog.e(TAG, "Failed to initialize AudioRecord");
@@ -271,7 +260,7 @@ public class MicrophoneManager {
             audioUsage = appConfig.getAudioOutputUsageExternal();
             AppLog.d(TAG, "Using audio usage from AppConfig: " + audioUsage);
         }
-        
+
         AudioAttributes audioAttributes = new AudioAttributes.Builder()
                 .setUsage(audioUsage)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -302,48 +291,52 @@ public class MicrophoneManager {
      * 初始化硬件级回声消除器
      * <p>
      * 优先尝试在 AudioRecord 上创建硬件回声消除器，失败则尝试在 AudioTrack 上创建。
-     * 硬件回声消除不可用时，会使用软件回声消除作为兜底。
-     * 硬件AEC和软件AEC不同时启用，避免冲突。
+     * 硬件 AEC 可用时，软件回声消除自动跳过，避免冲突。
      * </p>
      */
     private void initializeEchoCanceler() {
-        if (echoCancellationEnabled) {
-            try {
-                int audioRecordSessionId = audioRecord.getAudioSessionId();
-                // 硬件AEC可用时，优先使用硬件回声消除
-                if (AcousticEchoCanceler.isAvailable()) {
-                    acousticEchoCanceler = AcousticEchoCanceler.create(audioRecordSessionId);
+        if (!suppressionProcessor.isEchoCancelEnabled()) {
+            hardwareAecAvailable = false;
+            return;
+        }
+
+        try {
+            int audioRecordSessionId = audioRecord.getAudioSessionId();
+            // 硬件AEC可用时，优先使用硬件回声消除
+            if (AcousticEchoCanceler.isAvailable()) {
+                acousticEchoCanceler = AcousticEchoCanceler.create(audioRecordSessionId);
+                if (acousticEchoCanceler != null) {
+                    acousticEchoCanceler.setEnabled(true);
+                    hardwareAecAvailable = true;
+                    AppLog.d(TAG, "Hardware echo canceler enabled on AudioRecord (Session ID: " + audioRecordSessionId + ")");
+                    // 硬件 AEC 可用，禁用软件回声消除
+                    suppressionProcessor.setEchoCancelEnabled(false);
+                    return;
+                } else {
+                    // AudioRecord上创建失败，尝试在AudioTrack上创建
+                    AppLog.w(TAG, "Failed to create echo canceler on AudioRecord, trying AudioTrack");
+                    int audioTrackSessionId = audioTrack.getAudioSessionId();
+                    acousticEchoCanceler = AcousticEchoCanceler.create(audioTrackSessionId);
                     if (acousticEchoCanceler != null) {
                         acousticEchoCanceler.setEnabled(true);
                         hardwareAecAvailable = true;
-                        AppLog.d(TAG, "Hardware echo canceler enabled on AudioRecord (Session ID: " + audioRecordSessionId + ")");
-                        AppLog.d(TAG, "Software echo cancellation will be disabled to avoid conflict");
+                        AppLog.d(TAG, "Hardware echo canceler enabled on AudioTrack (Session ID: " + audioTrackSessionId + ")");
+                        // 硬件 AEC 可用，禁用软件回声消除
+                        suppressionProcessor.setEchoCancelEnabled(false);
+                        return;
                     } else {
-                        // AudioRecord上创建失败，尝试在AudioTrack上创建
-                        AppLog.w(TAG, "Failed to create echo canceler on AudioRecord, trying AudioTrack");
-                        int audioTrackSessionId = audioTrack.getAudioSessionId();
-                        acousticEchoCanceler = AcousticEchoCanceler.create(audioTrackSessionId);
-                        if (acousticEchoCanceler != null) {
-                            acousticEchoCanceler.setEnabled(true);
-                            hardwareAecAvailable = true;
-                            AppLog.d(TAG, "Hardware echo canceler enabled on AudioTrack (Session ID: " + audioTrackSessionId + ")");
-                            AppLog.d(TAG, "Software echo cancellation will be disabled to avoid conflict");
-                        } else {
-                            AppLog.w(TAG, "Failed to create hardware echo canceler on both AudioRecord and AudioTrack");
-                            hardwareAecAvailable = false;
-                        }
+                        AppLog.w(TAG, "Failed to create hardware echo canceler on both AudioRecord and AudioTrack");
+                        hardwareAecAvailable = false;
                     }
-                } else {
-                    // 设备不支持硬件AEC，使用软件回声消除作为兜底
-                    AppLog.w(TAG, "Hardware echo canceler not available on this device, will use software echo cancellation as fallback");
-                    hardwareAecAvailable = false;
                 }
-            } catch (Exception e) {
-                // 初始化异常时，标记硬件AEC不可用，使用软件方案
-                AppLog.e(TAG, "Error initializing hardware echo canceler", e);
+            } else {
+                // 设备不支持硬件AEC，使用软件回声消除作为兜底
+                AppLog.w(TAG, "Hardware echo canceler not available on this device, will use software echo cancellation as fallback");
                 hardwareAecAvailable = false;
             }
-        } else {
+        } catch (Exception e) {
+            // 初始化异常时，标记硬件AEC不可用，使用软件方案
+            AppLog.e(TAG, "Error initializing hardware echo canceler", e);
             hardwareAecAvailable = false;
         }
     }
@@ -400,6 +393,7 @@ public class MicrophoneManager {
 
         // 释放所有音频资源
         releaseResources();
+        currentRms = 0.0f;
         AppLog.d(TAG, "Microphone amplifier stopped, all resources released for fresh initialization next time");
     }
 
@@ -419,7 +413,9 @@ public class MicrophoneManager {
                 int readSize = audioRecord.read(buffer, 0, BUFFER_SIZE);
 
                 if (readSize > 0) {
-                    // 处理音频数据（降噪、回声消除、增益、啸叫抑制等）
+                    // 计算当前帧的 RMS 均值，供静音检测使用
+                    calculateRms(buffer, readSize);
+                    // 通过管线处理音频数据（增益→限幅→噪声门→回声消除→啸叫抑制）
                     processAudioData(buffer, readSize);
                     // 播放处理后的音频
                     audioTrack.write(buffer, 0, readSize);
@@ -433,68 +429,32 @@ public class MicrophoneManager {
     }
 
     /**
-     * 处理音频数据
+     * 通过管线处理音频数据
      * <p>
-     * 音频处理流程：
-     * 1. 字节转采样
-     * 2. 噪声抑制（可选）
-     * 3. 回声消除（可选，硬件AEC不可用时使用软件方案）
-     * 4. 增益放大
-     * 5. 音量限制（防止溢出）
-     * 6. 啸叫抑制（可选）
-     * 7. 采样转字节
+     * 处理流程：byte[] → short[] → pipeline.process → short[] → byte[]
+     * 增益处理器在每次处理前更新放大倍数，确保实时响应配置变化。
      * </p>
      *
      * @param buffer 音频数据缓冲区
      * @param length 有效数据长度
      */
     private void processAudioData(byte[] buffer, int length) {
+        // 更新增益倍数（在录制过程中实时响应配置变化）
         int maxAmplification = appConfig.getMaxAmplification();
-        // 根据放大级别计算放大倍数（0级为1倍，10级为maxAmplification倍）
-        float amplificationFactor = 1.0f + (amplificationLevel / 10.0f) * (maxAmplification - 1.0f);
+        float factor = 1.0f + (amplificationLevel / 10.0f) * (maxAmplification - 1.0f);
+        gainProcessor.setAmplificationFactor(factor);
 
+        // byte[] 转 short[]
         short[] samples = new short[length / 2];
-
-        // 字节数组转换为short采样数组
-        convertBytesToSamples(buffer, samples);
-
-        // 噪声抑制
-        if (noiseReductionEnabled) {
-            applyNoiseReduction(samples);
-        }
-
-        // 回声消除：硬件AEC可用时跳过软件处理，避免冲突
-        if (echoCancellationEnabled && !hardwareAecAvailable) {
-            AppLog.d(TAG, "Using software echo cancellation (hardware AEC not available)");
-            applyEchoCancellation(samples);
-        } else if (echoCancellationEnabled && hardwareAecAvailable) {
-            AppLog.d(TAG, "Skipping software echo cancellation (hardware AEC is active)");
-        }
-
-        // 增益放大
-        applyGain(samples, amplificationFactor);
-        // 音量限制（防止采样值溢出）
-        limitVolume(samples);
-
-        // 啸叫抑制
-        if (howlingSuppressionEnabled) {
-            applyHowlingSuppression(samples);
-        }
-
-        // short采样数组转换回字节数组
-        convertSamplesToBytes(samples, buffer);
-    }
-
-    /** 将字节数组转换为样本数组 */
-    private void convertBytesToSamples(byte[] buffer, short[] samples) {
         for (int i = 0; i < samples.length; i++) {
             int index = i * 2;
             samples[i] = (short) ((buffer[index] & 0xFF) | (buffer[index + 1] << 8));
         }
-    }
 
-    /** 将样本数组转换为字节数组 */
-    private void convertSamplesToBytes(short[] samples, byte[] buffer) {
+        // 管线处理
+        pipeline.process(samples);
+
+        // short[] 转 byte[]
         for (int i = 0; i < samples.length; i++) {
             int index = i * 2;
             buffer[index] = (byte) (samples[i] & 0xFF);
@@ -502,150 +462,30 @@ public class MicrophoneManager {
         }
     }
 
-    /** 应用增益放大 */
-    private void applyGain(short[] samples, float amplificationFactor) {
-        if (!useSystemAudioProcessing) {
-            float agcGain = calculateAutoGain(samples);
-            for (int i = 0; i < samples.length; i++) {
-                samples[i] = (short) (samples[i] * amplificationFactor * agcGain);
-            }
-        } else {
-            for (int i = 0; i < samples.length; i++) {
-                samples[i] = (short) (samples[i] * amplificationFactor);
-            }
+    /**
+     * 计算音频帧的 RMS 均值并更新 currentRms
+     * <p>
+     * 将 16-bit PCM 采样归一化到 [-1, 1] 后计算 RMS。
+     * 在录制线程中每帧调用，供静音检测使用。
+     * </p>
+     *
+     * @param buffer 音频数据缓冲区
+     * @param length 有效数据长度
+     */
+    private void calculateRms(byte[] buffer, int length) {
+        if (length < 2) {
+            currentRms = 0.0f;
+            return;
         }
-    }
-
-    /** 限制音量防止溢出 */
-    private void limitVolume(short[] samples) {
-        for (int i = 0; i < samples.length; i++) {
-            if (samples[i] > Short.MAX_VALUE) {
-                samples[i] = Short.MAX_VALUE;
-            } else if (samples[i] < Short.MIN_VALUE) {
-                samples[i] = Short.MIN_VALUE;
-            }
-        }
-    }
-
-    /** 计算自动增益控制 */
-    private float calculateAutoGain(short[] audioData) {
         double sum = 0.0;
-        for (short sample : audioData) {
-            sum += sample * sample;
+        int sampleCount = length / 2;
+        for (int i = 0; i < sampleCount; i++) {
+            int index = i * 2;
+            short sample = (short) ((buffer[index] & 0xFF) | (buffer[index + 1] << 8));
+            float normalized = sample / (float) Short.MAX_VALUE;
+            sum += normalized * normalized;
         }
-        double rms = Math.sqrt(sum / audioData.length);
-        double currentDb = 20 * Math.log10(rms / 32767.0);
-
-        float gainAdjust = 1.0f;
-        if (currentDb < TARGET_DB) {
-            gainAdjust = (float) Math.pow(10, (TARGET_DB - currentDb) / 20);
-        } else {
-            gainAdjust = (float) Math.pow(10, (TARGET_DB - currentDb) / 20);
-        }
-
-        mCurrentGain = mCurrentGain + (gainAdjust - mCurrentGain) * GAIN_ADJUST_STEP;
-        mCurrentGain = Math.max(1.0f, Math.min(mCurrentGain, MAX_GAIN));
-
-        return mCurrentGain;
-    }
-
-    /** 应用噪声抑制 */
-    private void applyNoiseReduction(short[] samples) {
-        long sum = 0;
-        for (short sample : samples) {
-            sum += Math.abs(sample);
-        }
-        float avgVolume = (float) sum / samples.length / Short.MAX_VALUE;
-        
-        float baseThreshold = 0.015f;
-        float smoothedAvgVolume = avgVolume * 0.7f + previousAvgVolume * 0.3f;
-        previousAvgVolume = smoothedAvgVolume;
-        
-        float dynamicThreshold = Math.max(baseThreshold, smoothedAvgVolume * 0.6f);
-        
-        boolean isSteadyNoise = detectSteadyNoise(samples);
-        
-        for (int i = 0; i < samples.length; i++) {
-            float normalizedSample = Math.abs(samples[i]) / (float) Short.MAX_VALUE;
-            
-            if (normalizedSample < dynamicThreshold) {
-                float attenuation = normalizedSample / dynamicThreshold;
-                samples[i] = (short) (samples[i] * (0.5f + attenuation * 0.3f));
-            } else if (normalizedSample < dynamicThreshold * 1.3f) {
-                float attenuation = 0.8f + (normalizedSample - dynamicThreshold) / (dynamicThreshold * 0.3f) * 0.2f;
-                samples[i] = (short) (samples[i] * attenuation);
-            }
-        }
-    }
-    
-    /** 检测稳态噪声 */
-    private boolean detectSteadyNoise(short[] samples) {
-        float energy = 0.0f;
-        for (short sample : samples) {
-            float normalizedSample = Math.abs(sample) / (float) Short.MAX_VALUE;
-            energy += normalizedSample * normalizedSample;
-        }
-        energy /= samples.length;
-        
-        float energyDiff = Math.abs(energy - previousEnergy);
-        previousEnergy = energy;
-        
-        return energyDiff < 0.001f;
-    }
-
-    /** 应用回声抑制 */
-    private void applyEchoCancellation(short[] samples) {
-        float frameEnergy = 0.0f;
-        for (short sample : samples) {
-            float normalizedSample = Math.abs(sample) / (float) Short.MAX_VALUE;
-            frameEnergy += normalizedSample * normalizedSample;
-        }
-        frameEnergy /= samples.length;
-        
-        echoEnergy = ECHO_DECAY_FACTOR * echoEnergy + (1.0f - ECHO_DECAY_FACTOR) * frameEnergy;
-        
-        for (int i = 0; i < samples.length; i++) {
-            float normalizedSample = Math.abs(samples[i]) / (float) Short.MAX_VALUE;
-            
-            if (normalizedSample > ECHO_THRESHOLD * 1.5f &&
-                frameEnergy > echoEnergy * 0.7f &&
-                frameEnergy < echoEnergy * 1.3f) {
-                float attenuation = 1.0f - (normalizedSample - ECHO_THRESHOLD) * (1.0f - MAX_ECHO_ATTENUATION) / (1.0f - ECHO_THRESHOLD);
-                attenuation = Math.max(attenuation, MAX_ECHO_ATTENUATION + 0.2f);
-                
-                samples[i] = (short) (samples[i] * attenuation);
-            }
-        }
-    }
-    
-    /** 应用啸叫抑制 */
-    private void applyHowlingSuppression(short[] samples) {
-        float frameEnergy = 0.0f;
-        for (short sample : samples) {
-            float normalizedSample = Math.abs(sample) / (float) Short.MAX_VALUE;
-            frameEnergy += normalizedSample * normalizedSample;
-        }
-        frameEnergy /= samples.length;
-        
-        howlingEnergy = HOWLING_DECAY_FACTOR * howlingEnergy + (1.0f - HOWLING_DECAY_FACTOR) * frameEnergy;
-        
-        boolean isHowling = false;
-        if (frameEnergy > howlingEnergy * 2.0f && frameEnergy > HOWLING_THRESHOLD) {
-            howlingCounter++;
-            if (howlingCounter >= HOWLING_DETECTION_COUNT) {
-                isHowling = true;
-            }
-        } else {
-            howlingCounter = Math.max(0, howlingCounter - 1);
-        }
-        
-        if (isHowling) {
-            AppLog.d(TAG, "Howling detected! Energy: " + frameEnergy + ", Avg: " + howlingEnergy);
-            for (int i = 0; i < samples.length; i++) {
-                float attenuation = MAX_HOWLING_ATTENUATION + (1.0f - MAX_HOWLING_ATTENUATION) * 0.3f;
-                samples[i] = (short) (samples[i] * attenuation);
-            }
-        }
+        currentRms = (float) Math.sqrt(sum / sampleCount);
     }
 
     /** 释放所有资源 */
@@ -655,9 +495,8 @@ public class MicrophoneManager {
         releaseAudioTrack();
 
         recordingThread = null;
-        echoEnergy = 0.0f;
-        howlingEnergy = 0.0f;
-        howlingCounter = 0;
+        // 重置管线状态（清除累积的检测数据）
+        pipeline.reset();
     }
 
     /** 释放回声消除器 */
@@ -671,6 +510,7 @@ public class MicrophoneManager {
             }
             acousticEchoCanceler = null;
         }
+        hardwareAecAvailable = false;
     }
 
     /** 释放 AudioRecord */
@@ -706,6 +546,8 @@ public class MicrophoneManager {
             audioTrack = null;
         }
     }
+
+    // ========== 公开 API（保持兼容） ==========
 
     /**
      * 设置放大级别
@@ -747,15 +589,28 @@ public class MicrophoneManager {
     }
 
     /**
+     * 获取当前音频帧的 RMS 均值
+     * <p>
+     * 用于静音检测，判断是否有声音输入。归一化到 0-1 范围。
+     * 未录制时返回 0。
+     * </p>
+     *
+     * @return 当前 RMS 值（0-1），0 表示无音频输入或未录制
+     */
+    public float getCurrentRms() {
+        return currentRms;
+    }
+
+    /**
      * 设置是否启用噪声抑制
      * <p>
-     * 设置后会自动保存到配置中。
+     * 设置后会自动保存到配置中，并立即生效（无需重启录制）。
      * </p>
      *
      * @param enabled true 启用噪声抑制，false 禁用噪声抑制
      */
     public void setNoiseReductionEnabled(boolean enabled) {
-        this.noiseReductionEnabled = enabled;
+        suppressionProcessor.setNoiseGateEnabled(enabled);
         appConfig.setNoiseReductionEnabled(enabled);
         AppLog.d(TAG, "Noise reduction " + (enabled ? "enabled" : "disabled"));
     }
@@ -766,7 +621,7 @@ public class MicrophoneManager {
      * @return true 表示噪声抑制已启用，false 表示已禁用
      */
     public boolean isNoiseReductionEnabled() {
-        return noiseReductionEnabled;
+        return suppressionProcessor.isNoiseGateEnabled();
     }
 
     /**
@@ -779,7 +634,7 @@ public class MicrophoneManager {
      * @param enabled true 启用回声抑制，false 禁用回声抑制
      */
     public void setEchoCancellationEnabled(boolean enabled) {
-        this.echoCancellationEnabled = enabled;
+        suppressionProcessor.setEchoCancelEnabled(enabled);
         appConfig.setEchoCancellationEnabled(enabled);
         AppLog.d(TAG, "Echo cancellation " + (enabled ? "enabled" : "disabled"));
     }
@@ -790,32 +645,32 @@ public class MicrophoneManager {
      * @return true 表示回声抑制已启用，false 表示已禁用
      */
     public boolean isEchoCancellationEnabled() {
-        return echoCancellationEnabled;
+        return suppressionProcessor.isEchoCancelEnabled();
     }
-    
+
     /**
      * 设置是否启用啸叫抑制
      * <p>
-     * 设置后会自动保存到配置中。
+     * 设置后会自动保存到配置中，并立即生效。
      * </p>
      *
      * @param enabled true 启用啸叫抑制，false 禁用啸叫抑制
      */
     public void setHowlingSuppressionEnabled(boolean enabled) {
-        this.howlingSuppressionEnabled = enabled;
+        suppressionProcessor.setHowlingSuppressionEnabled(enabled);
         appConfig.setHowlingSuppressionEnabled(enabled);
         AppLog.d(TAG, "Howling suppression " + (enabled ? "enabled" : "disabled"));
     }
-    
+
     /**
      * 获取啸叫抑制状态
      *
      * @return true 表示啸叫抑制已启用，false 表示已禁用
      */
     public boolean isHowlingSuppressionEnabled() {
-        return howlingSuppressionEnabled;
+        return suppressionProcessor.isHowlingSuppressionEnabled();
     }
-    
+
     /**
      * 获取硬件 AEC 可用性状态
      * <p>

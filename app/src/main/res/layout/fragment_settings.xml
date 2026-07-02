@@ -438,6 +438,225 @@
 
         </androidx.cardview.widget.CardView>
 
+        <!-- 车外喊话设置 -->
+        <androidx.cardview.widget.CardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:cardBackgroundColor="?attr/colorSurfaceVariant"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="2dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="车外喊话设置"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="78dp"
+                    android:layout_marginTop="16dp">
+                    <TextView
+                        android:textSize="16sp"
+                        android:textColor="?attr/colorOnSurface"
+                        android:layout_width="169dp"
+                        android:layout_height="wrap_content"
+                        android:text="防抖间隔(ms)"/>
+                    <EditText
+                        android:textSize="16sp"
+                        android:textColor="?attr/colorOnSurface"
+                        android:gravity="center"
+                        android:id="@+id/edit_debounce_interval"
+                        android:background="?attr/colorSurface"
+                        android:layout_width="143dp"
+                        android:layout_height="48dp"
+                        android:hint="800"
+                        android:maxLength="4"
+                        android:inputType="number"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:text="500-2000"
+                        android:textColor="?android:attr/textColorSecondary"
+                        android:textSize="12sp"/>
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="防止快速连续触发导致麦克风频繁启停啸叫和硬件损伤，建议800ms以上"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="12sp"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="8dp"/>
+
+                <LinearLayout
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="78dp"
+                    android:layout_marginTop="12dp">
+                    <TextView
+                        android:textSize="16sp"
+                        android:textColor="?attr/colorOnSurface"
+                        android:layout_width="169dp"
+                        android:layout_height="wrap_content"
+                        android:text="静音检测"/>
+                    <Switch
+                        android:id="@+id/sw_silence_detection"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:checked="true"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:text="无声音自动关闭"
+                        android:textColor="?android:attr/textColorSecondary"
+                        android:textSize="12sp"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="78dp"
+                    android:layout_marginTop="12dp">
+                    <TextView
+                        android:textSize="16sp"
+                        android:textColor="?attr/colorOnSurface"
+                        android:layout_width="169dp"
+                        android:layout_height="wrap_content"
+                        android:text="静音超时(秒)"/>
+                    <EditText
+                        android:textSize="16sp"
+                        android:textColor="?attr/colorOnSurface"
+                        android:gravity="center"
+                        android:id="@+id/edit_silence_timeout"
+                        android:background="?attr/colorSurface"
+                        android:layout_width="143dp"
+                        android:layout_height="48dp"
+                        android:hint="30"
+                        android:maxLength="3"
+                        android:inputType="number"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:text="5-300"
+                        android:textColor="?android:attr/textColorSecondary"
+                        android:textSize="12sp"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="78dp"
+                    android:layout_marginTop="12dp">
+                    <TextView
+                        android:textSize="16sp"
+                        android:textColor="?attr/colorOnSurface"
+                        android:layout_width="169dp"
+                        android:layout_height="wrap_content"
+                        android:text="静音阈值"/>
+                    <EditText
+                        android:textSize="16sp"
+                        android:textColor="?attr/colorOnSurface"
+                        android:gravity="center"
+                        android:id="@+id/edit_silence_threshold"
+                        android:background="?attr/colorSurface"
+                        android:layout_width="143dp"
+                        android:layout_height="48dp"
+                        android:hint="0.05"
+                        android:maxLength="5"
+                        android:inputType="numberDecimal"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"/>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:text="0.03-0.3"
+                        android:textColor="?android:attr/textColorSecondary"
+                        android:textSize="12sp"/>
+                </LinearLayout>
+
+                <Button
+                    android:id="@+id/btn_save_announcement"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:layout_marginTop="16dp"
+                    android:text="保存车外喊话设置"
+                    android:textSize="16sp"
+                    android:backgroundTint="@color/button_background"
+                    android:textColor="@color/button_text"/>
+
+                <TextView
+                    android:id="@+id/tv_announcement_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="14sp"
+                    android:lineSpacingMultiplier="1.4"
+                    android:text=""/>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="?attr/colorOutline"
+                    android:layout_marginTop="16dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="第三方调用"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:layout_marginTop="16dp"/>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="广播Action: com.aug32.l7audio.OUTSIDE_MIC_TOGGLE"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="12sp"
+                    android:layout_marginTop="8dp"/>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="发送此广播可触发车外喊话开关（开→关/关→开），支持实体按键控制。"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="12sp"
+                    android:layout_marginTop="4dp"/>
+
+            </LinearLayout>
+
+        </androidx.cardview.widget.CardView>
+
         <!-- TTS Diagnostics -->
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
