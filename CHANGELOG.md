@@ -1,6 +1,43 @@
 # L7Audio 改动记录
 
 > 日期：2026-07-02
+> 版本：v1.4.4 (versionCode: 44)
+
+---
+
+## v1.4.4 修复
+
+### 1️⃣ 麦克风放大按钮失效
+
+**问题描述**：进入麦克风页面点击"开始放大"按钮无任何响应。
+
+**原因分析**：`AnnouncementController.init()` 仅在 FloatingWindowService 和 AnnouncementReceiver 中调用，正常打开主界面进入麦克风页面时 Controller 未初始化，`toggle()` 中 `appContext == null` 直接 return。
+
+**修复方案**：
+
+| 修改文件 | 改动内容 |
+|----------|----------|
+| [L7AudioApp.java](app/src/main/java/com/aug32/l7audio/L7AudioApp.java) | `onCreate()` 中添加 `AnnouncementController.getInstance().init(this)` |
+
+---
+
+### 2️⃣ GainLimiterProcessor tanh 过度压缩
+
+**问题描述**：重构后声音极小，即使增益设为 1.0x 输出也只有原始信号的 76%。
+
+**原因分析**：`Math.tanh(x)` 对所有采样值压缩，tanh(1.0)≈0.76，正常范围信号也被压缩。
+
+**修复方案**：
+
+| 修改文件 | 改动内容 |
+|----------|----------|
+| [GainLimiterProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/processor/GainLimiterProcessor.java) | tanh 软限幅仅在 `\|x\| > 1.0` 溢出时使用，正常范围直通 |
+
+---
+
+## v1.4.3
+
+> 日期：2026-07-02
 > 版本：v1.4.3 (versionCode: 43)
 
 ---

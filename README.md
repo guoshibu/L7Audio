@@ -534,6 +534,10 @@ adb install app/build/outputs/apk/release/L7音频工具-versionName-versionCode
 
 ## 版本历史
 
+### v1.4.4 (versionCode: 44)
+- 🐛 修复麦克风放大按钮失效：AnnouncementController 未在 L7AudioApp 初始化导致 toggle() 直接 return
+- 🐛 修复 GainLimiterProcessor tanh 过度压缩：仅在溢出时使用 tanh 限幅，正常范围直通
+
 ### v1.4.3 (versionCode: 43)
 - 🐛 修复关闭主界面后悬浮窗车外喊话不可用问题（MainActivity.onDestroy 不再注销音频管理器）
 - 🐛 修复悬浮窗按钮文字显示不全问题（移除内边距，设置 includeFontPadding=false）
