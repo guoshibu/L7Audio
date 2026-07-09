@@ -32,20 +32,21 @@ import com.google.android.material.navigation.NavigationView;
 import com.aug32.l7audio.base.BaseActivity;
 import com.aug32.l7audio.data.local.AppConfig;
 import com.aug32.l7audio.domain.audio.AudioFocusManager;
-import com.aug32.l7audio.domain.audio.AudioOutputManager;
+import com.aug32.l7audio.domain.audio.micoutput.AudioOutputManager;
 import com.aug32.l7audio.domain.audio.AudioServiceLocator;
-import com.aug32.l7audio.domain.audio.MicrophoneManager;
-import com.aug32.l7audio.domain.audio.MusicPlayerManager;
-import com.aug32.l7audio.domain.audio.TTSManager;
+import com.aug32.l7audio.domain.audio.micoutput.MicOutputController;
+import com.aug32.l7audio.domain.audio.micoutput.MicrophoneManager;
+import com.aug32.l7audio.domain.audio.player.MusicPlayerManager;
+import com.aug32.l7audio.domain.audio.tts.TTSManager;
 import com.aug32.l7audio.R;
-import com.aug32.l7audio.service.AudioForegroundService;
-import com.aug32.l7audio.service.FloatingWindowService;
-import com.aug32.l7audio.ui.fragment.AboutFragment;
-import com.aug32.l7audio.ui.fragment.FileBrowserFragment;
-import com.aug32.l7audio.ui.fragment.MicAmplifierFragment;
-import com.aug32.l7audio.ui.fragment.MusicPlayerFragment;
-import com.aug32.l7audio.ui.fragment.SettingsFragment;
-import com.aug32.l7audio.ui.fragment.TTSFragment;
+import com.aug32.l7audio.service.player.AudioForegroundService;
+import com.aug32.l7audio.service.floating.FloatingWindowService;
+import com.aug32.l7audio.ui.fragment.about.AboutFragment;
+import com.aug32.l7audio.ui.fragment.player.FileBrowserFragment;
+import com.aug32.l7audio.ui.fragment.micoutput.MicOutputFragment;
+import com.aug32.l7audio.ui.fragment.player.MusicPlayerFragment;
+import com.aug32.l7audio.ui.fragment.settings.SettingsFragment;
+import com.aug32.l7audio.ui.fragment.tts.TTSFragment;
 import com.aug32.l7audio.utils.AppLog;
 import com.aug32.l7audio.utils.ServiceCompat;
 
@@ -64,9 +65,6 @@ import com.aug32.l7audio.utils.ServiceCompat;
  *
  * 已继承 BaseActivity，公共方法见父类：
  * - applyThemeMode() 主题模式设置
- * - setupStatusBar() 状态栏设置
- * - applyFontScale() 字体缩放
- * - isDarkTheme() 判断深色主题
  */
 public class MainActivity extends BaseActivity {
 
@@ -112,6 +110,13 @@ public class MainActivity extends BaseActivity {
     /** 外部存储管理权限的 ActivityResult 启动器 */
     private ActivityResultLauncher<Intent> manageExternalStorageLauncher;
 
+    /** 输出模式监听器，实时同步车内/车外按钮 */
+    private final MicOutputController.OutputModeListener outputModeListener = mode -> {
+        if (audioOutputManager != null) {
+            updateOutputButtons(mode);
+        }
+    };
+
     // ==================== 生命周期 ====================
 
     /**
@@ -147,13 +152,8 @@ public class MainActivity extends BaseActivity {
         // 设置主题（使用 BaseActivity 方法）
         applyThemeMode(appConfig.getThemeMode());
 
-        // 设置字体缩放比例（车机专用 1.2 倍）
-        applyFontScale(1.2f);
-
         // 设置布局
         setContentView(R.layout.activity_main);
-
-        // 状态栏交由车机系统管理，不再调用 setupStatusBarWithTheme()
 
         initViews();
         setupNavigationDrawer();
@@ -221,6 +221,14 @@ public class MainActivity extends BaseActivity {
         if (audioOutputManager != null) {
             updateOutputButtons(audioOutputManager.getOutputMode());
         }
+        // 注册输出模式监听器，实时同步车内/车外按钮状态
+        MicOutputController.getInstance().addOutputModeListener(outputModeListener);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        MicOutputController.getInstance().removeOutputModeListener(outputModeListener);
     }
 
     /**
@@ -241,7 +249,7 @@ public class MainActivity extends BaseActivity {
         if (currentFunction >= 0) {
             switch (currentFunction) {
                 case 0:
-                    showMicAmplifierFragment();
+                    showMicOutputFragment();
                     break;
                 case 1:
                     showTTSFragment();
@@ -254,32 +262,16 @@ public class MainActivity extends BaseActivity {
     }
 
     /**
-     * Activity 暂停时调用
-     * 预留位置，暂无额外清理逻辑
-     */
-    @Override
-    protected void onPause() {
-        super.onPause();
-    }
-
-    /**
-     * Activity 销毁时调用，释放音频相关资源
-     * 按顺序停止麦克风、TTS、音频焦点，并注销服务定位器中的管理器
+     * Activity 销毁时调用
+     * <p>
+     * 注意：不注销音频管理器，确保悬浮窗（FloatingWindowService）可以继续使用同一实例。
+     * 音频资源由 FloatingWindowService.onDestroy() 和 MicOutputController 统一管理。
      */
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (microphoneManager != null) {
-            microphoneManager.stop();
-        }
-        if (ttsManager != null) {
-            ttsManager.shutdown();
-        }
-        if (audioFocusManager != null) {
-            audioFocusManager.abandonAll();
-        }
-        // 注销 ServiceLocator
-        AudioServiceLocator.getInstance().unregisterManagers();
+        // 不注销音频管理器，允许悬浮窗继续使用
+        // 资源释放由 FloatingWindowService 和 MicOutputController 统一管理
     }
 
     // ==================== 权限管理 ====================
@@ -391,22 +383,17 @@ public class MainActivity extends BaseActivity {
 
         musicPlayerManager = locator.getMusicPlayerManager();
 
+        // 初始化音乐播放器的音频输出属性（从配置中读取当前模式对应的 usage）
+        if (musicPlayerManager != null) {
+            musicPlayerManager.updateAudioOutputUsage(audioOutputManager.getAudioUsage());
+        }
+
         locator.registerManagers(
                 audioOutputManager,
                 microphoneManager,
                 ttsManager,
                 musicPlayerManager,
                 audioFocusManager);
-    }
-
-    /**
-     * 获取音乐播放器管理器实例
-     * 供 Fragment 等组件获取音乐播放控制能力
-     *
-     * @return MusicPlayerManager 实例，可能为 null（初始化前）
-     */
-    public MusicPlayerManager getMusicPlayerManager() {
-        return musicPlayerManager;
     }
 
     /** 启动前台服务 */
@@ -459,7 +446,7 @@ public class MainActivity extends BaseActivity {
         }
         if (btnMicAmplifier != null) {
             btnMicAmplifier.setOnClickListener(v -> {
-                showMicAmplifierFragment();
+                showMicOutputFragment();
                 currentFunction = 0;
                 updateFunctionButtons();
             });
@@ -510,12 +497,6 @@ public class MainActivity extends BaseActivity {
     private void startFloatingWindowService() {
         Intent serviceIntent = new Intent(this, FloatingWindowService.class);
         ServiceCompat.startForegroundService(this, serviceIntent);
-    }
-
-    /** 停止悬浮窗服务 */
-    private void stopFloatingWindowService() {
-        Intent serviceIntent = new Intent(this, FloatingWindowService.class);
-        ServiceCompat.stopService(this, serviceIntent);
     }
 
     // ==================== Fragment 导航 ====================
@@ -582,26 +563,16 @@ public class MainActivity extends BaseActivity {
      * 显示麦克风放大 Fragment 页面
      * 若音乐正在播放则先暂停音乐，并保存当前功能状态以便下次恢复
      */
-    public void showMicAmplifierFragment() {
+    public void showMicOutputFragment() {
         updateAppTitle("L7 Audio - 麦克风放大");
         if (musicPlayerManager != null && musicPlayerManager.isPlaying()) {
             musicPlayerManager.pause();
         }
         FragmentManager fragmentManager = getSupportFragmentManager();
         FragmentTransaction transaction = fragmentManager.beginTransaction();
-        transaction.replace(R.id.function_content, new MicAmplifierFragment());
+        transaction.replace(R.id.function_content, new MicOutputFragment());
         transaction.commitAllowingStateLoss();
         saveCurrentFunctionState(0);
-    }
-
-    /**
-     * 启动麦克风放大功能
-     * 仅在麦克风管理器已初始化且未在录音时才启动，避免重复启动
-     */
-    public void startMicAmplification() {
-        if (microphoneManager != null && !microphoneManager.isRecording()) {
-            microphoneManager.start();
-        }
     }
 
     /** 显示 TTS Fragment */
@@ -642,7 +613,7 @@ public class MainActivity extends BaseActivity {
         }
         switch (savedFunction) {
             case 0:
-                showMicAmplifierFragment();
+                showMicOutputFragment();
                 break;
             case 1:
                 showTTSFragment();
@@ -739,6 +710,10 @@ public class MainActivity extends BaseActivity {
             }
 
             audioOutputManager.setOutputMode(outputMode);
+
+            // 同步用户偏好到 micOutputController（静音检测停止后恢复时使用）
+            MicOutputController.getInstance().setPreferExternalMode(
+                    outputMode == AudioOutputManager.OUTPUT_EXTERNAL);
 
             // 更新音乐播放器的音频输出属性（无需停止播放）
             if (musicPlayerManager != null) {

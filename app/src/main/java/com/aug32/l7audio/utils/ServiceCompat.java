@@ -80,36 +80,4 @@ public final class ServiceCompat {
         }
         context.stopService(serviceIntent);
     }
-
-    /**
-     * 判断指定服务是否正在运行。
-     *
-     * <p>通过遍历 ActivityManager 的运行服务列表来判断。
-     * 注意：Android 5.0 以后 getRunningServices 仅返回调用方自己的服务，
-     * 无法查询其他应用的服务状态，因此在此应用内使用是安全的。
-     *
-     * @param context      上下文对象
-     * @param serviceClass 服务类的 Class 对象
-     * @return true=服务正在运行，false=服务未运行或参数无效
-     */
-    public static boolean isServiceRunning(Context context, Class<?> serviceClass) {
-        // 参数校验，避免空指针
-        if (context == null || serviceClass == null) {
-            return false;
-        }
-
-        android.app.ActivityManager activityManager =
-                (android.app.ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
-        if (activityManager == null) {
-            return false;
-        }
-
-        // 遍历所有运行中的服务，匹配类名判断是否运行
-        for (android.app.ActivityManager.RunningServiceInfo serviceInfo : activityManager.getRunningServices(Integer.MAX_VALUE)) {
-            if (serviceClass.getName().equals(serviceInfo.service.getClassName())) {
-                return true;
-            }
-        }
-        return false;
-    }
 }

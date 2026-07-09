@@ -57,18 +57,6 @@ public class TTSViewModel extends AndroidViewModel {
     }
 
     /**
-     * 添加一条带自定义名称的 TTS 播报项
-     * 文本为空或纯空格时忽略
-     *
-     * @param text       播报文本内容
-     * @param customName 自定义显示名称
-     */
-    public void addTTSItem(String text, String customName) {
-        if (text == null || text.trim().isEmpty()) return;
-        ttsRepository.addTTSItem(new TTSItem(text.trim(), customName));
-    }
-
-    /**
      * 移除指定位置的 TTS 播报项
      *
      * @param position 要移除的位置索引

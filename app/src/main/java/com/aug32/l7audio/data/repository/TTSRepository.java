@@ -11,7 +11,7 @@ import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.aug32.l7audio.data.local.config.TTSConfig;
+import com.aug32.l7audio.data.local.config.tts.TTSConfig;
 import com.aug32.l7audio.data.model.TTSItem;
 import com.aug32.l7audio.utils.AppExecutors;
 
@@ -165,24 +165,6 @@ public class TTSRepository {
     }
 
     /**
-     * 异步加载 TTS 列表
-     *
-     * <p>在计算线程中加载 TTS 列表数据，加载完成后通过回调接口返回结果，
-     * 同时更新 LiveData 通知观察者。
-     *
-     * @param callback 加载完成回调接口，可为 null（仅更新 LiveData，不触发回调）
-     */
-    public void loadTTSItems(OnTTSItemsLoadedCallback callback) {
-        AppExecutors.getInstance().executeOnComputeThread(() -> {
-            List<TTSItem> items = loadTTSItemsSync();
-            ttsItemsLiveData.postValue(new ArrayList<>(items));
-            if (callback != null) {
-                callback.onLoaded(new ArrayList<>(items));
-            }
-        });
-    }
-
-    /**
      * 异步保存 TTS 列表
      *
      * <p>在 IO 线程中将 TTS 列表序列化为 JSON 并持久化到 SharedPreferences，
@@ -246,15 +228,4 @@ public class TTSRepository {
         return ttsItemsLiveData;
     }
 
-    /**
-     * TTS 列表加载完成回调接口
-     */
-    public interface OnTTSItemsLoadedCallback {
-        /**
-         * 加载完成时回调
-         *
-         * @param items 加载完成的 TTS 项目列表
-         */
-        void onLoaded(List<TTSItem> items);
-    }
 }

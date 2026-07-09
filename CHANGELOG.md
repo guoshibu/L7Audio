@@ -1,4 +1,597 @@
-# L7Audio 改动记录
+# L7Audio CHANGELOG
+
+> 日期：2026-07-09
+> 版本：v1.5.5 (versionCode: 66)
+
+---
+
+---
+
+## v1.5.5 Buffer 脏数据修复 + 悬浮窗增强
+
+### 修复的问题
+
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| MicrophoneManager.java | `samples`数组固定为`BUFFER_SIZE/2`(2048)，实际`readSize/2`仅768，管线处理1280个脏数据，三抑制模块同时开启后人声严重失真 | `samples`大小动态匹配`readSize/2`，脏数据清零 |
+
+### 日志确认
+
+- AFC `input` 从0.0001~0.0004（脏数据稀释）升至 **0.1690**（真实语音能量），`postRms` 正确显示0.0000
+
+### 性能优化
+
+| 文件 | 优化 |
+|------|------|
+| PlaylistManager.java | `getAllItems()`/`getItemAt()`/`getCurrentItem()` 去掉深拷贝 |
+| AlbumArtCache.java | `loadFromDisk()` 加 `readFully()` 循环 |
+| MicrophoneManager.java | 预分配`short[]`消除每帧`new short[]`；合并byte→short与RMS为一次循环 |
+| SpectralNoiseReductionProcessor.java | `input`/`output`改为成员懒分配，`System.arraycopy` |
+| AutomaticGainControlProcessor.java | 降频至每10帧更新增益 |
+| SpectralAndNotchProcessor | 新建（内部类SpectralNoiseReduction+HowlingNotchFilter+共享FFT），删除两个旧处理器文件 |
+| AdaptiveFeedbackCancellationProcessor.java | FILTER_LENGTH 4096→1024，MU 0.3→0.05 |
+| GainLimiterProcessor.java | 每25帧输出tanh限幅百分比+累计限幅数 |
+
+### 日志增强
+
+- 全链路入口/出口日志补全：MicrophoneManager/FloatingWindowService/GainLimiterProcessor 等
+
+### 新功能
+
+| 功能 | 说明 |
+|------|------|
+| 自动收起时长滑动条 | 悬浮窗设置新增5-30秒可调SeekBar，替代硬编码10秒 |
+| 悬浮球按钮增大 | 88dp×77dp → 100dp×90dp |
+| OutputModeListener | MicOutputController新增输出模式监听器，MainActivity `onResume`注册/`onPause`注销 |
+| 喊话停止保持输出模式 | `stopAnnouncement()`中保持喊话期间模式不变 |
+| startupGraceMs | `startSilenceDetection()`新增3000ms宽限期 |
+
+### 构建
+
+- `app/build.gradle.kts` versionCode 65 → 66
+
+---
+
+---
+
+## v1.5.4 扫码性能优化 + 车机适配修复
+
+### 修复的问题
+
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| MicOutputController.java | Toast 提示"仅车外/仅车内"未记录用户选择，重新启动后丢失偏好 | 新增 `preferExternal` 持久化偏好，`startAnnouncement(forceExternal=false)` 自动切换 |
+| MainActivity.java | 悬浮窗/主界面未同步 `preferExternal` 偏好 | 悬浮窗 `toggle(true)` 后同步记录，MainActivity 初始化时读取 |
+| SettingsFragment.java:880 | TTS 播报错误使用外放通道 | 改为 `getCarAudioUsage()` |
+| SettingsFragment.java:692 | 枚举音频设备时未输出设备地址 | 增加 `device.getAddress()` 日志 |
+| MicrophoneManager.java / HowlingNotchFilterProcessor | 采样率硬编码 16000Hz，导致部分机型音质劣化 | 改为 48000Hz |
+
+### 扫描性能优化
+
+- **PlaylistManager.java** `createItemFromFile` 重写为格式感知分派：
+  - WAV：直接自解析 `WavMetadataReader`（标题/艺术家/时长）→ 文件名兜底 → 头计算时长（只读 44 字节头）
+  - FLAC/M4A：直接自解析 `AudioMetadataReader.readMetadata()` → 文件名兜底，时长从 STREAMINFO/mvhd 解析
+  - MP3/其余：保留 `MediaMetadataRetriever`，新增文件名兜底 fallback
+  - content:// URI：保留原 `MediaMetadataRetriever` 逻辑
+  - **IO 收益**：16 个 WAV 文件从 ~800MB 无用 IO 降至 ~704 字节
+- **WavMetadataReader.java** 新增 `id3 ` RIFF 块支持（Mp3tag 写入格式），复用 `parseId3v2Frames`
+- **FlacMetadataReader.java** 从 STREAMINFO 解析 `sampleRate`+`totalSamples` → `durationMs`
+- **M4aMetadataReader.java** 从 `mvhd` atom 解析 `timeScale`+`duration` → `durationMs`
+- 三个 self-parser 改为始终返回 `AudioMetadata` 对象（可能仅有 durationMs）
+
+### 文件名显示策略
+
+- `parseTitleFromFileName` 仅做去扩展名，不再去除编号前缀
+- 删除 `parseArtistFromFileName` 方法（不再从文件名猜解艺术家）
+- 无元数据时：title = 文件名去扩展名（原样），artist = ""（空串）
+- 有元数据时：使用元数据
+
+### CHANGELOG
+
+- `app/build.gradle.kts` versionCode 61 → 63
+
+---
+
+## v1.5.3 包结构按功能模块重组
+
+### 重构
+
+- **domain/audio/** 拆分为 `micoutput/`、`player/`、`tts/` 三个子包，6 个处理器移入 `micoutput/processor/`
+- **ui/fragment/** 拆分为 `micoutput/`、`tts/`、`player/`、`settings/`、`about/` 子包
+- **service/** 拆分为 `player/`、`floating/` 子包
+- **receiver/** 拆分为 `micoutput/`、`boot/` 子包
+- **data/local/config/** 拆分为 `micoutput/`、`tts/`、`player/`、`floating/` 子包
+- `AnnouncementController` → `MicOutputController`（统一命名）
+- `AnnouncementReceiver` → `MicOutputReceiver`
+- `MicAmplifierFragment` → `MicOutputFragment`
+- `MicConfig` → `MicOutputConfig`
+- `AndroidManifest.xml` 同步更新 4 处 service/receiver 类路径
+
+---
+
+> 日期：2026-07-07
+> 版本：v1.5.2 (versionCode: 60)
+
+---
+
+## v1.5.2 音频输出通道集中化管理
+
+### 修复的问题
+
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| TTSFragment.java | `playTTS()` 调用 `speak(text)` 跟随全局模式，车外 TTS 播报走车内喇叭 | 改用 `speakWithUsage(text, externalUsage)`，始终走车外通道 |
+| SettingsFragment.java | 两个反馈 TTS（保存设置后提示音）错误使用车内 usage | 改为 `audioOutputManager.getExternalAudioUsage()` |
+| MainActivity.java | 音乐播放器启动时 ExoPlayer 硬编码 USAGE_MEDIA，不读取配置 | `initAudioManagers()` 中调用 `updateAudioOutputUsage()` |
+| PlaybackController.java | `initPlayer()` 硬编码 `USAGE_MEDIA` 用作默认值 | 移除，完全交由 `updateAudioUsage()` 负责 |
+
+### 重构
+
+- **AudioOutputManager** 新增 `getExternalAudioUsage()` / `getCarAudioUsage()` 集中方法
+- 所有模块统一通过 `AudioOutputManager` 获取 audio usage，清理所有散落在各文件的 `appConfig.getAudioOutputUsage*()` 直接调用
+
+---
+
+## v1.5.1 音频处理管线全面升级（综合版）
+
+汇总 v1.5.0 至当前的全部迭代，核心目标：解决手机端麦克风放大时的回声/啸叫/音量不稳问题。
+
+### 1）管线架构
+
+```
+输入(16kHz, 16-bit PCM)
+     ↓
+[Android 原生 3A]   ← HW NS/AEC/AGC 优先，不可用时软件回退
+     ↓
+[HPF @80Hz]         ← 一阶 IIR B1=0.969，滤除 DC / 低频噪声
+     ↓
+[AFC NLMS]          ← 256 阶自适应滤波 MU=0.3 LEAKAGE=0.001 DT_THRESHOLD=1.5
+                        参考信号来自上一帧输出；HW AEC 启用时仍串联运行消残余
+     ↓
+[Gain]              ← 用户可调"最大放大倍数"
+     ↓
+[SpectralNR]        ← 512 FFT + Sine 窗 + 50% overlap-add；alpha=1.3 beta=0.01 自学习噪声谱
+     ↓
+[HowlingNotch]      ← 512 FFT 峰值检测 + IIR 窄带陷波 Q=30 -12dB，最多 3 频点
+     ↓
+[AGC]               ← 目标 RMS=0.3 MAX_GAIN=2.0 gain 变化 <=+-2%/帧；tanh 软限幅；用户可开关
+     ↓
+[setReference]      ← 保存为下一帧 AFC 参考（含 AGC 增益，AFC 正确跟踪）
+     ↓
+扬声器 / AudioTrack
+```
+
+### 2）关键参数演进
+
+| 参数 | 初始 | 最终 | 演进路径 |
+|------|------|------|----------|
+| 采样率 | 44100Hz | 16000Hz | 与 WebRTC 对齐 |
+| Buffer | min*2 | minBufferSize | 降低延迟 |
+| AFC MU | 0.005 | 0.3 | 0.005->0.05->0.3 |
+| AFC DT_THRESHOLD | -- | 1.5 | 2.0->1.5 |
+| AFC LEAKAGE | -- | 0.001 | 新增防漂移 |
+| SpectralNR alpha | 2.0 | 1.3 | 保留语音谐波 |
+| AGC MAX_GAIN | 5.0 | 2.0 | 5->2 限幅防正反馈 |
+| AGC 增益算法 | 指数 alpha=0.2 | 硬限幅 +-2%/帧 | 慢到 AFC 追得上 |
+| HPF B1 | 0.989 | 0.969 | 适配 16000Hz |
+
+### 3）硬件 3A 自适应矩阵
+
+| 硬件可用 | NS (SpectralNR) | AEC (AFC NLMS) | AGC (sw AGC) |
+|----------|----------------|----------------|--------------|
+| 全不可用 | 启用 | 启用 | 启用 |
+| 仅 NS | 禁用 | 启用 | 启用 |
+| 仅 AEC | 启用 | HW+AFC 串联 | 启用 |
+| 全可用 | 禁用 | HW+AFC 串联 | 禁用 |
+
+### 4）新增功能
+
+| 功能 | 说明 |
+|------|------|
+| AGC 开关 | 麦克风页面第 4 个 Switch，持久化到配置，可关闭 AGC |
+| AEC AudioTrack fallback | AudioRecord create 返回 null 时尝试 AudioTrack session |
+
+### 5）Bug 修复
+
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| HowlingNotchFilterProcessor | 数组越界 magnitude[256] | 循环条件 i < HALF_FFT - 1 |
+| AdaptiveFeedbackCancellationProcessor | AFC 发散/收敛慢 | MU->0.3 + 双讲检测 + 系数泄漏 |
+| SpectralNoiseReductionProcessor | 人声过减劣化 | alpha 2.0 -> 1.3 |
+| MicrophoneManager | AEC AudioRecord null 时不尝试 AudioTrack | 新增 AudioTrack session fallback |
+| SettingsFragment | 进入页面 NPE | micConfig 空指针保护 |
+| AnnouncementController | 静音检测误判 | 改用 getPostProcessRms() |
+
+### 6）文件改动一览
+
+| 文件 | 动作 |
+|------|------|
+| 新增 | |
+| HighPassFilterProcessor.java | 80Hz 一阶 IIR |
+| SpectralNoiseReductionProcessor.java | 512 FFT 谱减法降噪 |
+| AdaptiveFeedbackCancellationProcessor.java | 256 阶 NLMS AFC |
+| HowlingNotchFilterProcessor.java | FFT + IIR 啸叫陷波 |
+| AutomaticGainControlProcessor.java | 目标 RMS AGC + tanh 软限幅 |
+| 删除 | |
+| AudioSuppressionProcessor.java | 旧能量交叉相关回声 + 宽带啸叫衰减 |
+| 修改 | |
+| MicrophoneManager.java | 管线重构 + HW 3A 初始化 + AudioTrack fallback + AGC 开关 |
+| MicConfig.java / AppConfig.java | AGC 开关配置持久化 |
+| fragment_mic_amplifier.xml / MicAmplifierFragment.java | AGC 开关 UI |
+| HighPassFilterProcessor.java | B1 0.989->0.969 |
+| HowlingNotchFilterProcessor.java | SAMPLE_RATE 44100->16000 |
+| AdaptiveFeedbackCancellationProcessor.java | MU 0.005->0.3, +DT_THRESHOLD, +LEAKAGE, xnorm O(N^2)->O(1), +getLastErleDb |
+| SpectralNoiseReductionProcessor.java | alpha 2.0->1.3 |
+| AutomaticGainControlProcessor.java | MAX_GAIN 5->2, +GAIN_CHANGE_LIMIT=0.02 |
+| AppLog.java | +AppLog.i() 供 OPPO 可见 |
+| AnnouncementController.java | 静音检测改 getPostProcessRms |
+| build.gradle.kts | versionCode 多次迭代至 59 |
+
+## v1.4.9 封面提取延迟到播放时
+
+### 1）性能优化
+
+| 类型 | 优化 | 修改文件 | 改动 |
+|------|------|----------|------|
+| 🚀 | 扫描时不再提取专辑封面 | PlaylistManager.java | 删除 `getEmbeddedPicture()` + `AlbumArtCache.put()`，扫描 200 首歌省 200 次文件 IO + 200 次磁盘写入 |
+| 🚀 | 播放时按需提取封面 | MusicPlayerManager.java | `start()` 中新增 `ensureAlbumArt()`，只在播放前提取封面并回写 `item.albumArt` + `AlbumArtCache.put()` |
+
+---
+
+## v1.4.8 代码质量优化
+
+### 1）修复的问题
+
+| 类型 | 问题 | 修改文件 | 改动 |
+|------|------|----------|------|
+| 🐛 | Release 构建日志未禁用 | AppLog.java | `debugEnabled` 改为 `BuildConfig.DEBUG`，Release 不再输出日志 |
+| 🐛 | 封面全尺寸解码 OOM 风险 | AlbumArtCache.java | `get(key, albumArt)` 默认 512px 采样解码，不再全尺寸解码 |
+| 🐛 | 磁盘缓存无淘汰策略 | AlbumArtCache.java | `saveToDisk()` 新增文件数上限(200)检查，超出删除最旧文件 |
+| 🐛 | init() 部分初始化 NPE 路径 | AnnouncementController.java | `appContext` 最后赋值，确保依赖全部就绪后才暴露 |
+| 🐛 | `getAdapterPosition()` 已废弃 | FileBrowserAdapter.java | 替换为 `getBindingAdapterPosition()` |
+| 🐛 | `getResources().getColor()` 废弃用法 | TTSFragment.java | 替换为 `ContextCompat.getColor()` |
+| 🔧 | `new Handler()` 缺 Looper | TTSManager.java | 添加 `Looper.getMainLooper()` |
+| 🔧 | `Gson` 重复创建 | FloatingWindowService.java | 提取为 `static final` 字段复用 |
+| 🔧 | 空 `onPause()` 方法 | MainActivity.java | 删除 |
+| 🔧 | `CopyOnWriteArrayList` 过杀 | AnnouncementController.java | 替换为 `ArrayList + synchronized` |
+| 🔧 | 颜色初始化哨兵值 `0` | MusicPlaylistAdapter.java | 改用 `boolean colorsInitialized` 标记 |
+| 🔧 | Dead code: `TYPE_PHONE` 分支 | FloatingWindowService.java | 移除（minSdk=30，永不执行） |
+
+---
+
+## v1.4.7 死代码深度清理（第二轮）
+
+### 1）清理清单
+
+| 类型 | 清理内容 |
+|------|----------|
+| 删除文件 | KeepAliveManager.java、KeepAliveWorker.java、MusicSource.java、ScannedMusicInfo.java |
+| 删除字符串 | 26 个未使用的 `<string>` 资源（strings.xml 从 47 行缩至 9 行） |
+| 删除 Gradle 依赖 | work-runtime:2.9.0（KeepAliveManager/Worker 已删，全项目无 androidx.work.* 引用） |
+| 删除权限 | WAKE_LOCK（代码中无任何 PowerManager/WakeLock 使用） |
+| 清理死方法 | PlaylistManager: addFromSource/addFromScannedInfo；MusicPlayerManager: resume(long)/setShuffleModeEnabled/isShuffleModeEnabled；AppExecutors: executeOnIOThread(Runnable,Runnable)；AudioConfig: resetAudioChannel；AudioFocusManager: hasAnyFocus；LrcParser: parsePlainTextAsLines；FileUtils: getNameWithoutExtension(两个重载)；AppLog: i()；BootReceiver: disable()；TTSRepository: loadTTSItems(OnTTSItemsLoadedCallback) + 回调接口；TTSViewModel: addTTSItem(String,String)；MediaSessionManager: getSessionToken/release；MusicConfig: isShuffleModeEnabled(getter) |
+
+### 2）修复的前轮问题
+
+| 问题 | 修复 |
+|------|------|
+| PlaylistManager.java:302 编译错误 | 上轮误删了 AppExecutors 的 import，addFromFilePaths() 仍在使用，已加回 |
+
+---
+
+## v1.4.6 音乐模块性能优化
+
+### 1）封面图片存储与解码全面优化
+
+**问题描述**：albumArt(byte[]) 随播放列表全量序列化到 SharedPreferences，JSON 体积巨大，接近 2MB 上限；同一封面在 Fragment/MediaSession/Notification 三处独立解码，内存浪费。
+
+**优化方案**：
+
+| 修改文件 | 改动内容 |
+|----------|----------|
+| [MusicItem.java](app/src/main/java/com/aug32/l7audio/domain/audio/MusicItem.java) | `albumArt`、`lyrics`、`lyricsModified` 加 `transient` 关键字，不再参与 Gson 序列化；`copy()` 深拷贝 byte[] |
+| [AlbumArtCache.java](app/src/main/java/com/aug32/l7audio/utils/AlbumArtCache.java) | **新增**：LRU 内存缓存(10MB) + 文件缓存 + 采样解码 + 统一入口 |
+| [PlaylistManager.java](app/src/main/java/com/aug32/l7audio/domain/audio/playlist/PlaylistManager.java) | 提取封面后调用 `AlbumArtCache.put()` 落盘文件缓存，不再依赖 SP 序列化 |
+| [MusicPlayerFragment.java](app/src/main/java/com/aug32/l7audio/ui/fragment/MusicPlayerFragment.java) | `loadAlbumArt()` 改用 `AlbumArtCache` + 后台线程解码 + 采样匹配 240dp ImageView |
+| [MediaSessionManager.java](app/src/main/java/com/aug32/l7audio/domain/audio/MediaSessionManager.java) | `updateMetadata()` 改用 `AlbumArtCache`，共享缓存 Bitmap |
+| [AudioForegroundService.java](app/src/main/java/com/aug32/l7audio/service/AudioForegroundService.java) | `updateNotification()` 改用 `AlbumArtCache`，共享缓存 Bitmap |
+
+### 2）播放列表 RecyclerView 性能优化
+
+**问题描述**：`notifyDataSetChanged()` 频繁全量刷新；`onBindViewHolder` 中每次调用 `ContextCompat.getColor()` 重复获取颜色值。
+
+**优化方案**：
+
+| 修改文件 | 改动内容 |
+|----------|----------|
+| [MusicPlaylistAdapter.java](app/src/main/java/com/aug32/l7audio/ui/adapter/MusicPlaylistAdapter.java) | DiffUtil 增量刷新替代 `notifyDataSetChanged`；颜色值缓存为 int 字段避免重复调用；`setHasStableIds(true)` 稳定 ID |
+
+---
+
+**优化收益**：
+- SharedPreferences 存储量减少 90%+，彻底消除 2MB 上限风险
+- 三处封面解码合为一处，LRU 缓存避免重复解码
+- 封面采样压缩适配 240dp 目标尺寸，大图内存显著降低
+- 列表 DiffUtil 增量刷新，大列表操作流畅度提升
+
+---
+
+## v1.4.5 修复与优化
+
+### 1）扫描/添加大量音乐后播放列表不刷新
+
+**问题描述**：添加200+首歌曲后，Toast显示但播放列表为空，需重新进入音乐Tab才能看到歌曲。
+
+**原因分析**：`closeFileBrowserFragment()` 异步投递 Fragment 事务，`addFilesToPlaylist()` 向计算线程投递任务。若计算线程先完成，`onPlaylistChanged()` 和 `onAddComplete()` 回调在 Fragment 恢复前执行，`isAdded()` 返回 false，`refreshPlaylist()` 被跳过。
+
+**修复方案**：
+
+| 修改文件 | 改动内容 |
+|----------|----------|
+| [MusicPlayerFragment.java](app/src/main/java/com/aug32/l7audio/ui/fragment/MusicPlayerFragment.java) | `onResume()` 中添加 `refreshPlaylist()` 调用，确保 Fragment 可见时播放列表一定刷新 |
+
+---
+
+### 2）死代码全面清理
+
+**优化内容**：清理项目中积累的未使用代码、资源和依赖，精简代码库。
+
+**清理清单**：
+
+| 类型 | 清理内容 |
+|------|----------|
+| 删除文件 | AudioUtils.java（音频工具）、BaseService.java（空基类） |
+| 删除工具类 | ArrayUtils.java、CollectionUtils、DateUtils.java、JsonUtils.java |
+| 删除 Domain 类 | PlaylistExporter.java、PlaylistShuffleHelper.java、AudioDeviceCompat.java、AudioFormat.java |
+| 删除布局 | activity_main_landscape.xml、item_music.xml |
+| 删除颜色 | colorPrimaryDark、colorAccentDark、divider_color |
+| 删除 Gradle 依赖 | media3-ui、media3-session、junit、extJunit、espressoCore、okhttp |
+| 精简 FileUtils.java | 389行 → 57行（移除未使用的文件操作方法） |
+| 精简 MicrophoneManager.java | 685行 → 635行 |
+| 精简 BaseActivity.java | 131行 → 69行 |
+
+---
+
+### 3）设置页面新增「恢复默认设置」按钮
+
+**功能描述**：设置页面底部新增「恢复默认设置」按钮，一键清除所有用户配置并重新初始化为默认值。
+
+**修改文件**：
+
+| 修改文件 | 改动内容 |
+|----------|----------|
+| [fragment_settings.xml](app/src/main/res/layout/fragment_settings.xml) | 底部新增「恢复默认设置」CardView 按钮 |
+| [SettingsFragment.java](app/src/main/java/com/aug32/l7audio/ui/fragment/SettingsFragment.java) | 新增 `restoreDefaults()` 方法，清除 SharedPreferences 并重新初始化所有 Config 对象 |
+
+---
+
+详细版本历史请参考 [README.md](README.md)
+
+---
+
+## 四、旧版本记录
+
+> 日期：2026-07-02
+> 版本：v1.4.4 (versionCode: 44)
+
+---
+
+## v1.4.4 修复
+
+### 1）麦克风放大按钮失效
+
+**问题描述**：进入麦克风页面点击"开始放大"按钮无任何响应。
+
+**原因分析**：`AnnouncementController.init()` 仅在 FloatingWindowService 和 AnnouncementReceiver 中调用，正常打开主界面进入麦克风页面时 Controller 未初始化，`toggle()` 中 `appContext == null` 直接 return。
+
+**修复方案**：
+
+| 修改文件 | 改动内容 |
+|----------|----------|
+| [L7AudioApp.java](app/src/main/java/com/aug32/l7audio/L7AudioApp.java) | `onCreate()` 中添加 `AnnouncementController.getInstance().init(this)` |
+
+---
+
+### 2）GainLimiterProcessor tanh 过度压缩
+
+**问题描述**：重构后声音极小，即使增益设为 1.0x 输出也只有原始信号的 76%。
+
+**原因分析**：`Math.tanh(x)` 对所有采样值压缩，tanh(1.0)≈0.76，正常范围信号也被压缩。
+
+**修复方案**：
+
+| 修改文件 | 改动内容 |
+|----------|----------|
+| [GainLimiterProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/processor/GainLimiterProcessor.java) | tanh 软限幅仅在 `|x| > 1.0` 溢出时使用，正常范围直通 |
+
+---
+
+## v1.4.3
+
+> 日期：2026-07-02
+> 版本：v1.4.3 (versionCode: 43)
+
+---
+
+## 一、修改文件总览
+
+| 类型 | 数量 | 文件 |
+|------|------|------|
+| ✨ 新增 | 6 | AnnouncementController.java、AnnouncementReceiver.java、AudioProcessor.java、AudioPipeline.java、GainLimiterProcessor.java、AudioSuppressionProcessor.java |
+| 🐛 修复 | 2 | 关闭主界面后悬浮窗车外喊话不可用、悬浮窗按钮文字显示不全 |
+| 🔧 优化 | 8 | MicConfig.java、MicrophoneManager.java（重构为管线模式）、FloatingWindowService.java、MicAmplifierFragment.java、MainActivity.java、SettingsFragment.java、fragment_settings.xml、AndroidManifest.xml |
+| 📝 文档 | 2 | README.md、CHANGELOG.md |
+
+---
+
+## 二、核心问题修复
+
+### 1）关闭主界面后悬浮窗车外喊话不可用
+
+**问题描述**：关闭软件主界面仅保留悬浮窗时，车外喊话功能 UI 显示正常但实际不发声，需进入麦克风页面才能使用。
+
+**原因分析**：`MainActivity.onDestroy()` 注销了 `AudioServiceLocator` 中的管理器，导致悬浮窗中获取的是新实例，输出模式未正确设置。
+
+**修复方案**：
+
+| 修改文件 | 改动内容 |
+|----------|----------|
+| [MainActivity.java](app/src/main/java/com/aug32/l7audio/ui/activity/MainActivity.java) | `onDestroy()` 不再注销音频管理器（麦克风、音频输出、音频焦点），确保全局使用同一实例 |
+
+---
+
+### 2）悬浮窗按钮文字显示不全
+
+**问题描述**：车机上悬浮窗按钮的"L7"字符显示不完整。
+
+**原因分析**：按钮内边距和字体大小导致文字显示不全。
+
+**修复方案**：
+
+| 修改文件 | 改动内容 |
+|----------|----------|
+| [view_floating_ball.xml](app/src/main/res/layout/view_floating_ball.xml) | 移除按钮内边距，设置 `android:includeFontPadding="false"`，避免字体额外间距 |
+
+---
+
+## 三、新增功能
+
+### 1）车外喊话统一管理（AnnouncementController）
+
+**功能描述**：创建 `AnnouncementController` 单例类，集中处理车外喊话状态切换、防抖、静音检测和焦点管理。
+
+**新增文件**：
+
+| 文件 | 职责 |
+|------|------|
+| [AnnouncementController.java](app/src/main/java/com/aug32/l7audio/domain/audio/AnnouncementController.java) | DCL 单例，管理喊话状态、防抖检查、静音检测线程、音频焦点协调 |
+
+**核心功能**：
+
+- **状态管理**：统一管理 `isAnnouncing` 状态，支持多个入口（悬浮窗、麦克风页面、第三方按键）
+- **防抖处理**：记录上次触发时间，过滤短时间内的连续触发请求（默认 800ms）
+- **静音检测**：通过 RMS 音量检测判断是否有声音输入，超时后自动关闭（默认 30 秒）
+- **焦点管理**：申请短暂独占焦点暂停音乐，结束后释放焦点恢复音乐
+- **观察者模式**：`AnnouncementListener` 接口实现悬浮窗和麦克风页面状态同步
+
+---
+
+### 2）第三方 APP 按键控制支持
+
+**功能描述**：支持第三方 APP 通过实体按键发送广播控制车外喊话（触发后开启，再次触发关闭）。
+
+**新增文件**：
+
+| 文件 | 职责 |
+|------|------|
+| [AnnouncementReceiver.java](app/src/main/java/com/aug32/l7audio/receiver/AnnouncementReceiver.java) | 接收广播 `com.aug32.l7audio.OUTSIDE_MIC_TOGGLE`，调用控制器切换状态 |
+
+**使用方式**：
+
+```java
+Intent intent = new Intent("com.aug32.l7audio.OUTSIDE_MIC_TOGGLE");
+context.sendBroadcast(intent);
+```
+
+---
+
+### 3）车外喊话设置配置项
+
+**功能描述**：设置页面新增车外喊话相关配置项，支持用户自定义参数。
+
+**修改文件**：
+
+| 文件 | 改动内容 |
+|----------|----------|
+| [fragment_settings.xml](app/src/main/res/layout/fragment_settings.xml) | 新增"车外喊话设置"卡片，包含防抖间隔、静音检测开关、静音超时、静音阈值输入框 |
+| [SettingsFragment.java](app/src/main/java/com/aug32/l7audio/ui/fragment/SettingsFragment.java) | 加载/保存车外喊话配置，含范围校验和 Toast 提示 |
+| [MicConfig.java](app/src/main/java/com/aug32/l7audio/data/local/config/MicConfig.java) | 新增配置字段：`debounceInterval`、`silenceDetectionEnabled`、`silenceTimeout`、`silenceThreshold` |
+
+**配置项说明**：
+
+| 配置项 | 范围 | 默认值 | 说明 |
+|--------|------|--------|------|
+| 防抖间隔 | 500-2000ms | 800ms | 屏蔽快速连续触发，避免麦克风频繁启停啸叫、硬件损伤 |
+| 静音检测 | 开启/关闭 | 开启 | 无声音输入时自动关闭功能 |
+| 静音超时 | 5-300秒 | 30秒 | 静音持续多久后自动关闭 |
+| 静音阈值 | 0.03-0.3 | 0.05 | 判定为静音的 RMS 音量阈值（适配车内环境噪音） |
+
+---
+
+### 4）状态同步机制
+
+**功能描述**：悬浮窗和麦克风页面通过观察者模式同步 UI 状态。
+
+**修改文件**：
+
+| 文件 | 改动内容 |
+|----------|----------|
+| [FloatingWindowService.java](app/src/main/java/com/aug32/l7audio/service/FloatingWindowService.java) | 添加 `AnnouncementListener`，在 `showListView()` 注册、`hideListView()` 注销 |
+| [MicAmplifierFragment.java](app/src/main/java/com/aug32/l7audio/ui/fragment/MicAmplifierFragment.java) | 添加 `AnnouncementListener`，在 `onViewCreated()` 注册、`onDestroyView()` 注销 |
+
+---
+
+### 5）RMS 音量检测
+
+**功能描述**：`MicrophoneManager` 新增 `getCurrentRms()` 方法，计算音频帧的均方根值用于静音检测。
+
+**修改文件**：
+
+| 文件 | 改动内容 |
+|----------|----------|
+| [MicrophoneManager.java](app/src/main/java/com/aug32/l7audio/domain/audio/MicrophoneManager.java) | 新增 `currentRms` 变量和 `calculateRms()` 方法，实时计算音频 RMS 值 |
+
+---
+
+### 6）Toast 提示增强
+
+**功能描述**：车外喊话开启/关闭时显示 Toast 提示，自动关闭时显示原因。
+
+**修改文件**：
+
+| 文件 | 改动内容 |
+|----------|----------|
+| [AnnouncementController.java](app/src/main/java/com/aug32/l7audio/domain/audio/AnnouncementController.java) | 开启时显示"车外喊话已开启"，关闭时显示"车外喊话已关闭"，自动关闭时显示"车外喊话已关闭：{原因}" |
+
+---
+
+### 7）MicrophoneManager 管线模式重构
+
+**功能描述**：将 MicrophoneManager 从 ~900 行重构为 ~685 行，采用管线模式拆分音频处理逻辑。
+
+**架构变更**：
+- 新增 `AudioProcessor` 接口：定义音频处理器的统一契约
+- 新增 `AudioPipeline` 管线类：按注册顺序串联执行处理器
+- 新增 `GainLimiterProcessor`：增益放大 + tanh 软限幅（替代 clamp 硬限幅，减少削波失真）
+- 新增 `AudioSuppressionProcessor`：噪声门 + 回声消除 + 啸叫抑制（三合一，共享 reset() 消除状态泄漏）
+
+**修复的问题**：
+- 状态泄漏：`releaseResources()` 遗漏 `previousAvgVolume`、`previousEnergy`、`mCurrentGain` 重置 → 通过 `pipeline.reset()` 统一清零
+- 死代码移除：`detectSteadyNoise()` 计算未使用
+- 处理顺序优化：增益→限幅→噪声门→回声→啸叫（原为噪声→回声→增益→限幅→啸叫）
+- 噪声抑制算法升级：从能量阈值法改为噪声门（Noise Gate），避免将正常语音误判为噪声
+- 回声消除优化：能量比判断 + 动态衰减，替代固定条件判断
+- 啸叫抑制强化：动态衰减根据啸叫强度自动调整，替代固定衰减系数
+
+**对外接口**：零变化，所有调用方无需修改。
+
+**修改文件**：
+
+| 文件 | 改动内容 |
+|------|----------|
+| [AudioProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/AudioProcessor.java) | 新增：音频处理器接口 |
+| [AudioPipeline.java](app/src/main/java/com/aug32/l7audio/domain/audio/AudioPipeline.java) | 新增：管线编排类 |
+| [GainLimiterProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/processor/GainLimiterProcessor.java) | 新增：增益+软限幅处理器 |
+| [AudioSuppressionProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/processor/AudioSuppressionProcessor.java) | 新增：三合一抑制处理器 |
+| [MicrophoneManager.java](app/src/main/java/com/aug32/l7audio/domain/audio/MicrophoneManager.java) | 重构：退化为协调者，委托管线处理 |
+
+---
+
+详细版本历史请参考 [README.md](README.md)
+
+---
+
+## 四、旧版本记录
 
 > 日期：2026-06-30
 > 版本：v1.4.2 (versionCode: 42)
@@ -20,7 +613,7 @@
 
 ## 二、功能变更
 
-### 1️⃣ 删除 TTS 语速/音调设置功能
+### 1）删除 TTS 语速/音调设置功能
 
 **变更内容**：移除 TTS 语速/音调调节的 UI 和相关配置代码，简化 TTS 功能。
 
@@ -40,7 +633,7 @@
 
 ---
 
-### 2️⃣ 重构 MediaSession 为 Android 原生实现
+### 2）重构 MediaSession 为 Android 原生实现
 
 **优化内容**：使用 Android 原生 `android.media.session.MediaSession` 替代 media3-session 依赖，实现与系统媒体中心的标准接入。
 
@@ -65,7 +658,7 @@
 
 ---
 
-### 3️⃣ 前台服务通知升级为 MediaStyle 标准样式
+### 3）前台服务通知升级为 MediaStyle 标准样式
 
 **优化内容**：引入 `androidx.media:media:1.7.0` 依赖，使用 `NotificationCompat.MediaStyle` 实现标准 Android 媒体通知样式。
 
@@ -87,7 +680,7 @@
 
 ---
 
-### 4️⃣ 通知栏状态同步修复
+### 4）通知栏状态同步修复
 
 **问题描述**：在音乐模块内点击播放/暂停按钮后，通知栏状态未同步更新，只有点击通知栏按钮才能正常更新。
 
@@ -101,7 +694,7 @@
 
 ---
 
-### 5️⃣ 底部导航选中效果修复
+### 5）底部导航选中效果修复
 
 **问题描述**：打开音乐模块后，底部三大模块（音乐、麦克风、TTS）的选中高亮效果丢失。
 
@@ -115,7 +708,7 @@
 
 ---
 
-### 6️⃣ 枚举设备显示优化（添加滚动）
+### 6）枚举设备显示优化（添加滚动）
 
 **问题描述**：枚举麦克风/输出设备后，内容过多显示不全，无法查看完整列表。
 
@@ -152,7 +745,7 @@
 
 ## 二、功能优化
 
-### 1️⃣ 接入 Android 媒体中心（MediaSession）
+### 1）接入 Android 媒体中心（MediaSession）
 
 **优化内容**：接入 Android 系统媒体中心，支持车机方向盘/中控媒体按键控制、第三方APP读取歌曲信息、锁屏界面媒体控制。
 
@@ -195,7 +788,7 @@
 
 ---
 
-### 2️⃣ 显示音频路由按钮内容增强
+### 2）显示音频路由按钮内容增强
 
 **优化内容**：「显示音频路由」按钮展示更详细的音频路由信息，方便调试和排查问题。
 
@@ -207,7 +800,7 @@
 
 ---
 
-### 3️⃣ 添加重复音乐吐司提示优化
+### 3）添加重复音乐吐司提示优化
 
 **优化内容**：添加音乐时，如果有重复或失败的歌曲，吐司提示会显示详细的统计信息。
 
@@ -219,7 +812,7 @@
 
 ---
 
-### 4️⃣ 全项目 import 语句规范化整理
+### 4）全项目 import 语句规范化整理
 
 **优化内容**：统一所有 Java 文件的 import 语句格式，提升代码可读性和规范性。
 
@@ -231,7 +824,7 @@
 
 ---
 
-### 5️⃣ Fragment 生命周期规范（onDestroyView 内存泄漏防护）
+### 5）Fragment 生命周期规范（onDestroyView 内存泄漏防护）
 
 **优化内容**：为缺失 onDestroyView 方法的 Fragment 补充生命周期清理，防止 View 引用泄漏。
 
@@ -275,7 +868,7 @@ Fragment 视图销毁后 View 引用和回调监听器未置空，存在内存�
 
 ## 二、核心问题修复（v1.3.11）
 
-### 1️⃣ 扫描音乐完成后播放列表不自动刷新
+### 1）扫描音乐完成后播放列表不自动刷新
 
 **问题描述**：音乐文件较多时，等待时间长，扫描完列表不会自动刷新，要重新点开音乐页面才能看到歌曲。
 
@@ -289,7 +882,7 @@ Fragment 视图销毁后 View 引用和回调监听器未置空，存在内存�
 
 ---
 
-### 2️⃣ TTS语音测试（车外）声音从车内喇叭发出
+### 2）TTS语音测试（车外）声音从车内喇叭发出
 
 **问题描述**：设置页的"测试TTS发声（车外）"按钮，声音依旧从车内喇叭发出。
 
@@ -303,7 +896,7 @@ Fragment 视图销毁后 View 引用和回调监听器未置空，存在内存�
 
 ---
 
-### 3️⃣ 设置页枚举设备、查看音频路由与旧版不一致
+### 3）设置页枚举设备、查看音频路由与旧版不一致
 
 **问题描述**：设置页中的"枚举麦克风"、"枚举输出设备"、"枚举车内输出设备"按钮，点开后的内容与1.1.1旧版不一致。
 
@@ -317,7 +910,7 @@ Fragment 视图销毁后 View 引用和回调监听器未置空，存在内存�
 
 ---
 
-### 4️⃣ 歌曲封面无法显示
+### 4）歌曲封面无法显示
 
 **问题描述**：歌曲封面读取不出来。
 
@@ -333,7 +926,7 @@ Fragment 视图销毁后 View 引用和回调监听器未置空，存在内存�
 
 ---
 
-### 5️⃣ 文件选择器文件夹视觉效果问题
+### 5）文件选择器文件夹视觉效果问题
 
 **问题描述**：点击添加音乐打开文件选择窗口，文件夹是灰色但可以点击进入。
 
@@ -347,7 +940,7 @@ Fragment 视图销毁后 View 引用和回调监听器未置空，存在内存�
 
 ---
 
-### 6️⃣ 横竖屏顶部多余空行/状态栏
+### 6）横竖屏顶部多余空行/状态栏
 
 **问题描述**：横屏模式和竖屏模式的最上方多一个空行，应用不应该管理状态栏。
 
@@ -366,7 +959,7 @@ Fragment 视图销毁后 View 引用和回调监听器未置空，存在内存�
 
 ---
 
-### 7️⃣ 文件浏览器存储设备页无返回上级目录按钮
+### 7）文件浏览器存储设备页无返回上级目录按钮
 
 **问题描述**：文件浏览器的内部存储、U盘等页面没有返回上级目录按钮。
 
@@ -380,7 +973,7 @@ Fragment 视图销毁后 View 引用和回调监听器未置空，存在内存�
 
 ---
 
-### 8️⃣ 文件浏览器目录层级导航统一优化
+### 8）文件浏览器目录层级导航统一优化
 
 **问题描述**：进入存储设备根目录（如 `/storage/emulated/0`）后没有"返回上级目录"项，只有进入子目录后才显示。
 
@@ -418,7 +1011,7 @@ Fragment 视图销毁后 View 引用和回调监听器未置空，存在内存�
 
 ## 二、核心问题修复
 
-### 1️⃣ 悬浮窗 TTS 选择按钮点击不自动跳转
+### 1）悬浮窗 TTS 选择按钮点击不自动跳转
 
 **问题描述**：在悬浮窗的 TTS 列表中点击「选择」按钮后，主界面的 TTS 模块不自动跳转。
 
@@ -434,7 +1027,7 @@ Fragment 视图销毁后 View 引用和回调监听器未置空，存在内存�
 
 ---
 
-### 2️⃣ 音乐模块「添加音乐」与「扫描音乐」列表重复
+### 2）音乐模块「添加音乐」与「扫描音乐」列表重复
 
 **问题描述**：同一首歌通过「添加音乐」（文件选择器）和「扫描音乐」（扫描磁盘）会以不同条目出现，显示为两首不同的歌。
 
@@ -456,7 +1049,7 @@ Fragment 视图销毁后 View 引用和回调监听器未置空，存在内存�
 
 ---
 
-### 3️⃣ Release APK 日志输出未禁用
+### 3）Release APK 日志输出未禁用
 
 **问题描述**：Release 包中 `AppLog.d/i/w/e()` 仍会输出 logcat 并写入文件日志，可能泄露调试信息。
 

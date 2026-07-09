@@ -342,14 +342,14 @@ public class FileBrowserAdapter extends RecyclerView.Adapter<FileBrowserAdapter.
         // 点击事件
         holder.itemView.setOnClickListener(v -> {
             if (listener != null) {
-                listener.onItemClick(holder.getAdapterPosition());
+                listener.onItemClick(holder.getBindingAdapterPosition());
             }
         });
 
         // 长按事件
         holder.itemView.setOnLongClickListener(v -> {
             if (listener != null && selectable) {
-                listener.onItemLongClick(holder.getAdapterPosition());
+                listener.onItemLongClick(holder.getBindingAdapterPosition());
                 return true;
             }
             return false;

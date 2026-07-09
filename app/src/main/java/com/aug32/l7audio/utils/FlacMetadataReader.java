@@ -70,7 +70,7 @@ public class FlacMetadataReader {
             long offset = 4;
             boolean isLastBlock = false;
 
-            // 2. 遍历元数据块，寻找 VORBIS_COMMENT (类型 4)
+            // 2. 遍历元数据块，先解析 STREAMINFO (类型 0) 获取时长，再找 VORBIS_COMMENT (类型 4)
             while (!isLastBlock && offset + 4 < fileSize) {
                 byte[] blockHeader = new byte[4];
                 if (is instanceof FileInputStream) {
@@ -90,24 +90,37 @@ public class FlacMetadataReader {
                     break;
                 }
 
-                if (blockType == 4) {
+                if (blockType == 0) {
+                    // STREAMINFO：取 sampleRate（byte 18-20）和 totalSamples（byte 22-25）
+                    byte[] streamInfo = new byte[Math.min(blockSize, 26)];
+                    if (is instanceof FileInputStream) {
+                        ((FileInputStream) is).getChannel().position(offset + 4);
+                    }
+                    if (readFully(is, streamInfo) >= 26) {
+                        int sampleRate = (streamInfo[18] & 0xFF) << 12
+                                | (streamInfo[19] & 0xFF) << 4
+                                | (streamInfo[20] & 0xFF) >>> 4;
+                        long totalSamples = (streamInfo[22] & 0xFFL) << 24
+                                | (streamInfo[23] & 0xFFL) << 16
+                                | (streamInfo[24] & 0xFFL) << 8
+                                | (streamInfo[25] & 0xFFL);
+                        // totalSamples 实际只有 36 位，高 4 位在 byte[21] 的低 4 位
+                        totalSamples |= (streamInfo[21] & 0x0FL) << 32;
+                        if (sampleRate > 0) {
+                            result.durationMs = (totalSamples * 1000) / sampleRate;
+                        }
+                    }
+                } else if (blockType == 4) {
                     // VORBIS_COMMENT 块，解析它
                     parseVorbisComment(is, offset + 4, blockSize, result);
-                    break;
                 }
 
                 // 移动到下一个块
                 offset += 4 + blockSize;
             }
 
-            // 3. 判断是否解析到了有用信息
-            if ((result.title != null && !result.title.isEmpty())
-                    || (result.artist != null && !result.artist.isEmpty())
-                    || (result.album != null && !result.album.isEmpty())) {
-                return result;
-            }
-
-            return null;
+            // 返回结果（可能只有时长，没有标题/艺术家）
+            return result;
 
         } catch (Exception e) {
             AppLog.d("FlacMetadataReader", "Failed to read FLAC metadata: " + filePath);

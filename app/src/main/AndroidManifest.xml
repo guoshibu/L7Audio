@@ -6,7 +6,6 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:ignore="Deprecated" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:ignore="Deprecated" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
@@ -35,25 +34,33 @@
         </activity>
 
         <service
-            android:name=".service.AudioForegroundService"
+            android:name=".service.player.AudioForegroundService"
             android:foregroundServiceType="mediaPlayback"
             android:exported="false"
             android:stopWithTask="false" />
 
         <service
-            android:name=".service.FloatingWindowService"
+            android:name=".service.floating.FloatingWindowService"
             android:foregroundServiceType="mediaPlayback"
             android:exported="false"
             android:stopWithTask="false" />
 
         <receiver
-            android:name=".receiver.BootReceiver"
+            android:name=".receiver.boot.BootReceiver"
             android:exported="true"
             android:enabled="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".receiver.micoutput.MicOutputReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.aug32.l7audio.OUTSIDE_MIC_TOGGLE" />
             </intent-filter>
         </receiver>
     </application>

@@ -12,10 +12,10 @@ import java.util.Locale;
  * （尤其是 WAV、FLAC、M4A）的元数据支持不完善，经常返回 &lt;unknown&gt; 或空值。
  * 本类提供三级 fallback 机制，确保最大程度读取到歌曲信息。
  *
- * <p>三级 fallback 策略：
+ * <p>在扫码流程中，各格式按顺序尝试：
  * <ol>
- *   <li><b>系统 API 优先</b> - 调用方先尝试 MediaStore / MediaMetadataRetriever</li>
- *   <li><b>自解析 fallback</b> - 系统拿不到时，根据扩展名选择对应格式的二进制解析器</li>
+ *   <li><b>自解析优先</b> - WAV/FLAC/M4A 直接走二进制解析器读取元数据</li>
+ *   <li><b>系统 API</b> - MP3/其他格式走 MediaMetadataRetriever</li>
  *   <li><b>文件名兜底</b> - 以上都失败时，文件名去扩展名作为标题，艺术家留空</li>
  * </ol>
  *
@@ -26,7 +26,7 @@ import java.util.Locale;
  *   <li>M4A / AAC - MP4 ilst (iTunes 元数据)</li>
  * </ul>
  *
- * <p>不做智能解析：绝不从文件名猜测艺术家和标题，避免搞反。
+ * <p>文件名解析规则：只去扩展名，不做智能猜测（不从"艺术家 - 标题"格式中拆解）。
  */
 public final class AudioMetadataReader {
 
@@ -37,10 +37,11 @@ public final class AudioMetadataReader {
     /**
      * 从音频文件读取元数据
      *
-     * <p>根据文件扩展名自动选择解析器。解析失败时返回 null，由调用方决定是否使用文件名兜底。
+     * <p>根据文件扩展名自动选择解析器。对于 WAV/FLAC/M4A 始终返回结果（可能全空），
+     * 其他格式的自解析暂不支持时返回 null。
      *
      * @param filePath 音频文件绝对路径
-     * @return 元数据结果，解析失败返回 null
+     * @return 元数据结果，无法解析或无对应器时返回 null
      */
     public static WavMetadataReader.AudioMetadata readMetadata(String filePath) {
         if (filePath == null || filePath.isEmpty()) {
@@ -68,28 +69,6 @@ public final class AudioMetadataReader {
                 // MP3 由系统 API 通常能正常读取，OGG/WMA 用的少
                 return null;
         }
-    }
-
-    /**
-     * 获取文件名作为标题（兜底方案）
-     *
-     * <p>注意：仅返回去扩展名的文件名，不做任何"智能"拆分，
-     * 避免把艺术家和歌名搞反。艺术家字段始终为空字符串。
-     *
-     * @param filePath 音频文件路径
-     * @return 仅包含 title 的元数据对象，artist 和 album 为空字符串
-     */
-    public static WavMetadataReader.AudioMetadata getFallbackFromFileName(String filePath) {
-        if (filePath == null || filePath.isEmpty()) {
-            return null;
-        }
-        File file = new File(filePath);
-        WavMetadataReader.AudioMetadata meta = new WavMetadataReader.AudioMetadata();
-        meta.title = FileUtils.getNameWithoutExtension(file);
-        meta.artist = "";
-        meta.album = "";
-        meta.durationMs = 0;
-        return meta;
     }
 
     /**

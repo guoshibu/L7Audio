@@ -22,8 +22,16 @@ import java.io.IOException;
  *     IART艺术家数据
  *     IPRD专辑数据
  *     ...
+ *   id3 ....  &lt;!-- Mp3tag 写入的 ID3v2 标签块 --&gt;
  *   data....
  * </pre>
+ *
+ * <p>支持两种标签存储方式：
+ * <ul>
+ *   <li>RIFF INFO 子块（INAM / IART / IPRD 等）</li>
+ *   <li>Mp3tag 写入的 {@code id3 } RIFF 块（内嵌完整 ID3v2.3 标签）</li>
+ *   <li>文件末尾追加的 ID3v2 标签（兼容旧工具写入的格式）</li>
+ * </ul>
  *
  * <p>支持的 INFO 标签：
  * <ul>
@@ -121,6 +129,24 @@ public class WavMetadataReader {
                         parseInfoChunk(is, dataOffset + 4, dataOffset + chunkSize, result);
                         break;
                     }
+                } else if ("id3 ".equals(chunkId)) {
+                    // Mp3tag 写入的 id3 RIFF 块：数据就是完整的 ID3v2 标签（头 + 帧）
+                    if (chunkSize > 10 && is instanceof FileInputStream) {
+                        ((FileInputStream) is).getChannel().position(dataOffset);
+                        byte[] id3Header = new byte[10];
+                        if (readFully(is, id3Header) == 10
+                                && id3Header[0] == 'I' && id3Header[1] == 'D' && id3Header[2] == '3') {
+                            int majorVersion = id3Header[3] & 0xFF;
+                            int tagSize = syncSafeInt(id3Header, 6);
+                            if (tagSize > 0 && tagSize <= chunkSize - 10) {
+                                byte[] tagData = new byte[tagSize];
+                                if (readFully(is, tagData) == tagSize) {
+                                    parseId3v2Frames(tagData, majorVersion, result);
+                                }
+                            }
+                        }
+                    }
+                    break;
                 }
 
                 // 移动到下一个块（块大小按 2 字节对齐）
@@ -130,7 +156,7 @@ public class WavMetadataReader {
                 }
             }
 
-            // 3. 如果 RIFF INFO 没读到有效信息，尝试从文件末尾读取 ID3v2 标签
+            // 3. 如果 RIFF INFO 和 id3 块都没读到有效信息，尝试从文件末尾读取 ID3v2 标签
             // 原因：部分 WAV 文件使用 ID3v2 标签存储元数据（类似 MP3），而非 RIFF INFO
             boolean hasValidInfo = (result.title != null && !result.title.isEmpty())
                     || (result.artist != null && !result.artist.isEmpty())
@@ -139,14 +165,7 @@ public class WavMetadataReader {
                 parseId3v2FromTail(is, fileSize, result);
             }
 
-            // 4. 如果标题或艺术家有一个解析到了，就认为成功
-            if ((result.title != null && !result.title.isEmpty())
-                    || (result.artist != null && !result.artist.isEmpty())
-                    || (result.album != null && !result.album.isEmpty())) {
-                return result;
-            }
-
-            return null;
+            return result;
 
         } catch (Exception e) {
             AppLog.d("WavMetadataReader", "Failed to read WAV metadata: " + filePath);

@@ -1,6 +1,6 @@
 package com.aug32.l7audio.domain.audio.player;
 
-import com.aug32.l7audio.domain.audio.PlaybackState;
+import com.aug32.l7audio.domain.audio.player.PlaybackState;
 
 /**
  * 播放状态回调接口

@@ -2,6 +2,11 @@ package com.aug32.l7audio.domain.audio;
 
 import android.content.Context;
 
+import com.aug32.l7audio.domain.audio.micoutput.AudioOutputManager;
+import com.aug32.l7audio.domain.audio.micoutput.MicrophoneManager;
+import com.aug32.l7audio.domain.audio.player.MediaSessionManager;
+import com.aug32.l7audio.domain.audio.player.MusicPlayerManager;
+import com.aug32.l7audio.domain.audio.tts.TTSManager;
 import com.aug32.l7audio.utils.AppLog;
 
 /**
@@ -16,7 +21,7 @@ import com.aug32.l7audio.utils.AppLog;
  * 使用方式：
  * 1. 任意组件调用 getInstance().init(context) 初始化
  * 2. 调用 getXXXManager() 获取 Manager 实例（自动懒加载）
- * 3. MainActivity 销毁时调用 unregisterManagers() 释放资源
+ * 3. 通过 getXXXManager() 获取 Manager 实例
  */
 public class AudioServiceLocator {
 
@@ -35,8 +40,6 @@ public class AudioServiceLocator {
     private volatile MusicPlayerManager musicPlayerManager;
     private volatile AudioFocusManager audioFocusManager;
 
-    // 是否已由 MainActivity 注册外部 Manager 实例
-    private volatile boolean isRegistered = false;
 
     private AudioServiceLocator() {
         // 私有构造函数
@@ -78,7 +81,7 @@ public class AudioServiceLocator {
             this.appContext = context.getApplicationContext();
             // 初始化 MediaSessionManager
             MediaSessionManager.getInstance().init(this.appContext);
-            AppLog.d(TAG, "MediaSessionManager initialized");
+            AppLog.i(TAG, "MediaSessionManager initialized");
         }
     }
 
@@ -120,36 +123,8 @@ public class AudioServiceLocator {
             MediaSessionManager.getInstance().bindMusicPlayerManager(this.musicPlayerManager);
         }
 
-        this.isRegistered = true;
 
         AppLog.d(TAG, "Audio managers registered (MusicPlayerManager kept as singleton)");
-    }
-
-    /**
-     * 注销 Manager 实例
-     * <p>
-     * 在 MainActivity 销毁时调用，释放与 Activity 生命周期绑定的 Manager 实例。
-     * </p>
-     * <p>
-     * 注意：MusicPlayerManager 是全局单例会保留，供后台播放和下次进入使用。
-     * </p>
-     */
-    public synchronized void unregisterManagers() {
-        this.audioOutputManager = null;
-        this.microphoneManager = null;
-        this.ttsManager = null;
-        this.audioFocusManager = null;
-        this.isRegistered = false;
-        AppLog.d(TAG, "Audio managers unregistered (MusicPlayerManager kept as singleton)");
-    }
-
-    /**
-     * 检查是否已由 MainActivity 注册外部 Manager 实例
-     *
-     * @return true 表示已注册，false 表示未注册（使用懒加载实例）
-     */
-    public boolean isRegistered() {
-        return isRegistered;
     }
 
     /**

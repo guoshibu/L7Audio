@@ -2,6 +2,7 @@ package com.aug32.l7audio;
 
 import android.app.Application;
 
+import com.aug32.l7audio.domain.audio.micoutput.MicOutputController;
 import com.aug32.l7audio.domain.audio.AudioServiceLocator;
 
 /**
@@ -22,5 +23,7 @@ public class L7AudioApp extends Application {
         super.onCreate();
         // 初始化音频服务定位器，传入 Application 上下文供全局使用
         AudioServiceLocator.getInstance().init(this);
+        // 初始化车外喊话控制器（统一管理喊话/麦克风放大的开启关闭）
+        MicOutputController.getInstance().init(this);
     }
 }

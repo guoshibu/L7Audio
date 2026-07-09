@@ -85,6 +85,22 @@
             android:max="240"
             android:progress="96" />
 
+        <TextView
+            android:id="@+id/tv_auto_hide_label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="自动收起时间（秒）"
+            android:textSize="17sp" />
+
+        <SeekBar
+            android:id="@+id/sb_auto_hide_timeout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:max="25"
+            android:progress="5" />
+
     </LinearLayout>
 
     <!-- 功能区：车外喊话 + TTS列表（始终可见） -->

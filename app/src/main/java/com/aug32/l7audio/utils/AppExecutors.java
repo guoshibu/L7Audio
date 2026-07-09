@@ -3,7 +3,6 @@ package com.aug32.l7audio.utils;
 import android.os.Handler;
 import android.os.Looper;
 
-import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -115,16 +114,6 @@ public class AppExecutors {
     }
 
     /**
-     * 获取主线程 Executor
-     * 用于将任务调度到主线程执行
-     *
-     * @return 主线程 Executor
-     */
-    public Executor mainThread() {
-        return mainHandler::post;
-    }
-
-    /**
      * 在主线程执行 Runnable
      *
      * @param runnable 要执行的 Runnable
@@ -135,41 +124,6 @@ public class AppExecutors {
             return false;
         }
         return mainHandler.post(runnable);
-    }
-
-    /**
-     * 在主线程延迟执行 Runnable
-     *
-     * @param runnable   要执行的 Runnable
-     * @param delayMillis 延迟毫秒数
-     * @return true=已提交到主线程队列
-     */
-    public boolean postToMainThreadDelayed(Runnable runnable, long delayMillis) {
-        if (runnable == null) {
-            return false;
-        }
-        return mainHandler.postDelayed(runnable, delayMillis);
-    }
-
-    /**
-     * 移除主线程待执行的 Runnable
-     *
-     * @param runnable 要移除的 Runnable
-     */
-    public void removeMainThreadCallback(Runnable runnable) {
-        if (runnable != null) {
-            mainHandler.removeCallbacks(runnable);
-        }
-    }
-
-    /**
-     * 获取 IO 线程池
-     * 适合文件读写、网络请求等轻量 IO 操作
-     *
-     * @return IO Executor
-     */
-    public ExecutorService ioThread() {
-        return ioExecutor;
     }
 
     /**
@@ -184,35 +138,6 @@ public class AppExecutors {
     }
 
     /**
-     * 在 IO 线程执行任务（带回调）
-     *
-     * @param task         要执行的任务
-     * @param completionCallback 完成后回调（可选，在主线程执行）
-     */
-    public void executeOnIOThread(Runnable task, Runnable completionCallback) {
-        if (task == null) {
-            return;
-        }
-
-        ioExecutor.execute(() -> {
-            task.run();
-            if (completionCallback != null) {
-                postToMainThread(completionCallback);
-            }
-        });
-    }
-
-    /**
-     * 获取计算线程池
-     * 适合音频处理、图片处理等 CPU 密集任务
-     *
-     * @return 计算 Executor
-     */
-    public ExecutorService computeThread() {
-        return computeExecutor;
-    }
-
-    /**
      * 在计算线程执行任务
      *
      * @param task 要执行的任务
@@ -220,32 +145,6 @@ public class AppExecutors {
     public void executeOnComputeThread(Runnable task) {
         if (task != null) {
             computeExecutor.execute(task);
-        }
-    }
-
-    /**
-     * 关闭所有线程池
-     * 应用退出时调用
-     *
-     * @param awaitTerminationMillis 等待线程终止的最大毫秒数，0=不等待
-     */
-    public void shutdown(long awaitTerminationMillis) {
-        ioExecutor.shutdown();
-        computeExecutor.shutdown();
-
-        if (awaitTerminationMillis > 0) {
-            try {
-                if (!ioExecutor.awaitTermination(awaitTerminationMillis, TimeUnit.MILLISECONDS)) {
-                    ioExecutor.shutdownNow();
-                }
-                if (!computeExecutor.awaitTermination(awaitTerminationMillis, TimeUnit.MILLISECONDS)) {
-                    computeExecutor.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                ioExecutor.shutdownNow();
-                computeExecutor.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
         }
     }
 }

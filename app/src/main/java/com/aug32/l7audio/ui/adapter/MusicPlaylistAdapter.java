@@ -10,13 +10,14 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import com.aug32.l7audio.domain.audio.MusicItem;
+import com.aug32.l7audio.domain.audio.player.MusicItem;
 import com.aug32.l7audio.R;
 
 /**
@@ -61,11 +62,32 @@ public class MusicPlaylistAdapter extends RecyclerView.Adapter<MusicPlaylistAdap
     /** 点击事件监听器 */
     private OnItemClickListener listener;
 
+    /** 缓存的颜色值，避免 onBindViewHolder 中反复调用 ContextCompat.getColor() */
+    private int colorAccent;
+    private int colorEven;
+    private int colorOdd;
+    private int colorPrimary;
+    private int colorSecondary;
+    /** 颜色是否已初始化 */
+    private boolean colorsInitialized = false;
+
     /**
      * 构造函数，创建空的音乐列表
      */
     public MusicPlaylistAdapter() {
         this.musicItems = new ArrayList<>();
+        setHasStableIds(true);
+    }
+
+    /**
+     * 初始化颜色缓存（首次设置数据时或 context 可用时调用）
+     */
+    public void initColors(Context context) {
+        colorAccent = ContextCompat.getColor(context, R.color.colorAccent);
+        colorEven = ContextCompat.getColor(context, R.color.item_background_even);
+        colorOdd = ContextCompat.getColor(context, R.color.item_background_odd);
+        colorPrimary = ContextCompat.getColor(context, R.color.text_primary);
+        colorSecondary = ContextCompat.getColor(context, R.color.text_secondary);
     }
 
     /**
@@ -77,56 +99,68 @@ public class MusicPlaylistAdapter extends RecyclerView.Adapter<MusicPlaylistAdap
     }
 
     /**
-     * 设置音乐列表数据并刷新列表
+     * 设置音乐列表数据并刷新列表（使用 DiffUtil 增量刷新）
      * 传入 null 时清空列表
      *
      * @param items 音乐项列表
      */
     public void setMusicItems(List<MusicItem> items) {
         if (items == null) {
-            this.musicItems = new ArrayList<>();
-        } else {
-            this.musicItems = new ArrayList<>(items);
+            items = new ArrayList<>();
         }
-        notifyDataSetChanged();
+        updateMusicItems(items);
     }
 
     /**
-     * 在指定位置批量插入音乐项
-     * 使用 notifyItemRangeInserted 实现局部刷新，性能更优
-     *
-     * @param newItems      要插入的音乐项列表
-     * @param startPosition 插入起始位置
+     * 使用 DiffUtil 增量更新列表
      */
-    public void addMusicItemsRange(List<MusicItem> newItems, int startPosition) {
-        if (newItems == null || newItems.isEmpty()) {
-            return;
-        }
-        // 边界保护：插入位置不超过列表大小
-        int insertPos = Math.min(startPosition, this.musicItems.size());
-        this.musicItems.addAll(insertPos, newItems);
-        notifyItemRangeInserted(insertPos, newItems.size());
+    private void updateMusicItems(List<MusicItem> newItems) {
+        final List<MusicItem> oldItems = this.musicItems;
+        DiffUtil.DiffResult result = DiffUtil.calculateDiff(new DiffUtil.Callback() {
+            @Override
+            public int getOldListSize() { return oldItems.size(); }
+
+            @Override
+            public int getNewListSize() { return newItems.size(); }
+
+            @Override
+            public boolean areItemsTheSame(int oldPos, int newPos) {
+                MusicItem oldItem = oldItems.get(oldPos);
+                MusicItem newItem = newItems.get(newPos);
+                return oldItem.filePath != null && oldItem.filePath.equals(newItem.filePath);
+            }
+
+            @Override
+            public boolean areContentsTheSame(int oldPos, int newPos) {
+                MusicItem o = oldItems.get(oldPos);
+                MusicItem n = newItems.get(newPos);
+                return o.title != null ? o.title.equals(n.title) : n.title == null
+                        && o.artist != null ? o.artist.equals(n.artist) : n.artist == null
+                        && o.duration == n.duration;
+            }
+        }, false);
+        this.musicItems = newItems;
+        result.dispatchUpdatesTo(this);
     }
 
     /**
      * 批量删除指定位置的音乐项
-     * 按位置从大到小删除，避免索引偏移导致删除错误
+     * 逐个 notifyItemRemoved 实现增量动画
      *
      * @param positions 要删除的位置列表
      */
     public void removeMusicItems(List<Integer> positions) {
         if (positions == null || positions.isEmpty()) return;
 
-        // 降序排序，从后往前删除，避免前面的删除影响后面的索引
         List<Integer> sorted = new ArrayList<>(positions);
         Collections.sort(sorted, (a, b) -> b - a);
 
         for (int pos : sorted) {
             if (pos >= 0 && pos < musicItems.size()) {
                 musicItems.remove(pos);
+                notifyItemRemoved(pos);
             }
         }
-        notifyDataSetChanged();
     }
 
     /**
@@ -215,13 +249,26 @@ public class MusicPlaylistAdapter extends RecyclerView.Adapter<MusicPlaylistAdap
         notifyDataSetChanged();
     }
 
+    @Override
+    public long getItemId(int position) {
+        if (position >= 0 && position < musicItems.size()) {
+            MusicItem item = musicItems.get(position);
+            return item.filePath != null ? item.filePath.hashCode() : position;
+        }
+        return position;
+    }
+
+    private void ensureColors(Context context) {
+        if (!colorsInitialized) {
+            initColors(context);
+            colorsInitialized = true;
+        }
+    }
+
     private void setOddEvenBackground(ViewHolder holder, int position) {
         Context context = holder.itemView.getContext();
-        if (position % 2 == 0) {
-            holder.itemView.setBackgroundColor(ContextCompat.getColor(context, R.color.item_background_even));
-        } else {
-            holder.itemView.setBackgroundColor(ContextCompat.getColor(context, R.color.item_background_odd));
-        }
+        ensureColors(context);
+        holder.itemView.setBackgroundColor(position % 2 == 0 ? colorEven : colorOdd);
     }
 
     // ========== RecyclerView.Adapter ==========
@@ -253,6 +300,7 @@ public class MusicPlaylistAdapter extends RecyclerView.Adapter<MusicPlaylistAdap
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         MusicItem item = musicItems.get(position);
         Context context = holder.itemView.getContext();
+        ensureColors(context);
 
         holder.titleTextView.setText(item.title);
         holder.artistTextView.setText(item.artist);
@@ -260,16 +308,16 @@ public class MusicPlaylistAdapter extends RecyclerView.Adapter<MusicPlaylistAdap
         if (isSelectionMode) {
             holder.playingIndicator.setVisibility(View.GONE);
             if (selectedPositions.contains(position)) {
-                holder.itemView.setBackgroundColor(ContextCompat.getColor(context, R.color.colorAccent));
-                holder.titleTextView.setTextColor(ContextCompat.getColor(context, R.color.text_primary));
-                holder.artistTextView.setTextColor(ContextCompat.getColor(context, R.color.text_secondary));
+                holder.itemView.setBackgroundColor(colorAccent);
+                holder.titleTextView.setTextColor(colorPrimary);
+                holder.artistTextView.setTextColor(colorSecondary);
             } else {
                 setOddEvenBackground(holder, position);
             }
         } else if (position == currentPlayingIndex) {
-            holder.itemView.setBackgroundColor(ContextCompat.getColor(context, R.color.colorAccent));
-            holder.titleTextView.setTextColor(ContextCompat.getColor(context, R.color.text_primary));
-            holder.artistTextView.setTextColor(ContextCompat.getColor(context, R.color.text_secondary));
+            holder.itemView.setBackgroundColor(colorAccent);
+            holder.titleTextView.setTextColor(colorPrimary);
+            holder.artistTextView.setTextColor(colorSecondary);
             holder.playingIndicator.setVisibility(View.VISIBLE);
         } else {
             holder.playingIndicator.setVisibility(View.GONE);

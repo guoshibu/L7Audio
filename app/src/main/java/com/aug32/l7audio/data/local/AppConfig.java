@@ -4,11 +4,11 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 import com.aug32.l7audio.data.local.config.AudioConfig;
-import com.aug32.l7audio.data.local.config.FloatingWindowConfig;
-import com.aug32.l7audio.data.local.config.MicConfig;
-import com.aug32.l7audio.data.local.config.MusicConfig;
 import com.aug32.l7audio.data.local.config.ThemeConfig;
-import com.aug32.l7audio.data.local.config.TTSConfig;
+import com.aug32.l7audio.data.local.config.floating.FloatingWindowConfig;
+import com.aug32.l7audio.data.local.config.micoutput.MicOutputConfig;
+import com.aug32.l7audio.data.local.config.player.MusicConfig;
+import com.aug32.l7audio.data.local.config.tts.TTSConfig;
 
 /**
  * 应用全局配置管理门面类
@@ -24,8 +24,6 @@ import com.aug32.l7audio.data.local.config.TTSConfig;
  * 目标 SDK：Android 11 (API 30)
  */
 public class AppConfig {
-    private static final String TAG = "AppConfig";
-
     // 主题模式常量（保持向后兼容）
     /** 跟随系统主题 */
     public static final int THEME_MODE_SYSTEM = 0;
@@ -39,7 +37,7 @@ public class AppConfig {
     // 领域配置实例
     private ThemeConfig themeConfig;
     private AudioConfig audioConfig;
-    private MicConfig micConfig;
+    private MicOutputConfig micOutputConfig;
     private TTSConfig ttsConfig;
     private MusicConfig musicConfig;
     private FloatingWindowConfig floatingWindowConfig;
@@ -68,7 +66,7 @@ public class AppConfig {
     private void initSubConfigs() {
         themeConfig = new ThemeConfig(preferences);
         audioConfig = new AudioConfig(preferences);
-        micConfig = new MicConfig(preferences);
+        micOutputConfig = new MicOutputConfig(preferences);
         ttsConfig = new TTSConfig(preferences);
         musicConfig = new MusicConfig(preferences);
         floatingWindowConfig = new FloatingWindowConfig(preferences);
@@ -95,7 +93,6 @@ public class AppConfig {
     public void setAudioOutputUsageCar(int usageType) { audioConfig.setUsageCar(usageType); }
     public int getAudioInputSource() { return audioConfig.getAudioInputSource(); }
     public void setAudioInputSource(int sourceType) { audioConfig.setAudioInputSource(sourceType); }
-    public void resetAudioChannel() { audioConfig.resetAudioChannel(); }
 
     // 音量
     public int getCarVolume() { return audioConfig.getCarVolume(); }
@@ -108,16 +105,18 @@ public class AppConfig {
     public void setCurrentFunction(int function) { audioConfig.setCurrentFunction(function); }
 
     // 麦克风放大
-    public int getMicAmplificationLevel() { return micConfig.getAmplificationLevel(); }
-    public void setMicAmplificationLevel(int level) { micConfig.setAmplificationLevel(level); }
-    public boolean isNoiseReductionEnabled() { return micConfig.isNoiseReductionEnabled(); }
-    public void setNoiseReductionEnabled(boolean enabled) { micConfig.setNoiseReductionEnabled(enabled); }
-    public boolean isEchoCancellationEnabled() { return micConfig.isEchoCancellationEnabled(); }
-    public void setEchoCancellationEnabled(boolean enabled) { micConfig.setEchoCancellationEnabled(enabled); }
-    public boolean isHowlingSuppressionEnabled() { return micConfig.isHowlingSuppressionEnabled(); }
-    public void setHowlingSuppressionEnabled(boolean enabled) { micConfig.setHowlingSuppressionEnabled(enabled); }
-    public int getMaxAmplification() { return micConfig.getMaxAmplification(); }
-    public void setMaxAmplification(int maxAmplification) { micConfig.setMaxAmplification(maxAmplification); }
+    public int getMicAmplificationLevel() { return micOutputConfig.getAmplificationLevel(); }
+    public void setMicAmplificationLevel(int level) { micOutputConfig.setAmplificationLevel(level); }
+    public boolean isNoiseReductionEnabled() { return micOutputConfig.isNoiseReductionEnabled(); }
+    public void setNoiseReductionEnabled(boolean enabled) { micOutputConfig.setNoiseReductionEnabled(enabled); }
+    public boolean isEchoCancellationEnabled() { return micOutputConfig.isEchoCancellationEnabled(); }
+    public void setEchoCancellationEnabled(boolean enabled) { micOutputConfig.setEchoCancellationEnabled(enabled); }
+    public boolean isHowlingSuppressionEnabled() { return micOutputConfig.isHowlingSuppressionEnabled(); }
+    public void setHowlingSuppressionEnabled(boolean enabled) { micOutputConfig.setHowlingSuppressionEnabled(enabled); }
+    public boolean isAgcEnabled() { return micOutputConfig.isAgcEnabled(); }
+    public void setAgcEnabled(boolean enabled) { micOutputConfig.setAgcEnabled(enabled); }
+    public int getMaxAmplification() { return micOutputConfig.getMaxAmplification(); }
+    public void setMaxAmplification(int maxAmplification) { micOutputConfig.setMaxAmplification(maxAmplification); }
 
     // TTS
     public String getTTSItems() { return ttsConfig.getTTSItems(); }
@@ -132,7 +131,6 @@ public class AppConfig {
     public void setLastPlayedPosition(long position) { musicConfig.setLastPlayedPosition(position); }
     public int getRepeatMode() { return musicConfig.getRepeatMode(); }
     public void setRepeatMode(int mode) { musicConfig.setRepeatMode(mode); }
-    public boolean isShuffleModeEnabled() { return musicConfig.isShuffleModeEnabled(); }
     public void setShuffleModeEnabled(boolean enabled) { musicConfig.setShuffleModeEnabled(enabled); }
 
     // 悬浮窗
@@ -150,24 +148,8 @@ public class AppConfig {
     public void setFloatingWindowTTSIndices(String indicesJson) { floatingWindowConfig.setTTSIndices(indicesJson); }
     public String getFloatingWindowTTSNames() { return floatingWindowConfig.getTTSNames(); }
     public void setFloatingWindowTTSNames(String namesJson) { floatingWindowConfig.setTTSNames(namesJson); }
+    public int getFloatingWindowAutoHideTimeoutSec() { return floatingWindowConfig.getAutoHideTimeoutSec(); }
+    public void setFloatingWindowAutoHideTimeoutSec(int seconds) { floatingWindowConfig.setAutoHideTimeoutSec(seconds); }
 
     // ==================== 全局操作 ====================
-
-    /**
-     * 清空所有配置并重新初始化子配置实例
-     * 会清除 SharedPreferences 中所有数据，然后重新创建各领域配置对象
-     */
-    public void resetAllSettings() {
-        preferences.edit().clear().apply();
-        initSubConfigs();
-    }
-
-    // ==================== 子 Config 访问（推荐使用）====================
-
-    public ThemeConfig getThemeConfig() { return themeConfig; }
-    public AudioConfig getAudioConfig() { return audioConfig; }
-    public MicConfig getMicConfig() { return micConfig; }
-    public TTSConfig getTTSConfig() { return ttsConfig; }
-    public MusicConfig getMusicConfig() { return musicConfig; }
-    public FloatingWindowConfig getFloatingWindowConfig() { return floatingWindowConfig; }
 }
