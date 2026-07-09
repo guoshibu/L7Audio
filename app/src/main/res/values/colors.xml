@@ -20,11 +20,6 @@
     <color name="nav_icon_color">#666666</color>
     <color name="nav_icon_color_selected">#4CAF50</color>
 
-    <!-- Status and debug colors -->
-    <color name="status_recording">#FF4081</color>
-    <color name="status_idle">#4CAF50</color>
-    <color name="debug_text">#AA000000</color>
-
     <!-- Text colors -->
     <color name="text_primary">#000000</color>
     <color name="text_secondary">#666666</color>

@@ -46,10 +46,12 @@ L7Audio 是一款运行于 Android 系统的音频处理应用，专为吉利银
   - 零缓存复制：全部操作真实文件路径，无额外存储占用
   - 多存储设备支持：自动检测内部存储、SD卡、U盘等外接存储
   - 显示优化：两种模式均显示全部文件，不可选项灰色半透明区分
-- **三级元数据 fallback 机制**：
-  1. **系统 API 优先**：使用 MediaStore / MediaMetadataRetriever 提取元数据
-  2. **自解析 fallback**：WAV / FLAC / M4A 格式系统读取失败时，自行解析二进制文件头（RIFF INFO / Vorbis Comment / MP4 ilst）
-  3. **文件名兜底**：以上都失败时，使用去扩展名的文件名作为标题，绝不"智能"猜测艺术家，避免搞反
+- **格式感知元数据提取**：
+  - **WAV**：直接自解析 RIFF INFO / id3 RIFF 块 + 头计算时长，零无用 IO
+  - **FLAC**：直接自解析 STREAMINFO（时长）+ Vorbis Comment（标题/艺术家）
+  - **M4A/AAC**：直接自解析 mvhd（时长）+ ilst（标题/艺术家）
+  - **MP3/其他**：MediaMetadataRetriever 提取
+  - **文件名兜底**：以上都失败时，使用去扩展名的文件名原样作为标题，绝不解析"艺术家 - 标题"格式，artist 留空
 - **路径规范化去重**：getCanonicalPath() + 统一大小写 + 统一分隔符，彻底避免重复添加
 - **播放列表管理**：支持手动添加、批量扫描、单首删除、清空列表
 - **多种循环模式**：
@@ -67,10 +69,13 @@ L7Audio 是一款运行于 Android 系统的音频处理应用，专为吉利银
 - **实时麦克风采集**：低延迟音频采集与播放
 - **多级放大增益**：可调节放大级别，适应不同喊话距离
 - **智能降噪处理**（管线模式 Pipeline Pattern）：
-  - 噪声门（Noise Gate）：静音低能量帧，保留语音
-  - 回声消除（AEC）：能量比检测 + 动态衰减，硬件 AEC 可用时自动切换
-  - 啸叫抑制（Howling Suppression）：动态衰减根据啸叫强度自适应调整
-  - tanh 软限幅：替代 clamp 硬限幅，减少削波失真
+  - HPF @80Hz：一阶 IIR 滤除 DC 和低频噪声
+  - AFC NLMS：256 阶自适应滤波消除声反馈，HW AEC 启用时仍串联消残余
+  - Gain：可调增益放大倍数
+  - SpectralNR：512 FFT 谱减法自学习噪声轮廓
+  - HowlingNotch：FFT 峰值检测 + IIR 窄带陷波，最多 3 频点
+  - AGC：目标 RMS 自动增益，MAX_GAIN=2.0 限幅防正反馈
+  - 硬件 3A 可用时自动禁用对应软件处理器
 - **车外喊话模式**：一键开启车外喊话，自动切换输出设备
 - **防抖保护**：屏蔽快速连续触发（500-2000ms可配置），避免麦克风频繁启停导致啸叫和硬件损伤
 - **闲置自动关闭**：无声音输入超时后自动关闭（5-300秒可配置），防止忘记关闭
@@ -92,15 +97,14 @@ L7Audio 是一款运行于 Android 系统的音频处理应用，专为吉利银
   - TTS 快速列表选择与播报
   - 车外喊话一键切换
   - 主题切换（浅色 / 深色）
-- **智能自动收起**：10 秒无操作自动收起（车外喊话中保持展开）
-- **拖动交互**：支持拖动悬浮球调整位置，自动贴边
+  - **智能自动收起**：无操作可配置时长自动收起（默认 10 秒，范围 5-30 秒，车外喊话中保持展开）
+  - **拖动交互**：支持拖动悬浮球调整位置，自动贴边
 
 ### ⚙️ 设置与其他
 
 - **音频输出设备**：自定义车内 / 车外输出设备编号
 - **主题切换**：支持浅色 / 深色主题，跟随系统或手动切换
 - **开机自启**：可配置开机自动启动应用
-- **前台服务保活**：基于 WorkManager 的保活机制，降低后台被系统杀死概率
 - **横屏 / 竖屏自适应**：通过 configChanges 避免页面重建
 
 ---
@@ -126,7 +130,6 @@ L7Audio 是一款运行于 Android 系统的音频处理应用，专为吉利银
 | **Android MediaSession** | - | 系统媒体中心会话（原生 API，无额外依赖） |
 | **AndroidX Media** | 1.7.0 | MediaStyle 通知样式（NotificationCompat.MediaStyle） |
 | **Gson** | 2.10.1 | JSON 序列化 / 反序列化（TTS 列表、配置持久化） |
-| **WorkManager** | 2.9.0 | 后台保活任务调度 |
 | **Lifecycle** | 2.8.7 | ViewModel / LiveData，TTS 页面数据驱动 |
 | **Appcompat / Material** | - | UI 组件与主题 |
 | **RecyclerView / CardView** | - | 列表展示 |
@@ -144,9 +147,9 @@ L7Audio 是一款运行于 Android 系统的音频处理应用，专为吉利银
 │  MusicPlayerManager / TTSManager / MicrophoneManager     │
 │  AudioFocusManager / AudioOutputManager / PlaylistManager│
 │  MediaSessionManager（媒体中心会话）                      │
-│  AnnouncementController（车外喊话统一管理）               │
-│  AudioPipeline → GainLimiterProcessor →                  │
-│  AudioSuppressionProcessor（管线模式音频处理）            │
+│  MicOutputController（车外喊话统一管理）                  │
+│  AudioPipeline → HPF → AFC(NLMS) → Gain → SpectralNR →   │
+│  HowlingNotch → AGC（管线模式音频处理）                  │
 └───────────────────┬─────────────────────────────────────┘
                     │ 依赖
 ┌───────────────────▼─────────────────────────────────────┐
@@ -157,14 +160,12 @@ L7Audio 是一款运行于 Android 系统的音频处理应用，专为吉利银
 ┌───────────────────▼─────────────────────────────────────┐
 │                    Service 层                            │
 │  AudioForegroundService / FloatingWindowService          │
-│  KeepAliveManager / KeepAliveWorker                      │
 └─────────────────────────────────────────────────────────┘
 ```
 
 **设计原则**：
 - **单例管理**：核心管理器（MusicPlayerManager、AudioFocusManager 等）通过 `AudioServiceLocator` 统一管理，采用 DCL 双重检查锁实现懒加载单例
 - **关注点分离**：播放控制（PlaybackController）与播放列表（PlaylistManager）职责分离
-- **接口抽象**：`MusicSource` 接口预留扩展点，支持未来接入在线音乐等更多音乐源
 - **线程安全**：PlaylistManager 所有操作使用 `synchronized` 保证多线程安全
 
 ---
@@ -179,43 +180,45 @@ L7Audio/
 │   │   │   ├── L7AudioApp.java              # Application 入口
 │   │   │   ├── base/                        # 基类
 │   │   │   │   ├── BaseActivity.java
-│   │   │   │   ├── BaseFragment.java
-│   │   │   │   └── BaseService.java
+│   │   │   │   └── BaseFragment.java
 │   │   │   ├── domain/audio/                # 音频核心领域层
 │   │   │   │   ├── AudioServiceLocator.java # 服务定位器（单例管理）
 │   │   │   │   ├── AudioFocusManager.java   # 音频焦点管理
-│   │   │   │   ├── AudioOutputManager.java  # 输出设备管理
-│   │   │   │   ├── AnnouncementController.java # 车外喊话统一管理（防抖、静音检测、状态同步）
-│   │   │   │   ├── MusicPlayerManager.java  # 音乐播放管理
-│   │   │   │   ├── MediaSessionManager.java # 媒体会话管理（Android 媒体中心）
-│   │   │   │   ├── PlaybackState.java       # 播放状态
-│   │   │   │   ├── MusicItem.java           # 音乐条目模型
-│   │   │   │   ├── LrcParser.java           # 歌词解析器
 │   │   │   │   ├── AudioVisualizerView.java # 音频可视化视图
-│   │   │   │   ├── MicrophoneManager.java   # 麦克风管理（协调者）
-│   │   │   │   ├── TTSManager.java          # TTS 管理
-│   │   │   │   ├── AudioProcessor.java      # 音频处理器接口（管线模式）
-│   │   │   │   ├── AudioPipeline.java       # 音频处理管线编排
-│   │   │   │   └── processor/               # 音频处理器实现
-│   │   │   │       ├── GainLimiterProcessor.java      # 增益+软限幅
-│   │   │   │       └── AudioSuppressionProcessor.java  # 噪声门+回声+啸叫抑制
-│   │   │   │   ├── player/                  # 播放控制器
-│   │   │   │   │   ├── PlaybackController.java
-│   │   │   │   │   └── PlaybackCallback.java
-│   │   │   │   └── playlist/                # 播放列表
-│   │   │   │       ├── PlaylistManager.java
-│   │   │   │       ├── MusicSource.java     # 音乐源接口（扩展点）
-│   │   │   │       └── ScannedMusicInfo.java
+│   │   │   │   ├── micoutput/               # 车外喊话模块
+│   │   │   │   │   ├── MicOutputController.java   # 喊话统一管理（防抖、静音检测、状态同步）
+│   │   │   │   │   ├── MicrophoneManager.java     # 麦克风管理（协调者）
+│   │   │   │   │   ├── AudioOutputManager.java    # 输出设备管理
+│   │   │   │   │   ├── AudioPipeline.java         # 音频处理管线编排
+│   │   │   │   │   ├── AudioProcessor.java        # 音频处理器接口（管线模式）
+│   │   │   │   │   └── processor/                 # 音频处理器实现
+│   │   │   │   │       ├── HighPassFilterProcessor.java                # 80Hz 高通滤波
+│   │   │   │   │       ├── AdaptiveFeedbackCancellationProcessor.java  # NLMS 自适应反馈消除
+│   │   │   │   │       ├── GainLimiterProcessor.java                   # 增益+软限幅
+│   │   │   │   │       ├── SpectralNoiseReductionProcessor.java        # 512 FFT 谱减法降噪
+│   │   │   │   │       ├── HowlingNotchFilterProcessor.java            # FFT+IIR 啸叫陷波
+│   │   │   │   │       └── AutomaticGainControlProcessor.java          # 目标 RMS AGC
+│   │   │   │   ├── player/                  # 音乐播放模块
+│   │   │   │   │   ├── MusicPlayerManager.java  # 音乐播放管理（门面）
+│   │   │   │   │   ├── PlaybackController.java  # ExoPlayer 播放控制
+│   │   │   │   │   ├── PlaybackCallback.java    # 播放回调接口
+│   │   │   │   │   ├── PlaylistManager.java     # 播放列表管理
+│   │   │   │   │   ├── MediaSessionManager.java # 媒体会话管理
+│   │   │   │   │   ├── PlaybackState.java       # 播放状态
+│   │   │   │   │   ├── MusicItem.java           # 音乐条目模型
+│   │   │   │   │   └── LrcParser.java           # 歌词解析器
+│   │   │   │   └── tts/                    # TTS 语音播报模块
+│   │   │   │       └── TTSManager.java          # TTS 管理
 │   │   │   ├── data/                        # 数据层
 │   │   │   │   ├── local/
 │   │   │   │   │   ├── AppConfig.java       # 配置持久化（总入口）
 │   │   │   │   │   └── config/              # 配置分类
 │   │   │   │   │       ├── AudioConfig.java
-│   │   │   │   │       ├── MusicConfig.java
-│   │   │   │   │       ├── MicConfig.java
-│   │   │   │   │       ├── TTSConfig.java
-│   │   │   │   │       ├── FloatingWindowConfig.java
-│   │   │   │   │       └── ThemeConfig.java
+│   │   │   │   │       ├── ThemeConfig.java
+│   │   │   │   │       ├── micoutput/MicOutputConfig.java
+│   │   │   │   │       ├── player/MusicConfig.java
+│   │   │   │   │       ├── tts/TTSConfig.java
+│   │   │   │   │       └── floating/FloatingWindowConfig.java
 │   │   │   │   ├── model/
 │   │   │   │   │   └── TTSItem.java         # TTS 数据模型
 │   │   │   │   └── repository/
@@ -224,12 +227,13 @@ L7Audio/
 │   │   │   │   ├── activity/
 │   │   │   │   │   └── MainActivity.java    # 主 Activity
 │   │   │   │   ├── fragment/
-│   │   │   │   │   ├── MusicPlayerFragment.java
-│   │   │   │   │   ├── MicAmplifierFragment.java
-│   │   │   │   │   ├── TTSFragment.java
-│   │   │   │   │   ├── SettingsFragment.java
-│   │   │   │   │   ├── FileBrowserFragment.java
-│   │   │   │   │   └── AboutFragment.java
+│   │   │   │   │   ├── micoutput/MicOutputFragment.java  # 麦克风放大页面
+│   │   │   │   │   ├── tts/TTSFragment.java              # TTS 页面
+│   │   │   │   │   ├── player/
+│   │   │   │   │   │   ├── MusicPlayerFragment.java      # 音乐播放页面
+│   │   │   │   │   │   └── FileBrowserFragment.java      # 文件浏览器
+│   │   │   │   │   ├── settings/SettingsFragment.java    # 设置页面
+│   │   │   │   │   └── about/AboutFragment.java          # 关于页面
 │   │   │   │   ├── viewmodel/
 │   │   │   │   │   └── TTSViewModel.java    # TTS 页面 ViewModel
 │   │   │   │   ├── adapter/
@@ -238,19 +242,17 @@ L7Audio/
 │   │   │   │   └── model/
 │   │   │   │       └── FileItem.java        # 文件浏览器数据模型
 │   │   │   ├── service/                     # 服务层
-│   │   │   │   ├── AudioForegroundService.java
-│   │   │   │   ├── FloatingWindowService.java
-│   │   │   │   ├── KeepAliveManager.java
-│   │   │   │   └── KeepAliveWorker.java
+│   │   │   │   ├── player/AudioForegroundService.java    # 音频前台服务
+│   │   │   │   └── floating/FloatingWindowService.java   # 悬浮窗服务
 │   │   │   ├── receiver/                    # 广播接收器
-│   │   │   │   ├── BootReceiver.java        # 开机自启
-│   │   │   │   └── AnnouncementReceiver.java # 车外喊话广播接收（第三方按键控制）
+│   │   │   │   ├── micoutput/MicOutputReceiver.java  # 车外喊话广播接收
+│   │   │   │   └── boot/BootReceiver.java            # 开机自启
 │   │   │   └── utils/                       # 工具类
 │   │   │       ├── AppLog.java              # 日志工具
 │   │   │       ├── AppExecutors.java        # 线程池
-│   │   │       ├── AudioUtils.java          # 音频工具
 │   │   │       ├── FileUtils.java           # 文件工具
 │   │   │       ├── ServiceCompat.java       # 服务兼容工具
+│   │   │       ├── AlbumArtCache.java       # 专辑封面缓存
 │   │   │       ├── AudioMetadataReader.java # 音频元数据读取（总入口）
 │   │   │       ├── WavMetadataReader.java   # WAV 元数据解析
 │   │   │       ├── FlacMetadataReader.java  # FLAC 元数据解析
@@ -267,6 +269,7 @@ L7Audio/
 │   ├── build.gradle.kts                     # 应用级构建配置
 │   └── proguard-rules.pro                   # 混淆规则
 ├── CHANGELOG.md                             # 改动记录
+├── 开发需求文档.md                           # 开发需求文档
 ├── README.md                                # 本文件
 ├── settings.gradle.kts                      # 项目设置
 ├── gradle.properties                        # Gradle 属性
@@ -381,7 +384,7 @@ L7Audio/
 
 **核心特性**：
 - 悬浮球 + 展开面板双形态
-- 10 秒无操作自动收起（车外喊话中暂停计时）
+- 无操作可配置时长自动收起（默认 10 秒，范围 5-30 秒，车外喊话中暂停计时）
 - TTS 列表快速选择，点击后直接跳转 TTS 模块
 - 主题切换按钮，支持浅色 / 深色模式
 
@@ -393,9 +396,9 @@ L7Audio/
 
 **配置项包括**：主题模式、音频输出设备、循环模式、开机自启、悬浮窗开关、TTS 列表、播放进度等。
 
-### 10. AnnouncementController — 车外喊话统一管理
+### 10. MicOutputController — 车外喊话统一管理
 
-**文件**：`domain/audio/AnnouncementController.java`
+**文件**：`domain/audio/micoutput/MicOutputController.java`
 
 **职责**：集中处理车外喊话的状态切换、防抖、静音检测、焦点管理和状态通知。
 
@@ -404,7 +407,7 @@ L7Audio/
 - **防抖处理**：记录上次触发时间，过滤短时间内的连续触发请求（默认 800ms，可配置 500-2000ms）
 - **静音检测**：通过 RMS 音量检测判断是否有声音输入，超时后自动关闭（默认 30 秒，可配置 5-300 秒）
 - **焦点管理**：申请短暂独占焦点暂停音乐，结束后释放焦点恢复音乐
-- **观察者模式**：`AnnouncementListener` 接口实现悬浮窗和麦克风页面状态同步
+- **观察者模式**：`MicOutputListener` 接口实现悬浮窗和麦克风页面状态同步
 
 **设计特点**：
 - DCL 双重检查锁懒加载单例，确保全局唯一
@@ -423,10 +426,35 @@ L7Audio/
 
 **设计特点**：
 - 单一职责：每个处理器只做一种音频处理，可独立测试和替换
-- 处理顺序：增益→限幅→噪声门→回声消除→啸叫抑制
+- 处理顺序：`HPF → AFC NLMS → Gain → SpectralNR → HowlingNotch → AGC`
 - 线程安全：在录制线程中单线程调用，无需加锁
 
-### 12. GainLimiterProcessor — 增益+软限幅处理器
+### 12. HighPassFilterProcessor — 高通滤波器
+
+**文件**：`domain/audio/processor/HighPassFilterProcessor.java`
+
+**职责**：80Hz 一阶 IIR 高通滤波，滤除 DC 偏移和低频噪声（呼吸喷麦、空调等）。
+
+**核心参数**：B1=0.969（适配 16000Hz 采样率）。
+
+### 13. AdaptiveFeedbackCancellationProcessor — NLMS 自适应反馈消除
+
+**文件**：`domain/audio/processor/AdaptiveFeedbackCancellationProcessor.java`
+
+**职责**：以输出信号为参考，使用归一化最小均方（NLMS）自适应滤波器消除声反馈。
+
+**核心参数**：
+- **滤波器阶数**：256 阶
+- **MU 步长**：0.3（收敛速度与稳定性平衡）
+- **DT_THRESHOLD**：1.5（双讲检测阈值，防止发散）
+- **LEAKAGE**：0.001（防止系数漂移）
+
+**设计特点**：
+- 硬件 AEC 启用时仍串联运行，消除 HW AEC 后的残余回声
+- `xnorm` 计算优化为 O(1)，降低每帧计算量
+- 提供 `getLastErleDb()` 供日志输出回波抑制比
+
+### 14. GainLimiterProcessor — 增益+软限幅处理器
 
 **文件**：`domain/audio/processor/GainLimiterProcessor.java`
 
@@ -436,21 +464,46 @@ L7Audio/
 - 使用 tanh 函数替代 clamp 硬限幅，减少削波失真
 - 增益倍数实时可调，响应录制过程中的配置变化
 
-### 13. AudioSuppressionProcessor — 三合一抑制处理器
+### 15. SpectralNoiseReductionProcessor — 谱减法降噪
 
-**文件**：`domain/audio/processor/AudioSuppressionProcessor.java`
+**文件**：`domain/audio/processor/SpectralNoiseReductionProcessor.java`
 
-**职责**：统一管理噪声门、回声消除、啸叫抑制三种算法，共享 reset() 消除状态泄漏。
+**职责**：使用 512 点 FFT + 正弦窗 + 50% overlap-add 的谱减法实时降低背景噪声。
 
-**核心功能**：
-- **噪声门**：RMS < 0.02 完全静音，0.02~0.05 软衰减，> 0.05 不处理
-- **回声消除**：互相关法检测能量比在 0.5~2.0 之间的帧，动态衰减
-- **啸叫抑制**：连续 3 帧能量 > 历史 1.8 倍判定为啸叫，衰减强度根据啸叫强度动态调整
+**核心参数**：
+- **FFT 长度**：512 点（256 频段）
+- **alpha**：1.3（过减系数，保留语音谐波）
+- **beta**：0.01（频谱下限，保留底噪自然度）
+- **学习机制**：前 10 帧静音期建立初始噪声谱，后持续自学习更新
+
+### 16. HowlingNotchFilterProcessor — FFT 啸叫陷波器
+
+**文件**：`domain/audio/processor/HowlingNotchFilterProcessor.java`
+
+**职责**：通过 FFT 频谱峰值检测啸叫频率点，使用 IIR 窄带陷波滤波器进行抑制。
+
+**核心参数**：
+- **FFT 长度**：512 点
+- **陷波 Q 值**：30（窄带，不伤人声）
+- **抑制深度**：-12dB
+- **最多同时抑制**：3 个啸叫频点
+
+### 17. AutomaticGainControlProcessor — 自动增益控制
+
+**文件**：`domain/audio/processor/AutomaticGainControlProcessor.java`
+
+**职责**：以目标 RMS 为导向的自动增益控制，将输出音量稳定在目标水平。
+
+**核心参数**：
+- **目标 RMS**：0.3
+- **MAX_GAIN**：2.0（限制最大增益，防止 AGC+AFC 正反馈发散）
+- **GAIN_CHANGE_LIMIT**：0.02（每帧最大增益变化 ±2%，确保 AFC 能跟踪）
+- **限幅**：tanh 软限幅替代 clamp 硬限幅
 
 **设计特点**：
-- 三种抑制共享 `reset()`，一次清零所有累积状态，彻底解决状态泄漏
-- 每个抑制算法独立开关，互不影响
-- 硬件 AEC 可用时自动禁用软件回声消除，避免冲突
+- 用户可开关（麦克风页面第 4 个 Switch，持久化到配置）
+- 增益变化率严格限制，避免 AFC 跟不上导致发散
+- 放在管线末尾，参考信号经过 AGC 后才保存给下一帧 AFC 使用
 
 ---
 
@@ -533,6 +586,95 @@ adb install app/build/outputs/apk/release/L7音频工具-versionName-versionCode
 ---
 
 ## 版本历史
+
+### v1.5.5 (versionCode: 66)
+- 🐛 **修复 Buffer 脏数据导致的人声失真**：MicrophoneManager `samples`数组大小动态匹配 `readSize/2`，消除三抑制模块同时开启时的失真
+- 🚀 **性能优化**：PlaylistManager 去深拷贝、MicrophoneManager 合并循环、AFC 4096→1024+MU 0.3→0.05、AGC 降频更新、SpectralAndNotchProcessor 合并新旧两个处理器文件
+- ✨ **悬浮窗自动收起时长滑动条**：5-30秒可调，替代硬编码10秒
+- ✨ **悬浮球按钮增大**：88dp×77dp → 100dp×90dp
+- ✨ **OutputModeListener**：MainActivity 注册/注销输出模式监听
+- 🔧 versionCode 65 → 66
+
+### v1.5.4 (versionCode: 65)
+- 🐛 修复 Toast 模式恢复：MicOutputController 新增 `preferExternal` 持久化偏好
+- 🐛 修复 TTS 播报通道：SettingsFragment 改为 `getCarAudioUsage()`
+- 🐛 修复枚举设备地址缺失：SettingsFragment 增加 `device.getAddress()` 输出
+- 🐛 修复采样率劣化：MicrophoneManager / HowlingNotchFilterProcessor 16000Hz → 48000Hz
+- 🚀 扫描性能大幅优化：
+  - WAV/FLAC/M4A 跳过 MediaMetadataRetriever，格式感知自解析（WAV 只读 44 字节头）
+  - WavMetadataReader 新增 `id3 ` RIFF 块支持（Mp3tag 格式）
+  - FlacMetadataReader / M4aMetadataReader 新增 durationMs 自解析
+- 🔧 文件名显示策略调整：无元数据时 title = 文件名去扩展名（原样），artist 留空，不做任何智能猜解
+- 🔧 versionCode 63 → 65
+
+### v1.5.3 (versionCode: 61)
+- 🔧 包结构按功能模块重组：domain/audio/、ui/fragment/、service/、receiver/、data/local/config/ 均按功能拆分子包
+- 🔧 4 个类重命名：AnnouncementController → MicOutputController、AnnouncementReceiver → MicOutputReceiver、MicAmplifierFragment → MicOutputFragment、MicConfig → MicOutputConfig
+
+### v1.5.2 (versionCode: 60)
+- 🐛 修复 TTSFragment 播放车外 TTS 默认跟随车内模式的问题
+- 🐛 修复 SettingsFragment 反馈 TTS（"已保存"提示音）错误使用车内音频通道
+- 🐛 修复音乐播放器启动时未初始化为配置的音频输出模式
+- 🔧 音频输出通道统一通过 `AudioOutputManager` 集中管理，清理所有散落的直接配置读取
+- 🔧 PlaybackController 移除硬编码 USAGE_MEDIA，完全交由 `updateAudioOutputUsage()` 负责
+
+### v1.5.1 (versionCode: 59)
+- 🚀 **音频处理管线全面升级**（汇总 50~59 所有迭代）
+- 🚀 **新管线顺序**：
+  `HPF(@80Hz) → AFC(NLMS 256阶) → Gain → SpectralNR(512 FFT) → HowlingNotch(FFT+IIR) → AGC(MAX_GAIN=2.0)`
+- 🚀 **AFC 自适应反馈消除**：MU=0.3，DT_THRESHOLD=1.5，LEAKAGE=0.001，与 HW AEC 串联消残余
+- 🚀 **SpectralNR 谱减法降噪**：512 FFT + Sine 窗 + 50% overlap-add，alpha=1.3 保留语音谐波
+- 🚀 **HowlingNotch FFT 啸叫陷波器**：IIR 窄带陷波 Q=30 -12dB，最多同时抑制 3 频点
+- 🚀 **AGC 自动增益控制**：目标 RMS=0.3，MAX_GAIN=2.0，硬限幅 ±2%/帧，tanh 软限幅
+- 🚀 **HPF 高通滤波器 @80Hz**：一阶 IIR B1=0.969，滤除 DC 和低频噪声
+- 🚀 **Android 原生 3A 自适应**：硬件可用时自动禁用对应软件处理器
+- 🚀 **AGC 用户开关**：麦克风页面第 4 个 Switch，持久化到配置
+- 🐛 修复 HowlingNotch 数组越界、AFC 发散、SpectralNR 人声过减
+- 🗑️ 删除旧 AudioSuppressionProcessor.java　（能量交叉相关回声 + 宽带啸叫衰减）
+- 详细改动见 [CHANGELOG.md](CHANGELOG.md)
+
+### v1.4.9 (versionCode: 49)
+- 🚀 扫描时不再提取专辑封面，延迟到播放时按需提取（`PlaylistManager` → `MusicPlayerManager.start()`）
+  - 扫描性能提升：200 首歌省 200 次文件 IO + 200 次磁盘缓存写入
+  - 磁盘缓存只存播放过的歌的封面
+
+### v1.4.8 (versionCode: 48)
+- 🐛 修复 Release 构建日志未禁用问题（AppLog.debugEnabled 改用 BuildConfig.DEBUG）
+- 🐛 修复封面全尺寸解码 OOM 风险（默认 512px 采样解码）
+- 🐛 修复磁盘缓存无淘汰策略（上限 200 文件，超出删除最旧）
+- 🐛 修复 AnnouncementController 部分初始化 NPE 路径
+- 🐛 修复 FileBrowserAdapter 废弃的 getAdapterPosition()
+- 🐛 修复 TTSFragment 废弃的 getResources().getColor()
+- 🔧 TTSManager Handler 添加显式 Looper
+- 🔧 FloatingWindowService Gson 实例复用 + 移除 TYPE_PHONE 死代码
+- 🔧 删除 MainActivity 空 onPause() 方法
+- 🔧 AnnouncementController CopyOnWriteArrayList → ArrayList+synchronized
+- 🔧 MusicPlaylistAdapter 颜色初始化改用 boolean 标记
+
+### v1.4.7 (versionCode: 47)
+- 🗑️ 死代码深度清理（第二轮）：
+  - 删除 KeepAliveManager/Worker、MusicSource、ScannedMusicInfo 共 4 个文件
+  - 删除 26 个未使用的 string 资源
+  - 移除 work-runtime Gradle 依赖、WAKE_LOCK 权限
+  - 清理 18 个未使用的 Java 方法
+  - 修复上轮误删 AppExecutors import 导致的编译错误
+
+### v1.4.6 (versionCode: 46)
+- 🔧 封面图片存储与解码全面优化：
+  - `albumArt`/`lyrics` 加 `transient` 不再参与 Gson 序列化，SharedPreferences 存储量减少 90%+
+  - 新增 `AlbumArtCache`（LRU 内存缓存 10MB + 文件缓存 + 采样压缩）
+  - Fragment/MediaSession/Notification 三处封面解码合为统一入口，消除重复解码
+  - 封面按 240dp 采样解码，大图内存占用显著降低
+  - 首次加载在工作线程解码，不卡主线程
+- 🔧 播放列表 RecyclerView 性能优化：
+  - DiffUtil 增量刷新替代 `notifyDataSetChanged`
+  - 颜色值缓存至 int 字段，避免 `onBindViewHolder` 中重复 `getColor()`
+  - `setHasStableIds(true)` 稳定 ID，优化动画性能
+
+### v1.4.5 (versionCode: 45)
+- 🐛 修复扫描/添加大量音乐后播放列表不刷新问题：文件浏览器关闭与计算线程回调存在竞态条件，onResume 时补充刷新播放列表
+- 🗑️ 全面死代码清理：删除 AudioUtils.java、BaseService.java、3个工具类、4个 Domain 层类、2个未使用布局、3个未使用颜色、6个未使用 Gradle 依赖，FileUtils 从 389 行精简至 57 行
+- ✨ 设置页面新增「恢复默认设置」按钮：一键清除所有配置并重新初始化
 
 ### v1.4.4 (versionCode: 44)
 - 🐛 修复麦克风放大按钮失效：AnnouncementController 未在 L7AudioApp 初始化导致 toggle() 直接 return

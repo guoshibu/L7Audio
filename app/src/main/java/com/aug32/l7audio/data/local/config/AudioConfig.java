@@ -66,18 +66,6 @@ public class AudioConfig {
         preferences.edit().putInt(PREF_AUDIO_INPUT_SOURCE, sourceType).apply();
     }
 
-    /**
-     * 重置音频通道配置为默认值
-     * 将车外使用类型、车内使用类型和音频输入源重置为默认值
-     */
-    public void resetAudioChannel() {
-        preferences.edit()
-                .putInt(PREF_AUDIO_OUTPUT_USAGE_EXTERNAL, 9)
-                .putInt(PREF_AUDIO_OUTPUT_USAGE_CAR, 1)
-                .putInt(PREF_AUDIO_INPUT_SOURCE, 1)
-                .apply();
-    }
-
     public int getCarVolume() {
         return preferences.getInt(PREF_CAR_VOLUME, 100);
     }

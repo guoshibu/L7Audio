@@ -3,6 +3,8 @@ package com.aug32.l7audio.utils;
 import android.content.Context;
 import android.util.Log;
 
+import com.aug32.l7audio.BuildConfig;
+
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -40,20 +42,8 @@ public class AppLog {
     /** 日志文件对象 */
     private static File logFile;
 
-    /** 调试模式开关，默认为 true，Release 版本应设为 false */
-    private static volatile boolean debugEnabled = true;
-
-    /**
-     * 设置调试模式开关。
-     *
-     * <p>关闭后所有日志输出将被禁用，包括 Logcat 输出和文件写入。
-     * Release 版本应调用此方法关闭日志，避免性能损耗和信息泄露。
-     *
-     * @param enabled true=开启日志，false=关闭日志
-     */
-    public static void setDebugEnabled(boolean enabled) {
-        debugEnabled = enabled;
-    }
+    /** 调试模式开关，Debug 构建开启，Release 构建关闭 */
+    private static volatile boolean debugEnabled = BuildConfig.DEBUG;
 
     /**
      * 初始化日志工具。
@@ -103,7 +93,7 @@ public class AppLog {
     }
 
     /**
-     * 输出 INFO 级别日志。
+     * 输出 INFO 级别日志（OPPO/Realme 手机不会过滤，比 d() 更可靠）。
      *
      * @param tag     日志标签
      * @param message 日志内容
@@ -166,20 +156,30 @@ public class AppLog {
             return;
         }
 
+        FileWriter writer = null;
         try {
             // 文件大小超过限制时重置，避免占用过多存储空间
             if (logFile.length() > MAX_LOG_FILE_SIZE) {
-                FileWriter writer = new FileWriter(logFile, false);
-                writer.write("[LOG RESET] " + getCurrentTime() + "\n");
-                writer.close();
+                try {
+                    writer = new FileWriter(logFile, false);
+                    writer.write("[LOG RESET] " + getCurrentTime() + "\n");
+                } finally {
+                    if (writer != null) {
+                        try { writer.close(); } catch (IOException ignored) {}
+                    }
+                    writer = null;
+                }
             }
 
-            FileWriter writer = new FileWriter(logFile, true);
+            writer = new FileWriter(logFile, true);
             String logMessage = "[" + level + "] " + getCurrentTime() + " " + tag + ": " + message + "\n";
             writer.write(logMessage);
-            writer.close();
         } catch (IOException e) {
             Log.e(TAG, "Failed to write log to file", e);
+        } finally {
+            if (writer != null) {
+                try { writer.close(); } catch (IOException ignored) {}
+            }
         }
     }
 
@@ -193,16 +193,5 @@ public class AppLog {
     private static String getCurrentTime() {
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault());
         return sdf.format(new Date());
-    }
-
-    /**
-     * 获取日志文件对象。
-     *
-     * <p>仅在调试模式开启时返回有效文件对象，非调试模式返回 null。
-     *
-     * @return 日志文件对象，调试模式关闭时返回 null
-     */
-    public static File getLogFile() {
-        return debugEnabled ? logFile : null;
     }
 }

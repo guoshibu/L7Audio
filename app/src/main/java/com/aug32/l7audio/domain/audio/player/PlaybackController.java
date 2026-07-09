@@ -15,8 +15,8 @@ import androidx.media3.exoplayer.ExoPlayer;
 import java.io.File;
 
 import com.aug32.l7audio.domain.audio.AudioFocusManager;
-import com.aug32.l7audio.domain.audio.MusicItem;
-import com.aug32.l7audio.domain.audio.PlaybackState;
+import com.aug32.l7audio.domain.audio.player.MusicItem;
+import com.aug32.l7audio.domain.audio.player.PlaybackState;
 import com.aug32.l7audio.utils.AppLog;
 
 /**
@@ -68,6 +68,8 @@ public class PlaybackController {
     private AudioFocusManager audioFocusManager;
     // 标记焦点丢失前是否正在播放，用于焦点恢复时决定是否自动恢复播放
     private boolean wasPlayingBeforeFocusLoss = false;
+    // ExoPlayer 播放状态监听器，在 release() 时需移除
+    private Player.Listener playerListener;
     // 音频焦点变化监听器，处理焦点获取、短暂丢失和永久丢失三种场景
     private final AudioFocusManager.OnAudioFocusChangeListener focusChangeListener =
             new AudioFocusManager.OnAudioFocusChangeListener() {
@@ -131,13 +133,7 @@ public class PlaybackController {
         try {
             exoPlayer = new ExoPlayer.Builder(context).build();
 
-            AudioAttributes audioAttributes = new AudioAttributes.Builder()
-                    .setUsage(getDefaultAudioUsage())
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                    .build();
-            exoPlayer.setAudioAttributes(audioAttributes, false);
-
-            exoPlayer.addListener(new Player.Listener() {
+            playerListener = new Player.Listener() {
                 @Override
                 public void onPlaybackStateChanged(int playbackState) {
                     handlePlaybackStateChanged(playbackState);
@@ -152,7 +148,8 @@ public class PlaybackController {
                 public void onPlayerError(androidx.media3.common.PlaybackException error) {
                     handleError(error);
                 }
-            });
+            };
+            exoPlayer.addListener(playerListener);
 
             AppLog.d(TAG, "ExoPlayer initialized");
         } catch (Exception e) {
@@ -172,10 +169,6 @@ public class PlaybackController {
         } catch (Exception e) {
             AppLog.e(TAG, "Failed to init audio focus", e);
         }
-    }
-
-    private int getDefaultAudioUsage() {
-        return android.media.AudioAttributes.USAGE_MEDIA;
     }
 
     // ========== 公共 API ==========
@@ -476,6 +469,10 @@ public class PlaybackController {
         }
         // 释放 ExoPlayer 资源
         if (exoPlayer != null) {
+            if (playerListener != null) {
+                exoPlayer.removeListener(playerListener);
+                playerListener = null;
+            }
             exoPlayer.release();
             exoPlayer = null;
         }

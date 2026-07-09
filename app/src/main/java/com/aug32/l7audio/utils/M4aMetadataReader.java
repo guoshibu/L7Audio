@@ -61,36 +61,73 @@ public class M4aMetadataReader {
 
             WavMetadataReader.AudioMetadata result = new WavMetadataReader.AudioMetadata();
 
-            // 递归查找 moov → udta → meta → ilst
+            // 查找 moov atom
             long moovPos = findAtom(is, 0, fileSize, "moov");
             if (moovPos < 0) return null;
 
             long moovSize = getAtomSize(is, moovPos);
+
+            // 从 moov → mvhd 中解析时长
+            long mvhdPos = findAtom(is, moovPos + 8, moovPos + moovSize, "mvhd");
+            if (mvhdPos > 0) {
+                long mvhdSize = getAtomSize(is, mvhdPos);
+                long mvhdDataStart = mvhdPos + 8;
+                // mvhd: version(1) + flags(3) + creationTime(4) / version=0 则 4 字节
+                // version=0: 后续 times(4) + duration(4)
+                // version=1: 后续 times(8) + duration(8)
+                byte[] mvhdBuf = new byte[4];
+                if (is instanceof FileInputStream) {
+                    ((FileInputStream) is).getChannel().position(mvhdDataStart);
+                }
+                if (readFully(is, mvhdBuf) == 4) {
+                    int version = mvhdBuf[0] & 0xFF;
+                    if (version == 0 && mvhdSize >= 24) {
+                        byte[] mvhdFields = new byte[8];
+                        if (is instanceof FileInputStream) {
+                            ((FileInputStream) is).getChannel().position(mvhdDataStart + 4 + 4);
+                        }
+                        if (readFully(is, mvhdFields) == 8) {
+                            long timeScale = readInt32BE(mvhdFields, 0);
+                            long duration = readInt32BE(mvhdFields, 4);
+                            if (timeScale > 0) {
+                                result.durationMs = (duration * 1000) / timeScale;
+                            }
+                        }
+                    } else if (version == 1 && mvhdSize >= 32) {
+                        byte[] mvhdFields = new byte[16];
+                        if (is instanceof FileInputStream) {
+                            ((FileInputStream) is).getChannel().position(mvhdDataStart + 4 + 4);
+                        }
+                        if (readFully(is, mvhdFields) == 16) {
+                            long timeScale = readInt32BE(mvhdFields, 0);
+                            long duration = readInt64BE(mvhdFields, 8);
+                            if (timeScale > 0) {
+                                result.durationMs = (duration * 1000) / timeScale;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 查找 moov → udta → meta → ilst 获取标题/艺术家
             long udtaPos = findAtom(is, moovPos + 8, moovPos + moovSize, "udta");
-            if (udtaPos < 0) return null;
+            if (udtaPos < 0) return result;
 
             long udtaSize = getAtomSize(is, udtaPos);
             long metaPos = findAtom(is, udtaPos + 8, udtaPos + udtaSize, "meta");
-            if (metaPos < 0) return null;
+            if (metaPos < 0) return result;
 
-            // meta atom 内部在 4 字节版本+标志之后才是子 atom
             long metaSize = getAtomSize(is, metaPos);
             long ilstPos = findAtom(is, metaPos + 12, metaPos + metaSize, "ilst");
-            if (ilstPos < 0) return null;
+            if (ilstPos < 0) return result;
 
             long ilstSize = getAtomSize(is, ilstPos);
 
             // 遍历 ilst 的子 atom
             parseIlstAtom(is, ilstPos + 8, ilstPos + ilstSize, result);
 
-            // 判断是否解析到了有用信息
-            if ((result.title != null && !result.title.isEmpty())
-                    || (result.artist != null && !result.artist.isEmpty())
-                    || (result.album != null && !result.album.isEmpty())) {
-                return result;
-            }
-
-            return null;
+            // 返回结果（可能只有时长，没有标题/艺术家）
+            return result;
 
         } catch (Exception e) {
             AppLog.d("M4aMetadataReader", "Failed to read M4A metadata: " + filePath);

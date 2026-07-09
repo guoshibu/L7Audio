@@ -18,9 +18,9 @@ android {
         applicationId = "com.aug32.l7audio"
         minSdk = 30
         targetSdk = 30
-        versionCode = 44
-        versionName = "1.4.4"
+        versionCode = 66
 
+        versionName = "1.5.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -124,9 +124,7 @@ dependencies {
 
     // Media3库
     implementation(libs.media3.exoplayer)
-    implementation(libs.media3.ui)
     implementation(libs.media3.common)
-    implementation(libs.media3.session)  // MediaSession
 
     // Media 兼容库（MediaStyle 通知样式）
     implementation(libs.media)
@@ -134,15 +132,8 @@ dependencies {
     // JSON 解析
     implementation(libs.gson)
 
-    // WorkManager 定时任务（用于保活）
-    implementation(libs.workRuntime)
-
     // Lifecycle 组件（ViewModel / LiveData）
     implementation(libs.lifecycle.viewmodel)
     implementation(libs.lifecycle.livedata)
     implementation(libs.lifecycle.runtime)
-
-    testImplementation(libs.junit)
-    androidTestImplementation(libs.extJunit)
-    androidTestImplementation(libs.espressoCore)
 }

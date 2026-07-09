@@ -113,27 +113,4 @@ public abstract class BaseFragment extends Fragment {
         return null;
     }
 
-    /**
-     * 安全获取根视图
-     *
-     * @return rootView 或 null
-     */
-    protected View getRootView() {
-        return rootView;
-    }
-
-    /**
-     * 根据资源 ID 查找视图（空安全）
-     *
-     * @param resId 视图资源 ID
-     * @param <T>   视图类型
-     * @return 查找到的视图或 null
-     */
-    @Nullable
-    protected <T extends View> T findViewById(int resId) {
-        if (rootView != null) {
-            return rootView.findViewById(resId);
-        }
-        return null;
-    }
 }
