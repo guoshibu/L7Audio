@@ -7,8 +7,6 @@ import android.graphics.BitmapFactory;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
 /**
  * 专辑封面统一缓存管理器
@@ -149,18 +147,7 @@ public class AlbumArtCache {
     }
 
     private String cacheKey(String filePath) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("MD5");
-            md.update(filePath.getBytes());
-            byte[] digest = md.digest();
-            StringBuilder sb = new StringBuilder();
-            for (byte b : digest) {
-                sb.append(String.format("%02x", b & 0xff));
-            }
-            return sb.toString();
-        } catch (NoSuchAlgorithmException e) {
-            return String.valueOf(filePath.hashCode());
-        }
+        return String.valueOf(filePath.hashCode());
     }
 
     private void saveToDisk(String cacheKey, byte[] data) {
