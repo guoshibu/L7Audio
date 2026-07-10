@@ -666,26 +666,28 @@ public class MusicPlayerManager {
 
     private void ensureAlbumArt(MusicItem item) {
         if (item.albumArt != null) return;
-        android.media.MediaMetadataRetriever retriever = null;
-        try {
-            retriever = new android.media.MediaMetadataRetriever();
-            if (item.contentUri != null && item.contentUri.startsWith("content://")) {
-                retriever.setDataSource(context, android.net.Uri.parse(item.contentUri));
-            } else {
-                retriever.setDataSource(item.filePath);
+        AppExecutors.getInstance().executeOnComputeThread(() -> {
+            android.media.MediaMetadataRetriever retriever = null;
+            try {
+                retriever = new android.media.MediaMetadataRetriever();
+                if (item.contentUri != null && item.contentUri.startsWith("content://")) {
+                    retriever.setDataSource(context, android.net.Uri.parse(item.contentUri));
+                } else {
+                    retriever.setDataSource(item.filePath);
+                }
+                byte[] art = retriever.getEmbeddedPicture();
+                if (art != null && art.length > 0) {
+                    item.albumArt = art;
+                    AlbumArtCache.getInstance(context).put(item.filePath, art);
+                }
+            } catch (Exception e) {
+                AppLog.d(TAG, "Failed to extract album art for: " + item.filePath);
+            } finally {
+                if (retriever != null) {
+                    try { retriever.release(); } catch (Exception ignored) {}
+                }
             }
-            byte[] art = retriever.getEmbeddedPicture();
-            if (art != null && art.length > 0) {
-                item.albumArt = art;
-                AlbumArtCache.getInstance(context).put(item.filePath, art);
-            }
-        } catch (Exception e) {
-            AppLog.d(TAG, "Failed to extract album art for: " + item.filePath);
-        } finally {
-            if (retriever != null) {
-                try { retriever.release(); } catch (Exception ignored) {}
-            }
-        }
+        });
     }
 
     private String loadLyricsFromLrcFile(String musicFilePath) {

@@ -94,6 +94,13 @@ public class PlaylistManager {
     private final Object lock = new Object();
     // 主线程 Handler，用于将回调切换到主线程执行
     private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    // 防抖 Handler，1秒内多次修改合并为一次持久化
+    private final android.os.Handler debounceHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable saveRunnable = () -> {
+        synchronized (lock) {
+            saveToStorage();
+        }
+    };
 
     // 播放列表数据
     private List<MusicItem> items;
@@ -348,13 +355,17 @@ public class PlaylistManager {
                 }
             }
 
-            // 播放列表变化时持久化保存
+            // 防抖持久化保存（1s 窗口）
             if (playlistChanged) {
-                saveToStorage();
                 if (currentRemoved) {
                     appConfig.setLastPlayedIndex(-1);
                 }
             }
+        }
+
+        // 防抖持久化保存
+        if (playlistChanged) {
+            debounceSave();
         }
 
         // 在锁外回调，避免死锁
@@ -525,9 +536,9 @@ public class PlaylistManager {
                 added.add(item.copy());
                 existingPaths.add(normalizedPath);
             }
-            // 持久化保存播放列表
-            saveToStorage();
         }
+        // 防抖持久化保存（1s 窗口），避免频繁增删时反复序列化全列表
+        debounceSave();
 
         // 在主线程回调播放列表变化
         if (listener != null && !added.isEmpty()) {
@@ -792,6 +803,11 @@ public class PlaylistManager {
         if (savedRepeatMode >= REPEAT_MODE_ALL && savedRepeatMode <= REPEAT_MODE_OFF) {
             repeatMode = savedRepeatMode;
         }
+    }
+
+    private void debounceSave() {
+        debounceHandler.removeCallbacks(saveRunnable);
+        debounceHandler.postDelayed(saveRunnable, 1000);
     }
 
     private void saveToStorage() {

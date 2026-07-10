@@ -36,6 +36,12 @@ public class AlbumArtCache {
             protected int sizeOf(String key, Bitmap bitmap) {
                 return bitmap.getByteCount();
             }
+            @Override
+            protected void entryRemoved(boolean evicted, String key, Bitmap oldBitmap, Bitmap newBitmap) {
+                if (evicted && oldBitmap != null && !oldBitmap.isRecycled()) {
+                    oldBitmap.recycle();
+                }
+            }
         };
         diskCacheDir = new File(context.getCacheDir(), DISK_CACHE_DIR);
         if (!diskCacheDir.exists()) {
