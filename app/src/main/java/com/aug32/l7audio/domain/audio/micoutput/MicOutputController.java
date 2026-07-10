@@ -364,7 +364,7 @@ public class MicOutputController {
                     continue;
                 }
 
-                float rms = micManager.getPostProcessRms();
+                float rms = micManager.getCurrentRms();// 获取当前音频帧的 RMS 均值（处理前）
                 if (rms < threshold) {
                     // 宽限期内不计静音
                     if (System.currentTimeMillis() - detectionStartTime < startupGraceMs) {
