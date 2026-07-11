@@ -694,6 +694,17 @@ adb install app/build/outputs/apk/release/L7音频工具-versionName-versionCode
 
 ## 版本历史
 
+### v1.5.8 (versionCode: 96)
+
+- 🐛 **修复静音检测误判问题**：`MicrophoneManager.getCurrentRms()` 改为返回最近 10 帧的滑动窗口平均值，避免采样到瞬时静音帧导致误判
+- ✨ **增强静音检测日志**：添加宽限期状态、RMS 与阈值对比、计时进度等详细日志
+- 🐛 **修复输出模式偏好被错误修改**：移除 `MicOutputController.toggle()` 中 `setPreferExternalMode(true)` 调用，`forceExternal` 仅控制本次输出模式，不修改用户偏好
+- 🐛 **修复反射调用异常**：移除 `MicrophoneManager.getAudioRecordErrorCode()` 方法，车机 Android 版本不支持该方法
+- 🐛 **修复通知更新过于频繁**：`AudioForegroundService.updateNotification()` 添加 200ms 防抖间隔
+- 🐛 **修复车外喊话停止后输出模式未恢复**：`MicOutputController.stopAnnouncement()` 恢复 `savedOutputMode`
+- ✨ **悬浮窗按钮边框增强**：三个按钮样式文件添加 2dp 边框，增强可视性
+- ✨ **麦克风初始化日志增强**：增加动态缓冲区获取、详细初始化日志、调用堆栈日志
+
 ### v1.5.7 (versionCode: 91)
 
 - 🐛 **修复悬浮窗深色模式显示问题**：深色模式下悬浮窗列表背景颜色调整为 `#464646ff`，不再发白

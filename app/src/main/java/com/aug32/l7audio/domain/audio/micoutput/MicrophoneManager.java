@@ -77,6 +77,11 @@ public class MicrophoneManager {
     private volatile float currentRms = 0.0f;
     // 管线处理后 RMS（供静音检测，volatile 保证线程可见性）
     private volatile float currentPostProcessRms = 0.0f;
+    // RMS 滑动窗口平均，避免静音检测采样到瞬时静音帧（最近10帧的平均值）
+    private static final int RMS_WINDOW_SIZE = 10;
+    private final float[] rmsWindow = new float[RMS_WINDOW_SIZE];
+    private int rmsWindowIndex = 0;
+    private volatile float averageRms = 0.0f;
     // 放大级别（0-10）
     private int amplificationLevel = 5;
 
@@ -158,6 +163,21 @@ public class MicrophoneManager {
      * @return true 表示启动成功，false 表示启动失败
      */
     public synchronized boolean start() {
+        String threadName = Thread.currentThread().getName();
+        StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
+        StringBuilder callerInfo = new StringBuilder();
+        for (int i = 2; i < Math.min(6, stackTrace.length); i++) {
+            StackTraceElement element = stackTrace[i];
+            if (i > 2) callerInfo.append(" -> ");
+            callerInfo.append(element.getClassName()).append(".").append(element.getMethodName())
+                    .append("(").append(element.getFileName()).append(":").append(element.getLineNumber()).append(")");
+        }
+
+        AppLog.i(TAG, "========== MicrophoneManager.start() called ==========");
+        AppLog.i(TAG, "Thread: " + threadName + " (id=" + Thread.currentThread().getId() + ")");
+        AppLog.i(TAG, "Caller: " + callerInfo.toString());
+        AppLog.i(TAG, "Current isRecording=" + isRecording + ", audioRecord=" + (audioRecord == null ? "null" : "not null"));
+
         // 已在录制，直接返回成功
         if (isRecording) {
             AppLog.d(TAG, "Already recording");
@@ -193,6 +213,7 @@ public class MicrophoneManager {
             startRecordingThread();
 
             AppLog.i(TAG, "Microphone amplifier started successfully");
+            AppLog.i(TAG, "========== MicrophoneManager.start() completed ==========");
 
             return true;
         } catch (Exception e) {
@@ -211,6 +232,78 @@ public class MicrophoneManager {
     }
 
     /**
+     * 获取音频缓冲区大小（动态获取，避免类加载时获取错误值）
+     * <p>
+     * BUFFER_SIZE 作为 static final 在类加载时获取，如果此时音频系统状态异常，
+     * 返回的缓冲区大小可能无效，导致整个应用生命周期内 AudioRecord 无法初始化。
+     * 此方法在每次初始化时动态获取缓冲区大小。
+     * </p>
+     *
+     * @return 缓冲区大小字节数，或 AudioRecord.ERROR_BAD_VALUE
+     */
+    private int getBufferSize() {
+        int bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT);
+        if (bufferSize <= 0) {
+            AppLog.e(TAG, "getMinBufferSize returned invalid value: " + bufferSize + ", using fallback buffer size");
+            bufferSize = 2 * AudioTrack.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AUDIO_FORMAT);
+            if (bufferSize <= 0) {
+                bufferSize = 1536 * 2;
+            }
+        }
+        AppLog.d(TAG, "getBufferSize(): SR=" + SAMPLE_RATE + ", channel=" + CHANNEL_CONFIG + ", format=" + AUDIO_FORMAT + ", bufferSize=" + bufferSize);
+        return bufferSize;
+    }
+
+    /**
+     * 尝试初始化 AudioRecord
+     * <p>
+     * 使用指定的音频源和缓冲区大小初始化 AudioRecord，并记录详细日志。
+     * </p>
+     *
+     * @param audioSource 音频源
+     * @param bufferSize 缓冲区大小
+     * @return true 表示初始化成功，false 表示失败
+     */
+    @SuppressLint("MissingPermission")
+    private boolean tryInitAudioRecord(int audioSource, int bufferSize) {
+        try {
+            audioRecord = new AudioRecord(audioSource, SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT, bufferSize);
+            int state = audioRecord.getState();
+            boolean success = state == AudioRecord.STATE_INITIALIZED;
+
+            String sourceName = getAudioSourceName(audioSource);
+            if (success) {
+                AppLog.i(TAG, "AudioRecord init SUCCESS: source=" + sourceName + "(" + audioSource + "), SR=" + SAMPLE_RATE + ", buf=" + bufferSize + ", sessionId=" + audioRecord.getAudioSessionId());
+            } else {
+                AppLog.e(TAG, "AudioRecord init FAILED: source=" + sourceName + "(" + audioSource + "), SR=" + SAMPLE_RATE + ", buf=" + bufferSize + ", state=" + state);
+            }
+            return success;
+        } catch (Exception e) {
+            String sourceName = getAudioSourceName(audioSource);
+            AppLog.e(TAG, "AudioRecord init EXCEPTION: source=" + sourceName + "(" + audioSource + "), SR=" + SAMPLE_RATE + ", buf=" + bufferSize, e);
+            return false;
+        }
+    }
+
+    /**
+     * 获取音频源名称（用于日志）
+     *
+     * @param source 音频源常量
+     * @return 音频源名称
+     */
+    private String getAudioSourceName(int source) {
+        switch (source) {
+            case MediaRecorder.AudioSource.DEFAULT: return "DEFAULT";
+            case MediaRecorder.AudioSource.MIC: return "MIC";
+            case MediaRecorder.AudioSource.VOICE_RECOGNITION: return "VOICE_RECOGNITION";
+            case MediaRecorder.AudioSource.VOICE_COMMUNICATION: return "VOICE_COMMUNICATION";
+            case MediaRecorder.AudioSource.CAMCORDER: return "CAMCORDER";
+            case MediaRecorder.AudioSource.UNPROCESSED: return "UNPROCESSED";
+            default: return "UNKNOWN(" + source + ")";
+        }
+    }
+
+    /**
      * 初始化音频组件
      * <p>
      * 三级回退机制确保 AudioRecord 初始化成功：
@@ -218,52 +311,47 @@ public class MicrophoneManager {
      * 2. 回退到 MIC 音频源
      * 3. 回退到 DEFAULT 音频源
      * </p>
+     * <p>
+     * 每次初始化时动态获取缓冲区大小，避免类加载时获取的静态缓冲区大小导致的问题。
+     * </p>
      *
      * @return true 表示初始化成功，false 表示初始化失败
      */
     @SuppressLint("MissingPermission")
     private boolean initializeAudioComponents() {
+        int bufferSize = getBufferSize();
         int audioSource = appConfig.getAudioInputSource();
 
+        AppLog.i(TAG, "=== AudioRecord init starting ===");
+        AppLog.i(TAG, "Static BUFFER_SIZE=" + BUFFER_SIZE + ", dynamic bufferSize=" + bufferSize);
+        AppLog.i(TAG, "User configured audio source: " + getAudioSourceName(audioSource) + "(" + audioSource + ")");
+
         // 第一级：使用用户配置的音频源
-        audioRecord = new AudioRecord(
-                audioSource,
-                SAMPLE_RATE,
-                CHANNEL_CONFIG,
-                AUDIO_FORMAT,
-                BUFFER_SIZE
-        );
-
-        // 第二级回退：用户配置的音频源失败，回退到MIC
-        if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
-            AppLog.w(TAG, "Failed to initialize AudioRecord with user configured source " + audioSource + ", falling back to MIC");
+        if (tryInitAudioRecord(audioSource, bufferSize)) {
+            AppLog.i(TAG, "=== AudioRecord init succeeded at level 1 ===");
+        } else {
+            // 第二级回退：用户配置的音频源失败，回退到MIC
+            AppLog.w(TAG, "Falling back to MIC");
             audioSource = MediaRecorder.AudioSource.MIC;
-
-            audioRecord = new AudioRecord(
-                    audioSource,
-                    SAMPLE_RATE,
-                    CHANNEL_CONFIG,
-                    AUDIO_FORMAT,
-                    BUFFER_SIZE
-            );
-
-            // 第三级回退：MIC也失败，回退到DEFAULT
-            if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
-                AppLog.e(TAG, "Failed to initialize AudioRecord with MIC, falling back to DEFAULT");
+            if (tryInitAudioRecord(audioSource, bufferSize)) {
+                AppLog.i(TAG, "=== AudioRecord init succeeded at level 2 ===");
+            } else {
+                // 第三级回退：MIC也失败，回退到DEFAULT
+                AppLog.e(TAG, "Falling back to DEFAULT");
                 audioSource = MediaRecorder.AudioSource.DEFAULT;
-
-                audioRecord = new AudioRecord(
-                        audioSource,
-                        SAMPLE_RATE,
-                        CHANNEL_CONFIG,
-                        AUDIO_FORMAT,
-                        BUFFER_SIZE
-                );
-
-                // 三级都失败，返回失败
-                if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
-                    AppLog.e(TAG, "Failed to initialize AudioRecord");
-                    return false;
+                if (tryInitAudioRecord(audioSource, bufferSize)) {
+                    AppLog.i(TAG, "=== AudioRecord init succeeded at level 3 ===");
+                } else {
+                    // 三级都失败，尝试增大缓冲区重试一次
+                    AppLog.e(TAG, "All audio sources failed, trying with larger buffer");
+                    int largerBufferSize = bufferSize * 2;
+                    audioSource = MediaRecorder.AudioSource.MIC;
+                    if (tryInitAudioRecord(audioSource, largerBufferSize)) {
+                        AppLog.i(TAG, "=== AudioRecord init succeeded with larger buffer ===");
+                    } else {
+                        AppLog.e(TAG, "=== AudioRecord init FAILED, all retries exhausted ===");
+                        return false;
+                    }
                 }
             }
         }
@@ -573,6 +661,12 @@ public class MicrophoneManager {
         }
         currentRms = (float) Math.sqrt(sum / sampleCount);
 
+        rmsWindow[rmsWindowIndex] = currentRms;
+        rmsWindowIndex = (rmsWindowIndex + 1) % RMS_WINDOW_SIZE;
+        float sumRms = 0;
+        for (float r : rmsWindow) sumRms += r;
+        averageRms = sumRms / RMS_WINDOW_SIZE;
+
         try {
             pipeline.process(samples);
         } catch (Exception e) {
@@ -606,7 +700,11 @@ public class MicrophoneManager {
 
     /** 释放所有资源 */
     private void releaseResources() {
-        AppLog.d(TAG, "Releasing all resources");
+        AppLog.d(TAG, "========== releaseResources() called ==========");
+        AppLog.d(TAG, "Before release: audioRecord=" + (audioRecord == null ? "null" : "not null")
+                + ", audioTrack=" + (audioTrack == null ? "null" : "not null")
+                + ", isRecording=" + isRecording);
+
         releaseHardwareEffects();
         releaseAudioRecord();
         releaseAudioTrack();
@@ -615,7 +713,11 @@ public class MicrophoneManager {
         // 重置管线及 AGC 状态（清除累积的检测数据）
         pipeline.reset();
         agcProcessor.reset();
-        AppLog.d(TAG, "All resources released");
+
+        AppLog.d(TAG, "After release: audioRecord=" + (audioRecord == null ? "null" : "not null")
+                + ", audioTrack=" + (audioTrack == null ? "null" : "not null")
+                + ", isRecording=" + isRecording);
+        AppLog.d(TAG, "========== releaseResources() completed ==========");
     }
 
     /** 释放所有 Android 原生硬件效果器 */
@@ -738,16 +840,19 @@ public class MicrophoneManager {
     }
 
     /**
-     * 获取当前音频帧的 RMS 均值（处理前）
+     * 获取当前音频帧的 RMS 均值（滑动窗口平均）
      * <p>
-     * 归一化到 0-1 范围。未录制时返回 0。
-     * 用于静音检测，更准确反映实际输出音量。
+     * 返回最近10帧的 RMS 平均值，用于静音检测，避免采样到瞬时静音帧导致误判。
+     * 当前暂无调用方，预留用于：
+     * - 可视化界面显示输入音量
+     * - 静音检测逻辑
+     * - 调试日志输出
      * </p>
      *
-     * @return 当前 RMS 值（0-1），0 表示无音频输入或未录制
+     * @return 平均 RMS 值（0-1），0 表示无音频输入或未录制
      */
     public float getCurrentRms() {
-        return currentRms;
+        return averageRms;
     }
 
     /**
@@ -755,6 +860,10 @@ public class MicrophoneManager {
      * <p>
      * 经过全部处理器（降噪、AGC 等）后的信号 RMS，
      * 用于静音检测，更准确反映实际输出音量。
+     * 当前暂无调用方，预留用于：
+     * - 可视化界面显示输出音量
+     * - 静音检测逻辑（检测处理后的实际音量）
+     * - 调试日志输出
      * </p>
      *
      * @return 处理后 RMS 值（0-1），0 表示无音频输入或未录制
@@ -762,7 +871,6 @@ public class MicrophoneManager {
     public float getPostProcessRms() {
         return currentPostProcessRms;
     }
-
     /**
      * 设置是否启用噪声抑制（谱减法）
      * <p>

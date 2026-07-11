@@ -1,9 +1,79 @@
 # L7Audio CHANGELOG
 
 > 日期：2026-07-11
-> 版本：v1.5.7 (versionCode: 91)
+> 版本：v1.5.8 (versionCode: 96)
 
 ---
+
+---
+
+## v1.5.7 修复静音检测误判问题 (versionCode: 96)
+
+### 修复的问题
+
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| MicrophoneManager.java | 静音检测采样到瞬时静音帧导致误判，即使有声音输入也会触发自动关闭 | 实现 RMS 滑动窗口平均（最近10帧），`getCurrentRms()` 返回平均值而非单帧值 |
+| MicOutputController.java | 静音检测日志不够详细，无法观察计时进度 | 增强静音检测日志，包含宽限期状态、RMS与阈值对比、计时进度 |
+
+---
+
+## v1.5.7 修复输出模式偏好与反射异常 (versionCode: 95)
+
+### 修复的问题
+
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| MicOutputController.java | `toggle(true)` 时错误调用 `setPreferExternalMode(true)` 修改用户偏好，导致后续从麦克风页面启动时自动切到车外 | 移除 `toggle()` 中 `setPreferExternalMode(true)` 调用，`forceExternal` 仅控制本次输出模式 |
+| MicrophoneManager.java | 反射调用 `getErrorCode()` 在车机 Android 版本上不存在，每次初始化都抛出 NoSuchMethodException | 移除 `getAudioRecordErrorCode()` 方法及相关调用 |
+
+---
+
+## v1.5.7 增强麦克风初始化日志与动态缓冲区 (versionCode: 94)
+
+### 优化的功能
+
+| 文件 | 功能 | 说明 |
+|------|------|------|
+| MicrophoneManager.java | 动态缓冲区大小 | 每次初始化时动态调用 `getMinBufferSize()` 获取缓冲区大小，避免类加载时获取的静态值在音频系统状态变化后失效 |
+| MicrophoneManager.java | 详细初始化日志 | 记录静态 BUFFER_SIZE、动态缓冲区大小、音频源名称、AudioRecord 状态、错误码（API 29+）、sessionId |
+| MicrophoneManager.java | 调用堆栈日志 | 在 `start()` 方法中记录调用线程名称、线程 ID 和调用者堆栈，便于定位第三方调用（Intent/Broadcast）问题 |
+| MicrophoneManager.java | 资源释放日志 | 在 `releaseResources()` 中记录释放前后的 AudioRecord/AudioTrack 状态，确认资源是否真正释放 |
+| MicOutputController.java | 状态前置日志 | 在 `startAnnouncement()` 中记录音乐播放器状态（isPlaying）、AudioFocusManager 状态，便于分析音乐播放与车外喊话的资源竞争 |
+
+### 修复的潜在问题
+
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| MicrophoneManager.java | BUFFER_SIZE 作为 static final 在类加载时获取，若此时音频系统状态异常则整个生命周期都使用错误值 | 新增 `getBufferSize()` 方法，每次初始化时动态获取缓冲区大小 |
+
+---
+
+## v1.5.7 增强悬浮窗按钮可视性 (versionCode: 93)
+
+### 优化的功能
+
+| 文件 | 功能 | 说明 |
+|------|------|------|
+| floating_button_light.xml | 按钮边框 | 添加 2dp 浅灰色边框（#BDBDBD），增强浅色模式下按钮边界识别 |
+| floating_button_dark.xml | 按钮边框 | 添加 2dp 中灰色边框（#757575），增强深色模式下按钮边界识别 |
+| floating_button_dark_selected.xml | 按钮边框 | 添加 2dp 亮灰色边框（#9E9E9E），增强选中状态按钮边界识别 |
+
+---
+
+## v1.5.7 优化通知更新与车外喊话输出模式恢复 (versionCode: 92)
+
+### 优化的功能
+
+| 文件 | 功能 | 说明 |
+|------|------|------|
+| AudioForegroundService.java | 通知更新防抖 | 添加 200ms 防抖间隔，避免快速切换歌曲时通知栏频繁闪烁 |
+
+### 修复的问题
+
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| MicOutputController.java | 车外喊话停止后输出模式未恢复，仍保持 OUTPUT_EXTERNAL | 在 `stopAnnouncement()` 中恢复 `savedOutputMode`，同步更新 UI 按钮状态和音乐播放器音频属性 |
 
 ---
 

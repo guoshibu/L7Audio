@@ -207,11 +207,6 @@ public class MicOutputController {
         }
         lastToggleTime = now;
 
-        // 强制车外时同步记录用户偏好
-        if (forceExternal) {
-            setPreferExternalMode(true);
-        }
-
         if (isAnnouncing) {
             stopAnnouncement(showToast);
         } else {
@@ -241,8 +236,34 @@ public class MicOutputController {
         AudioFocusManager focusManager = locator.getAudioFocusManager();
         MicrophoneManager micManager = locator.getMicrophoneManager();
 
+        AppLog.i(TAG, "========== startAnnouncement() called ==========");
+        AppLog.i(TAG, "forceExternal=" + forceExternal + ", showToast=" + showToast);
+
+        // 记录音乐播放器状态
+        try {
+            com.aug32.l7audio.domain.audio.player.MusicPlayerManager musicManager = locator.getMusicPlayerManager();
+            if (musicManager != null) {
+                boolean isPlaying = musicManager.isPlaying();
+                AppLog.i(TAG, "MusicPlayerManager: isPlaying=" + isPlaying);
+            } else {
+                AppLog.i(TAG, "MusicPlayerManager: null (lazy init not triggered)");
+            }
+        } catch (Exception e) {
+            AppLog.e(TAG, "Failed to get music player state", e);
+        }
+
+        // 记录 AudioFocus 状态
+        try {
+            if (focusManager != null) {
+                AppLog.i(TAG, "AudioFocusManager: instance exists (will request transient focus)");
+            }
+        } catch (Exception e) {
+            AppLog.e(TAG, "Failed to get audio focus state", e);
+        }
+
         if (outputManager == null || focusManager == null || micManager == null) {
             AppLog.e(TAG, "Required manager is null, cannot start announcement");
+            AppLog.e(TAG, "  outputManager=" + outputManager + ", focusManager=" + focusManager + ", micManager=" + micManager);
             return;
         }
 
@@ -250,6 +271,7 @@ public class MicOutputController {
         try {
             if (locator.getTTSManager() != null && locator.getTTSManager().isSpeaking()) {
                 locator.getTTSManager().stop();
+                AppLog.d(TAG, "Stopped TTS before announcement");
             }
         } catch (Exception e) {
             AppLog.e(TAG, "Failed to stop TTS", e);
@@ -300,7 +322,7 @@ public class MicOutputController {
     /**
      * 停止喊话
      * <p>
-     * 流程：停止麦克风 → 停止静音检测 → 释放焦点 → 通知UI
+     * 流程：停止麦克风 → 停止静音检测 → 恢复输出模式 → 释放焦点 → 通知UI
      * </p>
      *
      * @param showToast true=显示Toast，false=不显示
@@ -311,8 +333,9 @@ public class MicOutputController {
         AudioServiceLocator locator = AudioServiceLocator.getInstance();
         AudioFocusManager focusManager = locator.getAudioFocusManager();
         MicrophoneManager micManager = locator.getMicrophoneManager();
+        AudioOutputManager outputManager = locator.getAudioOutputManager();
 
-        // 停止麦克风，输出模式保持喊话期间的状态不动
+        // 停止麦克风
         try {
             if (micManager != null) {
                 micManager.stop();
@@ -322,7 +345,22 @@ public class MicOutputController {
         }
 
         isAnnouncing = false;
-        savedOutputMode = -1;
+
+        // 恢复输出模式到喊话前的状态，并同步更新 UI 和音乐播放器
+        if (outputManager != null && savedOutputMode >= 0) {
+            outputManager.setOutputMode(savedOutputMode);
+            AppLog.i(TAG, "stopAnnouncement: restored output mode to " + savedOutputMode);
+            notifyOutputModeChanged(savedOutputMode);
+            try {
+                com.aug32.l7audio.domain.audio.player.MusicPlayerManager musicManager = locator.getMusicPlayerManager();
+                if (musicManager != null) {
+                    musicManager.updateAudioOutputUsage(outputManager.getAudioUsage());
+                }
+            } catch (Exception e) {
+                AppLog.e(TAG, "Failed to update music player audio usage", e);
+            }
+            savedOutputMode = -1;
+        }
 
         // 释放短暂独占焦点，音乐通过焦点回调自动恢复
         if (focusManager != null) {
@@ -364,24 +402,38 @@ public class MicOutputController {
                     continue;
                 }
 
-                float rms = micManager.getCurrentRms();// 获取当前音频帧的 RMS 均值（处理前）
+                float rms = micManager.getCurrentRms();
+                long now = System.currentTimeMillis();
+                long elapsedSinceStart = now - detectionStartTime;
+                boolean inGracePeriod = elapsedSinceStart < startupGraceMs;
+
                 if (rms < threshold) {
-                    // 宽限期内不计静音
-                    if (System.currentTimeMillis() - detectionStartTime < startupGraceMs) {
+                    if (inGracePeriod) {
                         silenceStartTime = 0;
+                        AppLog.d(TAG, "Silence check: RMS=" + String.format(java.util.Locale.US, "%.6f", rms) + " < threshold=" + threshold + ", in grace period (" + (startupGraceMs - elapsedSinceStart) + "ms remaining), ignoring");
                     } else if (silenceStartTime == 0) {
-                        silenceStartTime = System.currentTimeMillis();
-                    } else if (System.currentTimeMillis() - silenceStartTime >= timeoutMs) {
-                        AppLog.w(TAG, "Silence timeout reached, auto stop announcement. lastRms=" + String.format(java.util.Locale.US, "%.4f", rms));
-                        mainHandler.post(() -> {
-                            stopAnnouncement(false);
-                            notifyAutoClosed("长时间无声音输入");
-                        });
-                        break;
+                        silenceStartTime = now;
+                        AppLog.d(TAG, "Silence check: RMS=" + String.format(java.util.Locale.US, "%.6f", rms) + " < threshold=" + threshold + ", silence started, will timeout in " + timeoutMs + "ms");
+                    } else {
+                        long silenceDuration = now - silenceStartTime;
+                        long remainingMs = timeoutMs - silenceDuration;
+                        if (remainingMs <= 0) {
+                            AppLog.w(TAG, "Silence timeout reached, auto stop announcement. RMS=" + String.format(java.util.Locale.US, "%.6f", rms) + ", silenceDuration=" + silenceDuration + "ms, timeout=" + timeoutMs + "ms");
+                            mainHandler.post(() -> {
+                                stopAnnouncement(false);
+                                notifyAutoClosed("长时间无声音输入");
+                            });
+                            break;
+                        } else if (remainingMs <= 3000 || remainingMs % 2000 == 0) {
+                            AppLog.d(TAG, "Silence check: RMS=" + String.format(java.util.Locale.US, "%.6f", rms) + " < threshold=" + threshold + ", elapsed=" + silenceDuration + "ms, remaining=" + remainingMs + "ms");
+                        }
                     }
                 } else {
-                    // 有声音输入，重置计时
+                    long previousDuration = silenceStartTime > 0 ? now - silenceStartTime : 0;
                     silenceStartTime = 0;
+                    if (previousDuration > 0) {
+                        AppLog.d(TAG, "Silence check: RMS=" + String.format(java.util.Locale.US, "%.6f", rms) + " >= threshold=" + threshold + ", silence broken after " + previousDuration + "ms, timer reset");
+                    }
                 }
 
                 try { Thread.sleep(checkIntervalMs); } catch (InterruptedException ignored) { break; }

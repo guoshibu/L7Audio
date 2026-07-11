@@ -83,6 +83,11 @@ public class AudioForegroundService extends Service {
     private String currentTitle = "L7Audio";
     private String currentArtist = "";
 
+    /** 通知更新防抖间隔（毫秒），避免快速切换歌曲时通知栏频繁闪烁 */
+    private static final long UPDATE_DEBOUNCE_MS = 200;
+    /** 上次通知更新时间戳 */
+    private long lastUpdateTime = 0;
+
     /**
      * 服务创建时调用
      *
@@ -362,6 +367,12 @@ public class AudioForegroundService extends Service {
      * 包括播放/暂停状态、歌曲名、艺术家、专辑封面。
      */
     public void updateNotification() {
+        long now = System.currentTimeMillis();
+        if (now - lastUpdateTime < UPDATE_DEBOUNCE_MS) {
+            return;
+        }
+        lastUpdateTime = now;
+
         AppLog.d(TAG, "updateNotification called, isPlaying=" + isPlaying);
         try {
             MusicPlayerManager manager = com.aug32.l7audio.domain.audio.AudioServiceLocator.getInstance()
