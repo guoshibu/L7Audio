@@ -25,11 +25,23 @@
         <activity
             android:name=".ui.activity.MainActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:configChanges="orientation|screenLayout|keyboardHidden|uiMode"
             android:screenOrientation="sensor">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ui.activity.MicToggleActivity"
+            android:exported="true"
+            android:theme="@style/Theme.L7Audio.Transparent"
+            android:excludeFromRecents="true"
+            android:screenOrientation="sensor">
+            <intent-filter>
+                <action android:name="com.aug32.l7audio.ACTION_TOGGLE_MIC" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 

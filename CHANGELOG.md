@@ -1,9 +1,128 @@
 # L7Audio CHANGELOG
 
-> 日期：2026-07-09
-> 版本：v1.5.5 (versionCode: 66)
+> 日期：2026-07-11
+> 版本：v1.5.7 (versionCode: 90)
 
 ---
+
+---
+
+## v1.5.7 新增第三方 Intent 调用方式 (versionCode: 90)
+
+### 新增功能
+
+| 文件 | 功能 | 说明 |
+|------|------|------|
+| MicToggleActivity.java | 新增透明 Activity，支持 Intent 调用车外喊话 | 通过 `startActivity` 触发，保证完整初始化音频管线 |
+| themes.xml | 新增透明主题 `Theme.L7Audio.Transparent` | 用于 MicToggleActivity，无 UI 显示 |
+
+### 修复的问题
+
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| MicOutputReceiver.java | 广播触发时 `AudioServiceLocator` 未初始化，导致 Manager 为 null 静默失败 | 广播接收时主动调用 `locator.init()` |
+
+### 变更说明
+
+- **推荐方式**：第三方 APP 使用 Intent `com.aug32.l7audio.ACTION_TOGGLE_MIC` 通过 `startActivity` 调用
+- **兼容方式**：保留原有广播 `com.aug32.l7audio.OUTSIDE_MIC_TOGGLE`，但已修复初始化问题
+
+---
+
+## v1.5.6 修复悬浮窗跳转编辑对话框问题 (versionCode: 89)
+
+### 修复的问题
+
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| TTSFragment.java | 从悬浮窗跳转时 `open_floating_editor` 在数据加载前执行，对话框显示为空 | 使用 `pendingFloatingEditor` 标志延迟到数据加载完成后再打开对话框，防止 LiveData 多次发射导致请求丢失 |
+
+---
+
+## v1.5.6 性能优化与稳定性修复 (versionCode: 88)
+
+### 修复的问题
+
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| FloatingWindowService.java | onDestroy 未注销 MicOutputListener，服务实例泄漏 | 添加 removeListener |
+| FloatingWindowService.java | retrySetupTTSRunnable 无限重试 | 加最大重试次数 10 次后放弃 |
+| MicOutputController.java | 静音检测使用 postProcessRms 被 AGC 拉平，静音检测形同虚设 | 改用 getCurrentRms() 获取原始输入 RMS |
+| MicrophoneManager.java | 录制线程异常崩溃后不释放资源，AudioRecord/AudioTrack 泄漏 | catch 中调用 releaseResources() |
+| MicrophoneManager.java | AudioRecord.read() 永久阻塞导致僵尸线程 | stop() 中先 stop AudioRecord 强制解除阻塞 |
+| TTSManager.java | 模拟进度 Runnable 每 200ms 轮询，空转性能浪费 | 删除 progressHandler/progressRunnable/currentProgress 及所有 onTTSProgress 调用 |
+| AudioFocusManager.java | `hasPlaybackFocus`/`hasTransientFocus` 非 volatile，Binder 线程写入对 synchronized 方法不可见 | 加 volatile |
+| AudioFocusManager.java | `focusListener` 在系统 Binder 线程回调，dispatch 触发的 ExoPlayer API 可能崩溃 | synchronized 写 flag + mainHandler.post 切主线程分发 |
+| AudioFocusManager.java | `requestTransientFocus()` 在申请成功前就设 `hasTransientFocus=true` | 移到申请成功后再设 |
+| PlaybackController.java | `isInternalFocusChange` 死代码（异步回调永远不拦截） | 删除全部 8 处引用 |
+| TTSRepository.java | `addTTSItem`/`removeTTSItem` 通过异步 saveTTSItems 写入，并发增删丢失数据 | 改为同步写入，消除读-改-写竞态 |
+| TTSRepository.java | `loadTTSItemsSync()` 读路径含写磁盘副作用 | 默认创建/保存逻辑移到构造函数 |
+| MusicConfig.java + AppConfig.java | `setShuffleModeEnabled` 无对应 getter | 新增 `isShuffleModeEnabled()` |
+| AudioServiceLocator.java | `registerManagers()` 参数无 null 保护，传 null 会覆盖已有实例 | 各参数加 null 守卫，已有值不被覆盖 |
+| PlaybackController.java | `play()`/`resume()` 中 `requestFocus()` 被拒仍继续播放 | 焦点被拒时直接 return 不播放 |
+| AudioForegroundService.java | `ACTION_STOP` 不调 `stopForeground()`，通知栏残留 | 添加 `stopForeground(false)` + `stopSelf()` |
+| MusicItem.java | `lyrics`/`lyricsModified` 计算线程写主线程读，数据竞争 | 加 volatile |
+| MediaSessionManager.java | MediaSession 永不 release | 新增 `release()` 方法 |
+| MediaSessionManager.java | 缺失 `onStop()`/`onSeekTo()` 回调 + 对应 actions | 补充回调与 PlaybackState actions |
+| MusicPlayerManager.java | `seekTo()` 后不刷新 MediaSession 位置 | 添加 notifyMediaSessionPlaybackState 调用 |
+| PlaylistManager.java | `gson.toJson()` O(N) 在防抖 Handler 主线程 + 锁内执行 | 改为 IO 线程异步序列化 |
+| AlbumArtCache.java | 磁盘缓存无淘汰 → 竞态 + 写磨损 + 字节管理 | 删除全部磁盘存储，put() 只预热 LruCache |
+| PlaylistManager.java | `getRandomIndex()` 偏倚——下一首概率是其他歌的 2 倍 | 改为拒绝采样循环，保证无偏 |
+| PlaylistManager.java | 播放列表无大小上限，SP 序列化 O(N) 无保护 | 新增 MAX_PLAYLIST_SIZE=1000 上限检查 |
+| FileBrowserAdapter.java | `getChildCount()` 中 `dir.listFiles()` 在 UI 线程阻塞 RecyclerView 滑动 | 后台线程预计算 childCount 写入 FileItem，UI 线程直接读内存字段 |
+| FileItem.java | `lastModified` 全局未读，dead code | 删除字段；新增 `childCount` 字段 |
+| FileUtils.java + 3 文件 | `AUDIO_EXTENSIONS` 数组在 3 处重复定义 | 集中到 FileUtils.AUDIO_EXTENSIONS |
+| MicOutputFragment.java | `isAmplifying` 跨线程读写无 volatile | 加 volatile |
+| MusicPlayerFragment.java | 6 处 `Toast.makeText(getActivity())` 无 `getActivity()` null guard；`hasStoragePermission()` 使用 `requireActivity()` 无 `isAdded()` 守卫 | 加 null guard；`requireActivity()` → `getActivity()` + null check |
+| MusicPlayerFragment.java | `getResources().getColor()` 已废弃 | 改为 `ContextCompat.getColor()` |
+| SettingsFragment.java | 多处 `requireActivity()/requireContext()` 在 listener 回调中无 `isAdded()` 守卫 | 加 `if (!isAdded()) return;` + 部分改为 `getActivity()/getContext()` null check |
+| AdaptiveFeedbackCancellationProcessor.java | AFC xpos 双重推进导致环形缓冲间隙，低延迟 taps 读不到最新参考数据 | 删除 process() 中 `xpos = (xpos + 1) % FILTER_LENGTH`，每 4 帧后缓冲变为完美 FIFO |
+| AdaptiveFeedbackCancellationProcessor.java | 双讲检测逐样本进行，误判率高 | 改为帧级能量累计后统一判断 |
+| SpectralNoiseReduction | 帧长非256整数倍时尾部样本未处理，输出错误数据 | 修改帧处理逻辑，使用向上取整和零填充处理残余帧 |
+| SpectralNoiseReduction | `System.arraycopy` 越界风险 | 添加 `n >= HALF_FFT` 边界检查 |
+| AutomaticGainControlProcessor.java | tanh 软限幅在阈值处不连续，产生 click 噪声 | 对全部样本统一应用 tanh |
+| AutomaticGainControlProcessor.java | GAIN_CHANGE_LIMIT=0.2f 过大，gain pumping 明显 | 降低至 0.05f |
+| GainLimiterProcessor.java | tanh 软限幅在阈值处不连续 | 对全部样本统一应用 tanh |
+| HighPassFilterProcessor.java | 无输出限幅，瞬态响应可能 clip | 添加 clamp(y, -1.0f, 1.0f) |
+| HowlingNotchFilter | 啸叫检测仅分析前512样本，帧后半部分漏检 | 使用分块检测覆盖全帧 |
+| HowlingNotchFilter | 固定阈值未归一化，安静环境误检 | 改为自适应阈值（基于频带平均幅度） |
+| HowlingNotchFilter | 达到最大陷波数时直接丢弃新检测 | 改为替换最旧的陷波 |
+| MusicPlayerManager.java | `ensureAlbumArt()` 中 `MediaMetadataRetriever` I/O 在主线程同步执行，阻塞播放启动 30-200ms | 先调 `playbackController.play()` 确保立即出声，封面提取改为 `AppExecutors` 计算线程异步执行，加载后 `mainHandler.post` 刷新通知/MediaSession |
+| AlbumArtCache.java | `entryRemoved` 淘汰时 `recycle()` Bitmap，外部仍持有引用（MediaSession/通知/Fragment）绘制已回收图 → Crash | 删除 `recycle()`，交由 GC；LruCache `sizeOf` 已正确计入内存 |
+| AlbumArtCache.java | `cacheKey()` 用 `hashCode()` 32 位碰撞，不同文件映射同 key → 封面错位 | 直接用文件路径字符串作 key，消除碰撞 |
+| AudioFocusManager.java | `requestTransientFocus()`/`abandonTransientFocus()` 直接 dispatch，若未来后台线程调用则回调 ExoPlayer 崩溃 | 全部改为 `mainHandler.post` 切主线程，与系统 Binder 回调保持一致 |
+| AudioForegroundService.java | `onDestroy` 回收 `currentAlbumArt`（LruCache 内对象直接引用）→ 缓存对象变 recycled，后续 get 跳过且占条目 | 仅置 null 断开引用，不 recycle |
+| AudioForegroundService.java | `notifyUpdate()` 每次状态变化 `startService` → 频繁 IPC 开销（每 500ms 进度更新触发） | 改为本地广播，零 IPC，进程内直接分发 `updateNotification()` |
+| TTSRepository.java | 构造函数执行 `loadTTSItemsSync()` → 读路径写磁盘副作用，并发增删丢失数据 | 构造函数仅读取，新增 `initializeIfNeeded()` 显式初始化，首次使用前显式调用 |
+| MicOutputController.java | `init()` 无锁，多线程并发初始化可能重复创建 AudioRecord/AudioTrack | 加 `synchronized`，双重检查幂等 |
+| PlaylistManager.java | `addItemsInternal()` 每次重建 `existingPaths` HashSet，O(N) 重复计算 | 类成员 `existingPaths` 增量维护，`loadFromStorage`/`add`/`remove` 增量同步，O(1) 查重 |
+| FloatingWindowService.java | 悬浮窗"添加"按钮点击仍跳转 MainActivity，未直接弹出编辑对话框 | 新增 `showFloatingListEditor()`，直接弹出编辑悬浮窗列表对话框（复用 TTSFragment 逻辑） |
+| FloatingWindowService.java | 自动收起时长 SeekBar 无数值显示 | `tv_auto_hide_label` 实时显示"自动收起时长：X 秒" |
+| FloatingWindowService.java | 悬浮窗 TTS 列表"选择"按钮文案不符合功能 | 文案改为"添加"，点击直接弹出编辑对话框 |
+
+### 性能优化
+
+| 文件 | 优化 |
+|------|------|
+| AlbumArtCache.java | cacheKey() 去掉 MD5+16次 String.format()，改用文件路径直接作 key |
+| AlbumArtCache.java | 去掉 LruCache 淘汰时 `recycle()`，避免外部引用 Crash，交由 GC |
+| PlaylistManager.java | saveToStorage() 防抖（1s 窗口），合并多次增删为一次序列化 |
+| MicrophoneManager.java | L581-583 每帧 2×String.format+拼接在 Release 构建仍执行（~748 临时对象/秒） | 加 `if (BuildConfig.DEBUG)` 包裹，编译器死代码消除 |
+| GainLimiterProcessor.java | 日志字符串在 Release 构建仍拼接执行 | 加 `if (BuildConfig.DEBUG)` 包裹，仅 Debug 构建构造日志字符串 |
+
+### 代码重构
+
+| 文件 | 重构内容 |
+|------|----------|
+| TTSFragment.java | 删内部类 TTSItem，改用 data.model.TTSItem；编辑器悬浮窗配置从 index 匹配迁移为 uid 匹配 |
+| TTSItem.java | 新增 uid（UUID 唯一标识）+ transient isPlaying（View 层播放状态） |
+| FloatingWindowConfig.java | 新增 tts_selected_uids / tts_names_by_uid getter/setter，旧 indices/names 方法保留但不使用 |
+| FloatingWindowService.java | loadTTSItems() 按 uid 匹配而非下标，删除按钮按 uid 删除 |
+| AppConfig.java | 新增 getFloatingWindowTTSSelectedUids / setFloatingWindowTTSSelectedUids / getFloatingWindowTTSNamesByUid / setFloatingWindowTTSNamesByUid |
+| GainLimiterProcessor.java | 默认 public 构造器可被外部实例化 | 改为 private 构造器 |
+| HighPassFilterProcessor.java | B1 系数无注释说明来源 | 加注释：对应 @80Hz 截止频率（fs=48000） |
+| SpectralAndNotchProcessor.java | SpectralNoiseReduction / HowlingNotchFilter 内部类缺 Javadoc | 补充类注释说明算法原理 |
+| AutomaticGainControlProcessor.java | 无运行时日志，增益变化不可追踪 | 加 `if (BuildConfig.DEBUG)` 包裹的增益/smoothedRms 日志 |
 
 ---
 

@@ -80,7 +80,47 @@ L7Audio 是一款运行于 Android 系统的音频处理应用，专为吉利银
 - **防抖保护**：屏蔽快速连续触发（500-2000ms可配置），避免麦克风频繁启停导致啸叫和硬件损伤
 - **闲置自动关闭**：无声音输入超时后自动关闭（5-300秒可配置），防止忘记关闭
 - **状态同步**：悬浮窗和麦克风页面状态实时同步
-- **第三方按键支持**：接收广播 `com.aug32.l7audio.OUTSIDE_MIC_TOGGLE` 触发车外喊话（触发后开启，再次触发关闭）
+- **第三方按键支持**：支持 Intent 和广播两种方式触发车外喊话（触发后开启，再次触发关闭）
+  - Intent（推荐）：`com.aug32.l7audio.ACTION_TOGGLE_MIC`，通过 `startActivity` 调用，更可靠
+  - 广播：`com.aug32.l7audio.OUTSIDE_MIC_TOGGLE`，通过 `sendBroadcast` 调用
+
+#### 🔌 第三方调用详细说明
+
+**方式一：Intent 调用（推荐）**
+
+```java
+// 第三方 APP 代码示例
+Intent intent = new Intent("com.aug32.l7audio.ACTION_TOGGLE_MIC");
+intent.setPackage("com.aug32.l7audio");
+intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+context.startActivity(intent);
+```
+
+**特点**：
+- 通过 `startActivity` 触发，能保证应用进程完整初始化
+- 避免广播方式下 `AudioServiceLocator` 内部各 Manager 为 null 导致的静默失败
+- 更可靠，不受后台广播限制
+
+**方式二：广播调用（兼容）**
+
+```java
+// 第三方 APP 代码示例
+Intent intent = new Intent("com.aug32.l7audio.OUTSIDE_MIC_TOGGLE");
+context.sendBroadcast(intent);
+```
+
+**特点**：
+- 通过 `sendBroadcast` 触发
+- 适合实体按键映射工具（如 Key Mapper、Button Mapper）
+- 已修复初始化问题，但仍建议使用 Intent 方式
+
+**按键映射工具配置示例（以 Key Mapper 为例）**：
+
+| 配置项 | 值 |
+|--------|-----|
+| Action | `com.aug32.l7audio.ACTION_TOGGLE_MIC` |
+| Target | Activity |
+| Package Name | `com.aug32.l7audio` |
 
 ### 📢 文字转语音（TTS）
 
@@ -224,7 +264,8 @@ L7Audio/
 │   │   │   │       └── TTSRepository.java   # TTS 数据仓库
 │   │   │   ├── ui/                          # UI 层
 │   │   │   │   ├── activity/
-│   │   │   │   │   └── MainActivity.java    # 主 Activity
+│   │   │   │   │   ├── MainActivity.java    # 主 Activity
+│   │   │   │   │   └── MicToggleActivity.java # 第三方 Intent 触发入口（透明 Activity）
 │   │   │   │   ├── fragment/
 │   │   │   │   │   ├── micoutput/MicOutputFragment.java  # 麦克风放大页面
 │   │   │   │   │   ├── tts/TTSFragment.java              # TTS 页面
@@ -410,7 +451,9 @@ L7Audio/
 
 **设计特点**：
 - DCL 双重检查锁懒加载单例，确保全局唯一
-- 支持第三方 APP 通过广播 `com.aug32.l7audio.OUTSIDE_MIC_TOGGLE` 触发控制
+- 支持第三方 APP 通过 Intent 和广播两种方式触发控制：
+  - Intent（推荐）：`com.aug32.l7audio.ACTION_TOGGLE_MIC`，通过 `startActivity` 调用，更可靠
+  - 广播：`com.aug32.l7audio.OUTSIDE_MIC_TOGGLE`，通过 `sendBroadcast` 调用
 - Toast 提示增强：开启/关闭/自动关闭均显示提示
 
 ### 11. AudioProcessor / AudioPipeline — 音频处理管线
@@ -585,6 +628,24 @@ adb install app/build/outputs/apk/release/L7音频工具-versionName-versionCode
 ---
 
 ## 版本历史
+
+### v1.5.7 (versionCode: 90)
+- ✨ **新增第三方 Intent 调用方式**：新增 `MicToggleActivity` 透明 Activity，支持通过 `startActivity` 触发车外喊话
+  - Intent Action：`com.aug32.l7audio.ACTION_TOGGLE_MIC`
+  - 相比广播方式更可靠，保证完整初始化音频管线
+- 🐛 **修复广播触发静默失败**：`MicOutputReceiver` 添加 `AudioServiceLocator.init()` 调用，确保各 Manager 正确初始化
+- 🔧 **更新设置页面第三方调用说明**：标注 Intent 为推荐方式
+
+### v1.5.6 (versionCode: 70)
+- 🐛 **修复静音检测失效**：MicOutputController 改用 pre-RMS（getCurrentRms），替代被 AGC 拉平的 postProcessRms
+- 🐛 **修复录制线程崩溃不释放资源**：MicrophoneManager catch 中主动调用 releaseResources()
+- 🐛 **修复 AudioRecord 阻塞导致僵尸线程**：stop() 中先 stop AudioRecord 强制解除 read 阻塞
+- 🐛 **修复悬浮窗服务泄漏**：FloatingWindowService onDestroy 未注销 MicOutputListener
+- 🐛 **修复 TTS 监听无限重试**：retrySetupTTSRunnable 加最多 10 次重试上限
+- 🐛 **修复 TTS 模拟进度空转**：删除 progressHandler/progressRunnable/currentProgress 及所有 onTTSProgress 调用
+- 🚀 **性能优化**：AlbumArtCache 去掉 MD5 cacheKey 改用 hashCode；LruCache 淘汰时主动 recycle() Bitmap；PlaylistManager saveToStorage 防抖 1s 窗口
+- 🔧 **TTS 悬浮窗持久化迁移至 uid 方案**：TTSItem 新增 uid(UUID) + transient isPlaying；删 TTSFragment 内部类，改用 model；悬浮窗编辑器按 uid 匹配
+- 🔧 versionCode 69 → 70
 
 ### v1.5.5 (versionCode: 66)
 - 🐛 **修复 Buffer 脏数据导致的人声失真**：MicrophoneManager `samples`数组大小动态匹配 `readSize/2`，消除三抑制模块同时开启时的失真

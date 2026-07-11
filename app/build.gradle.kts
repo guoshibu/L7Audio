@@ -18,9 +18,9 @@ android {
         applicationId = "com.aug32.l7audio"
         minSdk = 30
         targetSdk = 30
-        versionCode = 67
+        versionCode = 90
 
-        versionName = "1.5.6"
+        versionName = "1.5.7"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -136,4 +136,7 @@ dependencies {
     implementation(libs.lifecycle.viewmodel)
     implementation(libs.lifecycle.livedata)
     implementation(libs.lifecycle.runtime)
+
+    // LocalBroadcastManager（本地广播，替代 startService IPC）
+    implementation(libs.localbroadcastmanager)
 }

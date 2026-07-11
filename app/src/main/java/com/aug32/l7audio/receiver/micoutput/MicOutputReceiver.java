@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 
+import com.aug32.l7audio.domain.audio.AudioServiceLocator;
 import com.aug32.l7audio.domain.audio.micoutput.MicOutputController;
 import com.aug32.l7audio.utils.AppLog;
 
@@ -51,16 +52,19 @@ public class MicOutputReceiver extends BroadcastReceiver {
 
         AppLog.d(TAG, "Received OUTSIDE_MIC_TOGGLE broadcast, toggling announcement");
 
-        // 确保 Controller 已初始化
+        Context appContext = context.getApplicationContext();
+
+        AudioServiceLocator locator = AudioServiceLocator.getInstance();
+        locator.init(appContext);
+
         MicOutputController controller = MicOutputController.getInstance();
         if (controller != null) {
-            // 首次通过广播触发时，Controller 可能未初始化
-            // 使用 context.getApplicationContext() 避免持有 Receiver Context 引用
             if (!controller.isInitialized()) {
-                controller.init(context.getApplicationContext());
+                controller.init(appContext);
             }
-            // 强制车外输出，显示Toast（仅第三方调用时显示）
             controller.toggle(true, true);
+        } else {
+            AppLog.e(TAG, "MicOutputController instance is null, broadcast ignored");
         }
     }
 }

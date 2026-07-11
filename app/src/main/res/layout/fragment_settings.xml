@@ -640,7 +640,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="广播Action: com.aug32.l7audio.OUTSIDE_MIC_TOGGLE"
+                    android:text="方法一（推荐）- Intent：com.aug32.l7audio.ACTION_TOGGLE_MIC"
                     android:textColor="?android:attr/textColorSecondary"
                     android:textSize="12sp"
                     android:layout_marginTop="8dp"/>
@@ -648,10 +648,26 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="发送此广播可触发车外喊话开关（开→关/关→开），支持实体按键控制。"
+                    android:text="通过 startActivity 调用，更可靠，保证完整初始化。"
                     android:textColor="?android:attr/textColorSecondary"
                     android:textSize="12sp"
-                    android:layout_marginTop="4dp"/>
+                    android:layout_marginTop="2dp"/>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="方法二 - 广播：com.aug32.l7audio.OUTSIDE_MIC_TOGGLE"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="12sp"
+                    android:layout_marginTop="8dp"/>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="发送广播触发车外喊话开关（开→关/关→开），支持实体按键控制。"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="12sp"
+                    android:layout_marginTop="2dp"/>
 
             </LinearLayout>
 
