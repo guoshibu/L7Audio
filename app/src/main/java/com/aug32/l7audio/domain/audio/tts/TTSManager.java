@@ -8,8 +8,6 @@ import android.speech.tts.UtteranceProgressListener;
 
 import java.util.Locale;
 
-import android.os.Looper;
-
 import com.aug32.l7audio.domain.audio.micoutput.AudioOutputManager;
 import com.aug32.l7audio.utils.AppLog;
 
@@ -37,7 +35,7 @@ public class TTSManager implements TextToSpeech.OnInitListener {
     /**
      * TTS播报进度监听器接口
      *
-     * <p>用于监听TTS播报的开始、完成、错误和进度更新事件。
+     * <p>用于监听TTS播报的开始、完成和错误事件。
      */
     public interface TTSProgressListener {
         /**
@@ -54,13 +52,6 @@ public class TTSManager implements TextToSpeech.OnInitListener {
          * TTS播报错误回调
          */
         void onTTSError();
-
-        /**
-         * TTS播报进度更新回调
-         *
-         * @param progress 当前进度百分比（0-100）
-         */
-        void onTTSProgress(int progress);
     }
 
     /** 上下文对象 */
@@ -74,19 +65,13 @@ public class TTSManager implements TextToSpeech.OnInitListener {
     private boolean isInitialized = false;
     /** 进度监听器 */
     private TTSProgressListener progressListener;
-    /** 进度更新Handler */
-    private android.os.Handler progressHandler;
-    /** 进度更新Runnable */
-    private Runnable progressRunnable;
-    /** 当前播报进度（0-100） */
-    private int currentProgress = 0;
     /** 是否正在播报 */
     private boolean isSpeaking = false;
 
     /**
      * 构造函数
      *
-     * <p>初始化TTS引擎，使用默认语速和音调（1.0f），并启动进度更新定时器。
+     * <p>初始化TTS引擎，使用默认语速和音调（1.0f）。
      *
      * @param context            上下文对象
      * @param audioOutputManager 音频输出管理器，用于获取音频输出模式
@@ -97,23 +82,6 @@ public class TTSManager implements TextToSpeech.OnInitListener {
 
         textToSpeech = new TextToSpeech(context, this);
         AppLog.d(TAG, "TTSManager initialized");
-
-        progressHandler = new android.os.Handler(Looper.getMainLooper());
-        progressRunnable = new Runnable() {
-            @Override
-            public void run() {
-                if (isSpeaking && progressListener != null) {
-                    currentProgress += 5;
-                    if (currentProgress > 100) {
-                        currentProgress = 100;
-                    }
-                    progressListener.onTTSProgress(currentProgress);
-                    if (currentProgress < 100) {
-                        progressHandler.postDelayed(this, 200);
-                    }
-                }
-            }
-        };
     }
 
     /**
@@ -193,10 +161,8 @@ public class TTSManager implements TextToSpeech.OnInitListener {
                     public void onStart(String utteranceId) {
                         AppLog.d(TAG, "TTS started: " + utteranceId);
                         isSpeaking = true;
-                        currentProgress = 0;
                         if (progressListener != null) {
                             progressListener.onTTSStart();
-                            progressHandler.post(progressRunnable);
                         }
                     }
 
@@ -204,36 +170,27 @@ public class TTSManager implements TextToSpeech.OnInitListener {
                     public void onDone(String utteranceId) {
                         AppLog.d(TAG, "TTS done: " + utteranceId);
                         isSpeaking = false;
-                        currentProgress = 100;
                         if (progressListener != null) {
-                            progressListener.onTTSProgress(100);
                             progressListener.onTTSDone();
                         }
-                        progressHandler.removeCallbacks(progressRunnable);
                     }
 
                     @Override
                     public void onError(String utteranceId) {
                         AppLog.e(TAG, "TTS error: " + utteranceId);
                         isSpeaking = false;
-                        currentProgress = 0;
                         if (progressListener != null) {
-                            progressListener.onTTSProgress(0);
                             progressListener.onTTSError();
                         }
-                        progressHandler.removeCallbacks(progressRunnable);
                     }
 
                     @Override
                     public void onError(String utteranceId, int errorCode) {
                         AppLog.e(TAG, "TTS error: " + utteranceId + ", code: " + errorCode);
                         isSpeaking = false;
-                        currentProgress = 0;
                         if (progressListener != null) {
-                            progressListener.onTTSProgress(0);
                             progressListener.onTTSError();
                         }
-                        progressHandler.removeCallbacks(progressRunnable);
                     }
                 });
 
@@ -328,17 +285,12 @@ public class TTSManager implements TextToSpeech.OnInitListener {
     /**
      * 停止播报
      *
-     * <p>立即停止当前正在进行的TTS播报，并重置进度状态。
+     * <p>立即停止当前正在进行的TTS播报。
      */
     public synchronized void stop() {
         if (textToSpeech != null && isInitialized) {
             textToSpeech.stop();
             isSpeaking = false;
-            currentProgress = 0;
-            if (progressListener != null) {
-                progressListener.onTTSProgress(0);
-            }
-            progressHandler.removeCallbacks(progressRunnable);
             AppLog.d(TAG, "TTS stopped");
         }
     }
@@ -350,7 +302,6 @@ public class TTSManager implements TextToSpeech.OnInitListener {
      * 调用后不应再使用该 TTSManager 实例。
      */
     public synchronized void shutdown() {
-        progressHandler.removeCallbacks(progressRunnable);
         if (textToSpeech != null) {
             textToSpeech.stop();
             textToSpeech.shutdown();

@@ -7,6 +7,9 @@ import android.media.AudioManager;
 
 import androidx.annotation.NonNull;
 
+import android.os.Handler;
+import android.os.Looper;
+
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -40,13 +43,15 @@ public class AudioFocusManager {
     private AudioFocusRequest playbackFocusRequest;
     // 短暂独占焦点请求对象
     private AudioFocusRequest transientFocusRequest;
-    // 是否持有音乐播放焦点
-    private boolean hasPlaybackFocus = false;
-    // 是否持有短暂独占焦点
-    private boolean hasTransientFocus = false;
+    // 是否持有音乐播放焦点（volatile 确保 focusListener 在 Binder 线程的写入对 synchronized 方法可见）
+    private volatile boolean hasPlaybackFocus = false;
+    // 是否持有短暂独占焦点（同上）
+    private volatile boolean hasTransientFocus = false;
 
     // 音频焦点变化监听器列表（使用弱引用防止内存泄漏）
     private final List<WeakReference<OnAudioFocusChangeListener>> listeners = new ArrayList<>();
+    // 主线程 Handler，用于将焦点回调分发切到主线程（避免在 Binder 线程调 ExoPlayer API）
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     /**
      * 音频焦点变化监听器接口
@@ -288,7 +293,6 @@ public class AudioFocusManager {
         if (hasTransientFocus) {
             return true;
         }
-        hasTransientFocus = true;
         // 若已持有播放焦点，先主动释放以让短暂独占焦点可以获取
         if (hasPlaybackFocus && playbackFocusRequest != null) {
             audioManager.abandonAudioFocusRequest(playbackFocusRequest);
@@ -309,13 +313,13 @@ public class AudioFocusManager {
         }
         int result = audioManager.requestAudioFocus(transientFocusRequest);
         boolean granted = (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
-        if (!granted) {
-            hasTransientFocus = false;
-            AppLog.w(TAG, "requestTransientFocus => denied");
+        if (granted) {
+            hasTransientFocus = true;
+            // 短暂焦点获取后，手动分发短暂失去焦点事件，让音乐播放等组件暂停（切主线程避免 Binder 线程调 ExoPlayer）
+            AppLog.d(TAG, "Posting dispatchLostTransient to main thread");
+            mainHandler.post(AudioFocusManager.this::dispatchLostTransient);
         } else {
-            // 短暂焦点获取后，手动分发短暂失去焦点事件，让音乐播放等组件暂停
-            AppLog.d(TAG, "Manually dispatching focus lost transient after transient focus request");
-            dispatchLostTransient();
+            AppLog.w(TAG, "requestTransientFocus => denied");
         }
         return granted;
     }
@@ -333,9 +337,9 @@ public class AudioFocusManager {
         }
         audioManager.abandonAudioFocusRequest(transientFocusRequest);
         hasTransientFocus = false;
-        // 短暂焦点释放后，手动分发焦点获取事件，让音乐播放等组件恢复
-        AppLog.d(TAG, "Manually dispatching focus gained after transient focus release");
-        dispatchGained();
+        // 短暂焦点释放后，手动分发焦点获取事件，让音乐播放等组件恢复（切主线程）
+        AppLog.d(TAG, "Posting dispatchGained to main thread");
+        mainHandler.post(AudioFocusManager.this::dispatchGained);
     }
 
     /**
@@ -355,34 +359,41 @@ public class AudioFocusManager {
                 @Override
                 public void onAudioFocusChange(int focusChange) {
                     AppLog.d(TAG, "onAudioFocusChange: " + focusChange);
-                    switch (focusChange) {
-                        // 获取焦点的各种情况，统一处理为焦点获取
-                        case AudioManager.AUDIOFOCUS_GAIN:
-                        case AudioManager.AUDIOFOCUS_GAIN_TRANSIENT:
-                        case AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE:
-                        case AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK:
-                            // 只有在没有持有短暂独占焦点时，才更新播放焦点状态并分发事件
-                            // 因为短暂独占焦点期间，不应让音乐播放恢复
-                            if (!hasTransientFocus) {
-                                hasPlaybackFocus = true;
-                                dispatchGained();
-                            }
-                            break;
-                        // 永久失去焦点
-                        case AudioManager.AUDIOFOCUS_LOSS:
-                            hasPlaybackFocus = false;
-                            hasTransientFocus = false;
-                            dispatchLostPermanent();
-                            break;
-                        // 短暂失去焦点（可闪避或不可闪避），统一处理为短暂丢失
-                        case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                        case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
-                            // 如果之前持有播放焦点，则清除播放焦点标记
-                            if (hasPlaybackFocus) {
+                    // synchronized 块内更新 flag，与 public synchronized 方法互斥
+                    // dispatch* 通过 mainHandler.post 切到主线程，避免在 Binder 线程调 ExoPlayer
+                    Runnable dispatchTask;
+                    synchronized (AudioFocusManager.this) {
+                        switch (focusChange) {
+                            case AudioManager.AUDIOFOCUS_GAIN:
+                            case AudioManager.AUDIOFOCUS_GAIN_TRANSIENT:
+                            case AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE:
+                            case AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK:
+                                if (!hasTransientFocus) {
+                                    hasPlaybackFocus = true;
+                                    dispatchTask = AudioFocusManager.this::dispatchGained;
+                                } else {
+                                    dispatchTask = null;
+                                }
+                                break;
+                            case AudioManager.AUDIOFOCUS_LOSS:
                                 hasPlaybackFocus = false;
-                            }
-                            dispatchLostTransient();
-                            break;
+                                hasTransientFocus = false;
+                                dispatchTask = AudioFocusManager.this::dispatchLostPermanent;
+                                break;
+                            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+                            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
+                                if (hasPlaybackFocus) {
+                                    hasPlaybackFocus = false;
+                                }
+                                dispatchTask = AudioFocusManager.this::dispatchLostTransient;
+                                break;
+                            default:
+                                dispatchTask = null;
+                                break;
+                        }
+                    }
+                    if (dispatchTask != null) {
+                        mainHandler.post(dispatchTask);
                     }
                 }
             };

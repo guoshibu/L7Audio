@@ -302,6 +302,7 @@ public class SettingsFragment extends BaseFragment {
     protected void initListeners() {
         // 主题切换
         themeRadioGroup.setOnCheckedChangeListener((group, checkedId) -> {
+            if (!isAdded()) return;
             int themeMode = AppConfig.THEME_MODE_SYSTEM;
             if (checkedId == R.id.theme_system) {
                 themeMode = AppConfig.THEME_MODE_SYSTEM;
@@ -328,12 +329,14 @@ public class SettingsFragment extends BaseFragment {
 
         // 开机自启动开关
         autoStartSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (!isAdded()) return;
             themeConfig.setAutoStartOnBoot(isChecked);
             BootReceiver.enable(requireContext());
         });
 
         // 悬浮窗开关
         floatingWindowSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (!isAdded()) return;
             floatingWindowConfig.setEnabled(isChecked);
             if (isChecked) {
                 startFloatingWindowService();
@@ -344,14 +347,16 @@ public class SettingsFragment extends BaseFragment {
 
         // 返回按钮
         btnBack.setOnClickListener(v -> {
-            MainActivity activity = (MainActivity) requireActivity();
-            activity.showMainInterface();
+            if (!isAdded()) return;
+            MainActivity activity = (MainActivity) getActivity();
+            if (activity != null) activity.showMainInterface();
         });
 
         // 主页按钮
         btnHome.setOnClickListener(v -> {
-            MainActivity activity = (MainActivity) requireActivity();
-            activity.showMainInterface();
+            if (!isAdded()) return;
+            MainActivity activity = (MainActivity) getActivity();
+            if (activity != null) activity.showMainInterface();
         });
 
         // 调试音频路由
@@ -370,8 +375,9 @@ public class SettingsFragment extends BaseFragment {
         // 关于按钮
         if (btnAbout != null) {
             btnAbout.setOnClickListener(v -> {
-                MainActivity activity = (MainActivity) requireActivity();
-                activity.showAboutFragment();
+                if (!isAdded()) return;
+                MainActivity activity = (MainActivity) getActivity();
+                if (activity != null) activity.showAboutFragment();
             });
         }
 
@@ -388,12 +394,15 @@ public class SettingsFragment extends BaseFragment {
      * 所有音频设备详细列表（输入+输出）、系统信息等。
      */
     private void displayAudioRoutes() {
+        if (!isAdded()) return;
         StringBuilder routesInfo = new StringBuilder();
         routesInfo.append("═══════ 音频路由详细信息 ═══════\n\n");
 
         try {
+            android.content.Context ctx = getContext();
+            if (ctx == null) return;
             android.media.AudioManager audioManager = (android.media.AudioManager)
-                    requireContext().getSystemService(android.content.Context.AUDIO_SERVICE);
+                    ctx.getSystemService(android.content.Context.AUDIO_SERVICE);
 
             // 一、基本音频信息
             routesInfo.append("【一、基本音频信息】\n");
@@ -690,11 +699,14 @@ public class SettingsFragment extends BaseFragment {
      * @param title   标题文字
      */
     private void enumAudioDevices(boolean isInput, String title) {
+        if (!isAdded()) return;
         try {
             StringBuilder info = new StringBuilder();
 
+            android.content.Context ctx = getContext();
+            if (ctx == null) return;
             android.media.AudioManager audioManager = (android.media.AudioManager)
-                    requireContext().getSystemService(android.content.Context.AUDIO_SERVICE);
+                    ctx.getSystemService(android.content.Context.AUDIO_SERVICE);
 
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                 try {
@@ -840,8 +852,7 @@ public class SettingsFragment extends BaseFragment {
             tvAnnouncementStatus.setText(HtmlCompat.fromHtml(message, HtmlCompat.FROM_HTML_MODE_LEGACY));
 
             try {
-                int extUsage = audioOutputManager.getExternalAudioUsage();
-                ttsManager.speakWithUsage("车外喊话设置已保存", extUsage);
+                ttsManager.speakWithUsage("车外喊话设置已保存", audioOutputManager.getCarAudioUsage());
             } catch (Exception e) {
                 AppLog.e(TAG, "Failed to speak", e);
             }
@@ -898,6 +909,7 @@ public class SettingsFragment extends BaseFragment {
      * 并刷新 UI 控件显示默认值。恢复后需要重启应用才能完全生效。
      */
     private void restoreDefaults() {
+        if (!isAdded()) return;
         android.content.SharedPreferences prefs = requireContext().getSharedPreferences(
                 requireContext().getPackageName() + "_preferences", android.content.Context.MODE_PRIVATE);
 

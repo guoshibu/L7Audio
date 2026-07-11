@@ -18,6 +18,9 @@ public class FloatingWindowConfig {
     private static final String PREF_FLOATING_WINDOW_TTS_INDICES = "floating_window_tts_indices";
     private static final String PREF_FLOATING_WINDOW_TTS_NAMES = "floating_window_tts_names";
     private static final String PREF_FLOATING_WINDOW_AUTO_HIDE_TIMEOUT_SEC = "floating_window_auto_hide_timeout_sec";
+    // 新 sp key：基于 uid 的选中持久化，旧 indices/names 数据自然废弃
+    private static final String PREF_FLOATING_WINDOW_TTS_UIDS = "floating_window_tts_uids";
+    private static final String PREF_FLOATING_WINDOW_TTS_NAMES_BY_UID = "floating_window_tts_names_by_uid";
 
     private final SharedPreferences preferences;
 
@@ -101,6 +104,26 @@ public class FloatingWindowConfig {
 
     public void setTTSNames(String namesJson) {
         preferences.edit().putString(PREF_FLOATING_WINDOW_TTS_NAMES, namesJson).apply();
+    }
+
+    /** @return 选中 TTS 项的 uid 列表 JSON，默认 "[]" */
+    public String getTTSSelectedUids() {
+        return preferences.getString(PREF_FLOATING_WINDOW_TTS_UIDS, "[]");
+    }
+
+    /** 持久化选中 TTS 项的 uid 列表 JSON */
+    public void setTTSSelectedUids(String uidsJson) {
+        preferences.edit().putString(PREF_FLOATING_WINDOW_TTS_UIDS, uidsJson).apply();
+    }
+
+    /** @return uid → 自定义名称 映射 JSON，默认 "{}" */
+    public String getTTSNamesByUid() {
+        return preferences.getString(PREF_FLOATING_WINDOW_TTS_NAMES_BY_UID, "{}");
+    }
+
+    /** 持久化 uid → 自定义名称 映射 JSON */
+    public void setTTSNamesByUid(String namesJson) {
+        preferences.edit().putString(PREF_FLOATING_WINDOW_TTS_NAMES_BY_UID, namesJson).apply();
     }
 
     public int getAutoHideTimeoutSec() {

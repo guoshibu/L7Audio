@@ -4,7 +4,8 @@ import com.aug32.l7audio.domain.audio.micoutput.AudioProcessor;
 
 public class HighPassFilterProcessor implements AudioProcessor {
 
-    private static final float B1 = 0.969f;
+    /** 一阶 IIR HPF 反馈系数，对应 @100Hz 截止频率（fs=48000），由 cos(2π * fc / fs) 算得 */
+    private static final float B1 = 0.9998f;
     private float prevX = 0.0f;
     private float prevY = 0.0f;
     private boolean enabled = true;
@@ -17,6 +18,8 @@ public class HighPassFilterProcessor implements AudioProcessor {
             float x = samples[i] / 32768.0f;
             float y = x - prevX + B1 * prevY;
             prevX = x;
+            if (y > 1.0f) y = 1.0f;
+            else if (y < -1.0f) y = -1.0f;
             prevY = y;
             samples[i] = (short) (y * 32767.0f);
         }

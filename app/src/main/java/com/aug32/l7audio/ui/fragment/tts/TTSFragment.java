@@ -23,6 +23,7 @@ import java.util.Map;
 
 import com.aug32.l7audio.base.BaseFragment;
 import com.aug32.l7audio.data.local.config.floating.FloatingWindowConfig;
+import com.aug32.l7audio.data.model.TTSItem;
 import com.aug32.l7audio.domain.audio.AudioServiceLocator;
 import com.aug32.l7audio.domain.audio.AudioVisualizerView;
 import com.aug32.l7audio.domain.audio.tts.TTSManager;
@@ -40,20 +41,13 @@ public class TTSFragment extends BaseFragment {
     private EditText ttsInput;
     private Button btnAddTTS;
     private TTSManager ttsManager;
+    /** ViewModel 数据直接赋值，ttsItems 始终持有最新副本 */
     private List<TTSItem> ttsItems;
     private List<AudioVisualizerView> visualizerViews;
     private int currentlyPlayingPosition = -1;
     private TTSViewModel viewModel;
-
-    private static class TTSItem {
-        String text;
-        boolean isPlaying;
-
-        TTSItem(String text) {
-            this.text = text;
-            this.isPlaying = false;
-        }
-    }
+    /** 是否有待处理的悬浮窗编辑器打开请求（防止 LiveData 多次发射导致请求丢失） */
+    private boolean pendingFloatingEditor = false;
 
     @Override
     protected int getLayoutId() {
@@ -101,10 +95,6 @@ public class TTSFragment extends BaseFragment {
                         });
                     }
                 }
-
-                @Override
-                public void onTTSProgress(int progress) {
-                }
             });
         }
 
@@ -124,13 +114,26 @@ public class TTSFragment extends BaseFragment {
     protected void initData() {
         viewModel = new ViewModelProvider(this).get(TTSViewModel.class);
 
+        // 在观察前先检查并记录悬浮窗编辑器打开请求
+        // 避免 LiveData 多次发射时请求被提前消费
+        if (getActivity() != null && getActivity().getIntent() != null
+                && getActivity().getIntent().getBooleanExtra("open_floating_editor", false)) {
+            pendingFloatingEditor = true;
+            getActivity().getIntent().removeExtra("open_floating_editor");
+        }
+
         viewModel.getTTSItems().observe(getViewLifecycleOwner(), items -> {
             if (items != null) {
-                ttsItems.clear();
-                for (com.aug32.l7audio.data.model.TTSItem item : items) {
-                    ttsItems.add(new TTSItem(item.text));
-                }
+                ttsItems = items;
                 refreshTTSItemsView();
+
+                // 数据加载完成且有悬浮窗编辑器打开请求时，弹出编辑对话框
+                if (pendingFloatingEditor && !items.isEmpty()) {
+                    pendingFloatingEditor = false;
+                    if (getView() != null) {
+                        getView().post(() -> showFloatingListEditor());
+                    }
+                }
             }
         });
     }
@@ -183,12 +186,6 @@ public class TTSFragment extends BaseFragment {
                     stopTTS();
                     currentlyPlayingPosition = -1;
                 }
-                List<com.aug32.l7audio.data.model.TTSItem> defaults = viewModel.getDefaultTTSItems();
-                ttsItems.clear();
-                for (com.aug32.l7audio.data.model.TTSItem item : defaults) {
-                    ttsItems.add(new TTSItem(item.text));
-                }
-                refreshTTSItemsView();
                 viewModel.restoreDefaultTTSItems();
                 Toast.makeText(getSafeContext(), "已恢复默认列表", Toast.LENGTH_SHORT).show();
                 return;
@@ -200,8 +197,6 @@ public class TTSFragment extends BaseFragment {
             } else if (currentlyPlayingPosition > position) {
                 currentlyPlayingPosition--;
             }
-            ttsItems.remove(position);
-            refreshTTSItemsView();
             viewModel.removeTTSItem(position);
             Toast.makeText(getSafeContext(), "已删除", Toast.LENGTH_SHORT).show();
         }
@@ -371,20 +366,21 @@ public class TTSFragment extends BaseFragment {
 
         Gson gson = new Gson();
 
-        String indicesJson = fwConfig.getTTSIndices();
-        String namesJson = fwConfig.getTTSNames();
+        // 读新 sp key（uid 方案），旧 indices/names 直接无视
+        String uidsJson = fwConfig.getTTSSelectedUids();
+        String namesJson = fwConfig.getTTSNamesByUid();
 
-        List<Integer> selectedIndices = new ArrayList<>();
-        Map<Integer, String> customNames = new HashMap<>();
+        List<String> selectedUids = new ArrayList<>();
+        Map<String, String> customNamesByUid = new HashMap<>();
 
         try {
-            List<Integer> savedIndices = gson.fromJson(indicesJson, new TypeToken<List<Integer>>(){}.getType());
-            if (savedIndices != null) {
-                selectedIndices.addAll(savedIndices);
+            List<String> savedUids = gson.fromJson(uidsJson, new TypeToken<List<String>>(){}.getType());
+            if (savedUids != null) {
+                selectedUids.addAll(savedUids);
             }
-            Map<Integer, String> savedNames = gson.fromJson(namesJson, new TypeToken<Map<Integer, String>>(){}.getType());
+            Map<String, String> savedNames = gson.fromJson(namesJson, new TypeToken<Map<String, String>>(){}.getType());
             if (savedNames != null) {
-                customNames.putAll(savedNames);
+                customNamesByUid.putAll(savedNames);
             }
         } catch (Exception e) {
             AppLog.e(TAG, "Failed to load floating window config", e);
@@ -401,10 +397,10 @@ public class TTSFragment extends BaseFragment {
 
         List<CheckBox> checkBoxes = new ArrayList<>();
         List<EditText> nameInputs = new ArrayList<>();
+        List<String> itemUids = new ArrayList<>();
 
         for (int i = 0; i < ttsItems.size(); i++) {
-            final int index = i;
-            TTSItem item = ttsItems.get(i);
+            final TTSItem item = ttsItems.get(i);
 
             LinearLayout itemLayout = new LinearLayout(getSafeActivity());
             itemLayout.setOrientation(LinearLayout.VERTICAL);
@@ -413,14 +409,15 @@ public class TTSFragment extends BaseFragment {
             CheckBox checkBox = new CheckBox(getSafeActivity());
             checkBox.setText(item.text);
             checkBox.setTextSize(16);
-            checkBox.setChecked(selectedIndices.contains(index));
+            checkBox.setChecked(item.uid != null && selectedUids.contains(item.uid));
             checkBoxes.add(checkBox);
+            itemUids.add(item.uid);
 
             EditText nameInput = new EditText(getSafeActivity());
             nameInput.setHint("自定义名称（可选）");
             nameInput.setTextSize(14);
-            if (customNames.containsKey(index)) {
-                nameInput.setText(customNames.get(index));
+            if (item.uid != null && customNamesByUid.containsKey(item.uid)) {
+                nameInput.setText(customNamesByUid.get(item.uid));
             }
             nameInputs.add(nameInput);
 
@@ -450,21 +447,24 @@ public class TTSFragment extends BaseFragment {
         });
 
         dialog.setButton(AlertDialog.BUTTON_POSITIVE, "保存", (dialogInterface, which) -> {
-            List<Integer> newSelectedIndices = new ArrayList<>();
-            Map<Integer, String> newCustomNames = new HashMap<>();
+            List<String> newSelectedUids = new ArrayList<>();
+            Map<String, String> newCustomNames = new HashMap<>();
 
             for (int i = 0; i < checkBoxes.size(); i++) {
                 if (checkBoxes.get(i).isChecked()) {
-                    newSelectedIndices.add(i);
-                    String customName = nameInputs.get(i).getText().toString().trim();
-                    if (!customName.isEmpty()) {
-                        newCustomNames.put(i, customName);
+                    String uid = itemUids.get(i);
+                    if (uid != null) {
+                        newSelectedUids.add(uid);
+                        String customName = nameInputs.get(i).getText().toString().trim();
+                        if (!customName.isEmpty()) {
+                            newCustomNames.put(uid, customName);
+                        }
                     }
                 }
             }
 
-            fwConfig.setTTSIndices(gson.toJson(newSelectedIndices));
-            fwConfig.setTTSNames(gson.toJson(newCustomNames));
+            fwConfig.setTTSSelectedUids(gson.toJson(newSelectedUids));
+            fwConfig.setTTSNamesByUid(gson.toJson(newCustomNames));
 
             Toast.makeText(getSafeContext(), "已保存", Toast.LENGTH_SHORT).show();
         });

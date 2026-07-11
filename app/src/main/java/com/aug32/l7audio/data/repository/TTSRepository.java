@@ -27,6 +27,7 @@ import com.aug32.l7audio.utils.AppExecutors;
  *   <li>通过 LiveData 实现数据驱动的 UI 更新，观察者模式解耦数据层与表现层</li>
  *   <li>区分同步/异步方法，同步方法用于立即获取数据，异步方法用于耗时 IO 操作</li>
  *   <li>持久化存储基于 SharedPreferences，通过 Gson 进行 JSON 序列化/反序列化</li>
+ *   <li><b>构造函数仅读取，不写入</b>；首次使用前必须显式调用 {@link #initializeIfNeeded()} 确保默认数据落盘</li>
  * </ul>
  *
  * @author L7Audio Team
@@ -42,6 +43,8 @@ public class TTSRepository {
     private final Gson gson = new Gson();
     /** 内存缓存的 TTS 列表 */
     private List<TTSItem> cachedItems = null;
+    /** 是否已完成初始化（默认数据落盘） */
+    private boolean initialized = false;
 
     /** TTS 列表的 LiveData 可观察数据 */
     private final MutableLiveData<List<TTSItem>> ttsItemsLiveData = new MutableLiveData<>();
@@ -62,34 +65,50 @@ public class TTSRepository {
     private TTSRepository(Context context) {
         this.ttsConfig = new TTSConfig(
                 context.getSharedPreferences(context.getPackageName() + "_preferences", Context.MODE_PRIVATE));
-        List<TTSItem> initialItems = loadTTSItemsSync();
-        ttsItemsLiveData.setValue(initialItems);
+        // 构造函数仅做读取，不写入；initializeIfNeeded() 负责首次默认数据落盘
+        String json = ttsConfig.getTTSItems();
+        if (json != null && !json.isEmpty()) {
+            try {
+                Type listType = new TypeToken<List<TTSItem>>() {}.getType();
+                List<TTSItem> items = gson.fromJson(json, listType);
+                cachedItems = items != null ? items : new ArrayList<>();
+            } catch (Exception e) {
+                cachedItems = new ArrayList<>();
+            }
+        }
+        // cachedItems 为 null 表示未加载或首次使用，initializeIfNeeded() 会处理
+    }
+
+    /**
+     * 确保仓库已初始化（首次使用时创建默认列表并落盘）。
+     *
+     * <p>线程安全：内部使用双重检查锁，多线程并发调用仅执行一次初始化。
+     * 必须在首次调用 {@link #loadTTSItemsSync()} 或 {@link #getTTSItemsLiveData()} 等读取方法前调用。
+     */
+    public synchronized void initializeIfNeeded() {
+        if (initialized) return;
+        if (cachedItems == null || cachedItems.isEmpty()) {
+            // 首次使用：创建默认列表并落盘
+            List<TTSItem> defaults = createDefaultTTSItems();
+            cachedItems = new ArrayList<>(defaults);
+            String json = gson.toJson(defaults);
+            ttsConfig.setTTSItems(json);
+        }
+        initialized = true;
+        ttsItemsLiveData.setValue(new ArrayList<>(cachedItems));
     }
 
     /**
      * 同步加载 TTS 列表
      *
-     * <p>优先从内存缓存读取，缓存未命中则从 SharedPreferences 加载 JSON 数据并反序列化。
-     * 首次加载（无数据）时自动创建默认列表并持久化保存。
+     * <p>从内存缓存返回 TTS 列表副本，不会触发磁盘 I/O。
+     * 调用前需确保已执行 {@link #initializeIfNeeded()}。
      *
      * @return TTS 项目列表的副本（防止外部修改内部缓存）
      */
     public List<TTSItem> loadTTSItemsSync() {
-        if (cachedItems != null) {
-            return new ArrayList<>(cachedItems);
-        }
-        String json = ttsConfig.getTTSItems();
-        if (json == null || json.isEmpty()) {
-            cachedItems = createDefaultTTSItems();
-            saveDefaultTTSItems(cachedItems);
-            return new ArrayList<>(cachedItems);
-        }
-        try {
-            Type listType = new TypeToken<List<TTSItem>>() {}.getType();
-            List<TTSItem> items = gson.fromJson(json, listType);
-            cachedItems = items != null ? items : new ArrayList<>();
-        } catch (Exception e) {
-            cachedItems = new ArrayList<>();
+        if (cachedItems == null) {
+            return new ArrayList<>();
         }
         return new ArrayList<>(cachedItems);
     }
@@ -146,22 +165,13 @@ public class TTSRepository {
      * 判断 TTS 列表是否为空
      *
      * <p>同步加载列表数据后判断列表是否为 null 或无元素。
+     * 调用前需确保已执行 {@link #initializeIfNeeded()}。
      *
      * @return true 表示列表为空，false 表示列表包含至少一个元素
      */
     public boolean isEmpty() {
         List<TTSItem> items = loadTTSItemsSync();
         return items == null || items.isEmpty();
-    }
-
-    /**
-     * 保存默认列表到 SharedPreferences
-     *
-     * @param items 要保存的 TTS 项目列表
-     */
-    private void saveDefaultTTSItems(List<TTSItem> items) {
-        String json = gson.toJson(items);
-        ttsConfig.setTTSItems(json);
     }
 
     /**
@@ -182,31 +192,40 @@ public class TTSRepository {
     }
 
     /**
-     * 异步添加 TTS 项
+     * 添加 TTS 项
      *
-     * <p>先同步加载当前列表，将新项追加到列表末尾，然后异步保存更新后的列表。
+     * <p>同步加载当前列表，追加新项后立即更新内存缓存和 SharedPreferences。
+     * 同步写入保证并发场景下数据不丢失（配合 initializeIfNeeded 的同步锁）。
      *
      * @param item 要添加的 TTS 项目
      */
     public void addTTSItem(TTSItem item) {
+        initializeIfNeeded();
         List<TTSItem> items = loadTTSItemsSync();
         items.add(item);
-        saveTTSItems(items);
+        cachedItems = new ArrayList<>(items);
+        String json = gson.toJson(items);
+        ttsConfig.setTTSItems(json);
+        ttsItemsLiveData.postValue(new ArrayList<>(items));
     }
 
     /**
-     * 异步移除指定位置的 TTS 项
+     * 移除指定位置的 TTS 项
      *
-     * <p>先同步加载当前列表，移除指定位置的元素后异步保存更新后的列表。
+     * <p>同步加载当前列表，移除指定元素后立即更新内存缓存和 SharedPreferences。
      * 若位置越界则不执行任何操作。
      *
      * @param position 要移除的 TTS 项在列表中的索引位置
      */
     public void removeTTSItem(int position) {
+        initializeIfNeeded();
         List<TTSItem> items = loadTTSItemsSync();
         if (position >= 0 && position < items.size()) {
             items.remove(position);
-            saveTTSItems(items);
+            cachedItems = new ArrayList<>(items);
+            String json = gson.toJson(items);
+            ttsConfig.setTTSItems(json);
+            ttsItemsLiveData.postValue(new ArrayList<>(items));
         }
     }
 
@@ -221,6 +240,8 @@ public class TTSRepository {
 
     /**
      * 获取 TTS 列表的 LiveData 可观察对象
+     *
+     * <p>首次调用前建议先执行 {@link #initializeIfNeeded()} 确保数据已加载。
      *
      * @return TTS 列表的 LiveData
      */

@@ -6,8 +6,8 @@
 
     <Button
         android:id="@+id/btn_floating_ball"
-        android:layout_width="100dp"
-        android:layout_height="90dp"
+        android:layout_width="88dp"
+        android:layout_height="88dp"
         android:text="L7"
         android:textSize="22sp"
         android:gravity="center"

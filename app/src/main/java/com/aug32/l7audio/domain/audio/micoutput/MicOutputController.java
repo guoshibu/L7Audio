@@ -133,14 +133,14 @@ public class MicOutputController {
     }
 
     /**
-     * 初始化控制器
+     * 初始化控制器（线程安全，幂等）
      * <p>
      * 在 Application 或首次使用时调用，注入 ApplicationContext。
      * </p>
      *
      * @param context 上下文对象
      */
-    public void init(Context context) {
+    public synchronized void init(Context context) {
         if (this.appContext != null) {
             AppLog.d(TAG, "Already initialized, skipping");
             return;

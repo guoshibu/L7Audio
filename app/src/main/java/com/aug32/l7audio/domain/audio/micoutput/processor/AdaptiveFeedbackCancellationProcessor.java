@@ -28,6 +28,10 @@ public class AdaptiveFeedbackCancellationProcessor implements AudioProcessor {
     private float lastErleDb = 0.0f;
     private boolean enabled = true;
 
+    // 上一帧的能量值，用于当前帧的双讲检测（避免两遍处理的bug）
+    private double prevInputEnergy = 0.0;
+    private double prevEchoEnergy = 0.0;
+
     public AdaptiveFeedbackCancellationProcessor() {
         w = new float[FILTER_LENGTH];
         xbuf = new float[FILTER_LENGTH];
@@ -36,7 +40,6 @@ public class AdaptiveFeedbackCancellationProcessor implements AudioProcessor {
     public void setReference(short[] refSamples) {
         for (int i = 0; i < refSamples.length; i++) {
             float xv = refSamples[i] / 32768.0f;
-            // 滑窗 xnorm：减旧值、加新值
             xnorm -= xbuf[xpos] * xbuf[xpos];
             xbuf[xpos] = xv;
             xnorm += xv * xv;
@@ -50,6 +53,16 @@ public class AdaptiveFeedbackCancellationProcessor implements AudioProcessor {
 
         double errorEnergy = 0.0;
         double inputEnergy = 0.0;
+        double echoEnergy = 0.0;
+
+        // 根据上一帧的能量判断是否允许适配（第一帧默认为允许）
+        boolean adapt = frameCount == 0;
+        if (frameCount > 0 && xnorm > 1e-6f) {
+            adapt = prevEchoEnergy < MIN_ECHO_AMP * MIN_ECHO_AMP
+                    || prevInputEnergy < DT_THRESHOLD * DT_THRESHOLD * prevEchoEnergy;
+        }
+
+        float mu = MU / (xnorm + DELTA);
 
         for (int i = 0; i < samples.length; i++) {
             float d = samples[i] / 32768.0f;
@@ -61,30 +74,26 @@ public class AdaptiveFeedbackCancellationProcessor implements AudioProcessor {
                 idx = (idx - 1 + FILTER_LENGTH) % FILTER_LENGTH;
                 y += w[j] * xbuf[idx];
             }
+            echoEnergy += y * y;
 
             float e = d - y;
             errorEnergy += e * e;
 
-            // 双讲检测：近端语音能量远大于预测回声时冻结适配
-            // xnorm 很小时（首帧参考信号未就绪）也冻结适配，防止系数炸裂
-            // 当预测回声 |y| 较小时跳过双讲检测（滤波器尚未收敛），保证初始快速收敛
-            if (xnorm > 1e-6f) {
-                boolean adapt = Math.abs(y) < MIN_ECHO_AMP
-                        || Math.abs(d) < DT_THRESHOLD * Math.abs(y);
-                if (adapt) {
-                    float mu = MU / (xnorm + DELTA);
-                    idx = xpos;
-                    for (int j = 0; j < FILTER_LENGTH; j++) {
-                        idx = (idx - 1 + FILTER_LENGTH) % FILTER_LENGTH;
-                        w[j] = w[j] * (1.0f - LEAKAGE) + mu * e * xbuf[idx];
-                    }
+            // 单遍处理：根据上一帧的双讲检测结果决定是否更新系数
+            if (adapt && xnorm > 1e-6f) {
+                idx = xpos;
+                for (int j = 0; j < FILTER_LENGTH; j++) {
+                    idx = (idx - 1 + FILTER_LENGTH) % FILTER_LENGTH;
+                    w[j] = w[j] * (1.0f - LEAKAGE) + mu * e * xbuf[idx];
                 }
             }
 
             samples[i] = (short) (e * 32767.0f);
-
-            xpos = (xpos + 1) % FILTER_LENGTH;
         }
+
+        // 保存当前帧能量供下一帧使用
+        prevInputEnergy = inputEnergy;
+        prevEchoEnergy = echoEnergy;
 
         frameCount++;
         if (frameCount % LOG_INTERVAL == 0) {
@@ -105,6 +114,8 @@ public class AdaptiveFeedbackCancellationProcessor implements AudioProcessor {
         xnorm = 0.0f;
         xpos = 0;
         frameCount = 0;
+        prevInputEnergy = 0.0;
+        prevEchoEnergy = 0.0;
     }
 
     @Override

@@ -1,12 +1,7 @@
 package com.aug32.l7audio.utils;
 
-import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 
 /**
  * 专辑封面统一缓存管理器
@@ -14,46 +9,64 @@ import java.io.FileOutputStream;
  * <p>职责：
  * <ul>
  *   <li>LRU 内存缓存 Bitmap，避免重复解码</li>
- *   <li>文件缓存 byte[]，避免 SP 序列化大字段</li>
+ *   <li>put() 预热 LruCache，确保后续 get() 命中避免主线程 decode</li>
  *   <li>采样解码（inSampleSize），匹配目标尺寸减少内存</li>
  *   <li>统一解码入口，避免三处各自 decodeByteArray</li>
  * </ul>
+ *
+ * <p>设计决定：不下磁盘，仅靠 LruCache + MusicItem.albumArt byte[]（transient）。
+ * 避免磁盘竞态、字节上限管理、写磨损；跨 Session 由 ensureAlbumArt() 异步重提取。
+ *
+ * <p>线程模型：
+ * <ul>
+ *   <li>put()：仅在计算线程（ensureAlbumArt）调用，做 decode+存入，已同步</li>
+ *   <li>get()：播放/通知/MediaSession/Fragment 主线程调用，纯读无锁</li>
+ * </ul>
+ * 保证同一 key 只有一个线程 decode+put，消除 sizeOf 不一致 Crash。
  */
 public class AlbumArtCache {
 
     private static final String TAG = "AlbumArtCache";
     private static final int MAX_MEM_CACHE_SIZE = 10 * 1024 * 1024; // 10MB
-    private static final String DISK_CACHE_DIR = "album_art_cache";
-    private static final int MAX_DISK_FILES = 200;
     private static volatile AlbumArtCache instance;
 
-    private final android.util.LruCache<String, Bitmap> memCache;
-    private final File diskCacheDir;
+    /**
+     * 缓存条目：包装 Bitmap 并固化 size，确保 sizeOf() 恒定。
+     * 仅缓存持有 Bitmap 引用，外部不得 recycle。
+     */
+    private static final class Entry {
+        final Bitmap bitmap;
+        final int size; // 存入时一次性计算，永不变
 
-    private AlbumArtCache(Context context) {
-        memCache = new android.util.LruCache<String, Bitmap>(MAX_MEM_CACHE_SIZE) {
-            @Override
-            protected int sizeOf(String key, Bitmap bitmap) {
-                return bitmap.getByteCount();
-            }
-            @Override
-            protected void entryRemoved(boolean evicted, String key, Bitmap oldBitmap, Bitmap newBitmap) {
-                if (evicted && oldBitmap != null && !oldBitmap.isRecycled()) {
-                    oldBitmap.recycle();
-                }
-            }
-        };
-        diskCacheDir = new File(context.getCacheDir(), DISK_CACHE_DIR);
-        if (!diskCacheDir.exists()) {
-            diskCacheDir.mkdirs();
+        Entry(Bitmap b) {
+            this.bitmap = b;
+            this.size = b.getByteCount();
         }
     }
 
-    public static AlbumArtCache getInstance(Context context) {
+    private final android.util.LruCache<String, Entry> memCache;
+
+    private AlbumArtCache() {
+        memCache = new android.util.LruCache<String, Entry>(MAX_MEM_CACHE_SIZE) {
+            @Override
+            protected int sizeOf(String key, Entry entry) {
+                return entry.size; // 固定值，绝不动态计算
+            }
+            @Override
+            protected void entryRemoved(boolean evicted, String key, Entry oldEntry, Entry newEntry) {
+                // 仅缓存真正淘汰时回收，外部绝不持有 Entry.bitmap 引用
+                if (evicted && oldEntry != null && !oldEntry.bitmap.isRecycled()) {
+                    oldEntry.bitmap.recycle();
+                }
+            }
+        };
+    }
+
+    public static AlbumArtCache getInstance() {
         if (instance == null) {
             synchronized (AlbumArtCache.class) {
                 if (instance == null) {
-                    instance = new AlbumArtCache(context.getApplicationContext());
+                    instance = new AlbumArtCache();
                 }
             }
         }
@@ -61,69 +74,71 @@ public class AlbumArtCache {
     }
 
     /**
-     * 获取封面 Bitmap（同步，指定目标尺寸，会采样压缩）
-     *
-     * @param key       唯一键（通常为 filePath）
-     * @param albumArt  MusicItem 中的 albumArt byte[]（可为 null，从磁盘回退）
-     * @param reqWidth  目标宽度（px），<=0 时不采样
-     * @param reqHeight 目标高度（px），<=0 时不采样
+     * 同步锁：仅保护 decode+put 临界区，避免并发重复 put 同一 key
      */
-    public Bitmap get(String key, byte[] albumArt, int reqWidth, int reqHeight) {
+    private final Object decodeLock = new Object();
+
+    /**
+     * 获取预热缓存的 512px Bitmap（纯读，无锁）
+     *
+     * @param key 唯一键（通常为 filePath）
+     * @return 缓存的 Bitmap，未命中返回 null
+     */
+    public Bitmap get(String key) {
         if (key == null) return null;
         String cacheKey = cacheKey(key);
-
-        Bitmap cached = memCache.get(cacheKey);
-        if (cached != null && !cached.isRecycled()) {
-            return cached;
-        }
-
-        // 硬盘缓存 byte[] 更通用（可被不同采样需求复用）
-        byte[] data = (albumArt != null && albumArt.length > 0) ? albumArt : loadFromDisk(cacheKey);
-        if (data == null || data.length == 0) return null;
-
-        Bitmap bitmap = decodeSampled(data, reqWidth, reqHeight);
-        if (bitmap != null) {
-            memCache.put(cacheKey, bitmap);
-        }
-        return bitmap;
+        Entry entry = memCache.get(cacheKey);
+        return (entry != null && !entry.bitmap.isRecycled()) ? entry.bitmap : null;
     }
 
     /**
-     * 获取封面 Bitmap（同步，默认最大 512px 采样解码）
+     * 一次性解码指定尺寸（不入缓存，供 Fragment 等非标准尺寸使用）
      */
-    public Bitmap get(String key, byte[] albumArt) {
-        return get(key, albumArt, 512, 512);
+    public Bitmap decodeForSize(byte[] albumArt, int reqWidth, int reqHeight) {
+        if (albumArt == null || albumArt.length == 0) return null;
+        return decodeSampled(albumArt, reqWidth, reqHeight);
     }
 
     /**
-     * 保存封面 byte[] 到文件缓存（由 PlaylistManager 添加歌曲时调用）
+     * 预热内存缓存（由 ensureAlbumArt() 提取封面后调用）
+     *
+     * <p>将 byte[] decode 为 512px Bitmap 后存入 LruCache，确保后续
+     * updateNotification()/MediaSession 等处 get() 能直接命中，避免主线程 decode。
+     *
+     * @param key      唯一键（文件路径）
+     * @param albumArt 专辑封面字节数组
      */
     public void put(String key, byte[] albumArt) {
         if (key == null || albumArt == null || albumArt.length == 0) return;
         String cacheKey = cacheKey(key);
-        saveToDisk(cacheKey, albumArt);
+
+        synchronized (decodeLock) {
+            // 双重检查：另一线程可能刚 put 完
+            Entry existing = memCache.get(cacheKey);
+            if (existing != null && !existing.bitmap.isRecycled()) {
+                return;
+            }
+            Bitmap bitmap = decodeSampled(albumArt, 512, 512);
+            if (bitmap != null) {
+                memCache.put(cacheKey, new Entry(bitmap));
+            }
+        }
     }
 
     /**
-     * 从缓存中移除
+     * 从内存缓存中移除
      */
     public void remove(String key) {
         if (key == null) return;
         String cacheKey = cacheKey(key);
         memCache.remove(cacheKey);
-        File f = new File(diskCacheDir, cacheKey);
-        if (f.exists()) f.delete();
     }
 
     /**
-     * 清除所有缓存
+     * 清除所有内存缓存
      */
     public void clear() {
         memCache.evictAll();
-        File[] files = diskCacheDir.listFiles();
-        if (files != null) {
-            for (File f : files) f.delete();
-        }
     }
 
     // ========== 内部方法 ==========
@@ -153,56 +168,6 @@ public class AlbumArtCache {
     }
 
     private String cacheKey(String filePath) {
-        return String.valueOf(filePath.hashCode());
-    }
-
-    private void saveToDisk(String cacheKey, byte[] data) {
-        FileOutputStream fos = null;
-        try {
-            fos = new FileOutputStream(new File(diskCacheDir, cacheKey));
-            fos.write(data);
-            // 超过文件数上限时，删除最旧的文件
-            File[] files = diskCacheDir.listFiles();
-            if (files != null && files.length > MAX_DISK_FILES) {
-                File oldest = null;
-                for (File f : files) {
-                    if (oldest == null || f.lastModified() < oldest.lastModified()) {
-                        oldest = f;
-                    }
-                }
-                if (oldest != null) oldest.delete();
-            }
-        } catch (Exception e) {
-            AppLog.d(TAG, "Failed to save album art to disk: " + cacheKey);
-        } finally {
-            if (fos != null) {
-                try { fos.close(); } catch (Exception ignored) {}
-            }
-        }
-    }
-
-    private byte[] loadFromDisk(String cacheKey) {
-        FileInputStream fis = null;
-        try {
-            File f = new File(diskCacheDir, cacheKey);
-            if (!f.exists()) return null;
-            byte[] data = new byte[(int) f.length()];
-            fis = new FileInputStream(f);
-            int offset = 0, remaining = data.length;
-            while (remaining > 0) {
-                int read = fis.read(data, offset, remaining);
-                if (read == -1) break;
-                offset += read;
-                remaining -= read;
-            }
-            return offset == data.length ? data : null;
-        } catch (Exception e) {
-            AppLog.d(TAG, "Failed to load album art from disk: " + cacheKey);
-            return null;
-        } finally {
-            if (fis != null) {
-                try { fis.close(); } catch (Exception ignored) {}
-            }
-        }
+        return filePath;
     }
 }

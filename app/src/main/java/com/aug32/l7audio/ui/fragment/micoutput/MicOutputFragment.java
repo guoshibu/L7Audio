@@ -58,8 +58,8 @@ public class MicOutputFragment extends BaseFragment {
     private MicrophoneManager microphoneManager;
     /** 麦克风配置（持久化存储） */
     private MicOutputConfig micOutputConfig;
-    /** 是否正在放大的状态标志（与Controller同步） */
-    private boolean isAmplifying;
+    /** 是否正在放大的状态标志（与Controller同步，Binder 线程写入） */
+    private volatile boolean isAmplifying;
     /** 喊话状态监听器，用于同步 UI */
     private MicOutputController.MicOutputListener micOutputListener = new MicOutputController.MicOutputListener() {
         @Override

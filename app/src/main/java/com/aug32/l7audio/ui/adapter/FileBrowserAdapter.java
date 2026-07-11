@@ -9,13 +9,13 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
-import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
 import com.aug32.l7audio.R;
 import com.aug32.l7audio.ui.model.FileItem;
+import com.aug32.l7audio.utils.FileUtils;
 
 /**
  * 文件浏览器列表适配器
@@ -36,10 +36,6 @@ public class FileBrowserAdapter extends RecyclerView.Adapter<FileBrowserAdapter.
     public static final int MODE_FILE = 1;
 
     /** 支持的音频格式扩展名 */
-    private static final String[] AUDIO_EXTENSIONS = {
-            ".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".amr"
-    };
-
     private final List<FileItem> items = new ArrayList<>();
     private int mode = MODE_DIRECTORY;
     private boolean selectionMode = false;
@@ -267,7 +263,7 @@ public class FileBrowserAdapter extends RecyclerView.Adapter<FileBrowserAdapter.
     private boolean isAudioFile(String filePath) {
         if (filePath == null || filePath.isEmpty()) return false;
         String name = filePath.toLowerCase(Locale.getDefault());
-        for (String ext : AUDIO_EXTENSIONS) {
+        for (String ext : FileUtils.AUDIO_EXTENSIONS) {
             if (name.endsWith(ext)) {
                 return true;
             }
@@ -307,8 +303,7 @@ public class FileBrowserAdapter extends RecyclerView.Adapter<FileBrowserAdapter.
         if (isParent) {
             holder.tvSubtitle.setText("返回上级目录");
         } else if (item.isDirectory) {
-            int childCount = getChildCount(item.path);
-            holder.tvSubtitle.setText(String.format(Locale.getDefault(), "%d 项", childCount));
+            holder.tvSubtitle.setText(String.format(Locale.getDefault(), "%d 项", item.childCount));
         } else {
             holder.tvSubtitle.setText(item.getFormattedSize());
         }
@@ -354,29 +349,6 @@ public class FileBrowserAdapter extends RecyclerView.Adapter<FileBrowserAdapter.
             }
             return false;
         });
-    }
-
-    /**
-     * 获取目录下的子项数量（粗略计算，避免性能问题）
-     *
-     * @param dirPath 目录路径
-     * @return 子项数量
-     */
-    private int getChildCount(String dirPath) {
-        try {
-            File dir = new File(dirPath);
-            File[] files = dir.listFiles();
-            if (files == null) return 0;
-            int count = 0;
-            for (File f : files) {
-                // 跳过隐藏文件
-                if (f.getName().startsWith(".")) continue;
-                count++;
-            }
-            return count;
-        } catch (Exception e) {
-            return 0;
-        }
     }
 
     @Override

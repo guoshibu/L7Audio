@@ -62,4 +62,8 @@ public class MusicConfig {
     public void setShuffleModeEnabled(boolean enabled) {
         preferences.edit().putBoolean(PREF_SHUFFLE_MODE, enabled).apply();
     }
+
+    public boolean isShuffleModeEnabled() {
+        return preferences.getBoolean(PREF_SHUFFLE_MODE, false);
+    }
 }

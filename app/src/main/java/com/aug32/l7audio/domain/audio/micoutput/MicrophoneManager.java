@@ -20,6 +20,7 @@ import com.aug32.l7audio.domain.audio.micoutput.processor.AutomaticGainControlPr
 import com.aug32.l7audio.domain.audio.micoutput.processor.GainLimiterProcessor;
 import com.aug32.l7audio.domain.audio.micoutput.processor.HighPassFilterProcessor;
 import com.aug32.l7audio.domain.audio.micoutput.processor.SpectralAndNotchProcessor;
+import com.aug32.l7audio.BuildConfig;
 import com.aug32.l7audio.utils.AppLog;
 
 import java.util.Locale;
@@ -479,6 +480,17 @@ public class MicrophoneManager {
         // 先设置标记，让录制线程自然退出
         isRecording = false;
 
+        // 强制解除 AudioRecord.read() 阻塞，确保录制线程能退出
+        if (audioRecord != null
+                && audioRecord.getState() == AudioRecord.STATE_INITIALIZED
+                && audioRecord.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) {
+            try {
+                audioRecord.stop();
+            } catch (Exception e) {
+                AppLog.e(TAG, "Error force-stopping AudioRecord", e);
+            }
+        }
+
         // 等待录制线程结束，最多等待1秒，避免ANR
         if (recordingThread != null) {
             try {
@@ -530,6 +542,7 @@ public class MicrophoneManager {
                 }
             } catch (Exception e) {
                 AppLog.e(TAG, "Error in recording thread at frame " + frameCount, e);
+                releaseResources();
                 break;
             }
         }
@@ -566,7 +579,7 @@ public class MicrophoneManager {
             AppLog.e(TAG, "Pipeline error", e);
         }
 
-        if (afcProcessor.isEnabled()) {
+        if (BuildConfig.DEBUG && afcProcessor.isEnabled()) {
             AppLog.d(TAG, "ERLE=" + String.format(Locale.US, "%.1f", afcProcessor.getLastErleDb()) + "dB rms=" + String.format(Locale.US, "%.4f", currentRms));
         }
 

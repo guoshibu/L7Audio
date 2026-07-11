@@ -20,9 +20,9 @@ public class MusicItem {
     /** 歌曲时长，单位毫秒 */
     public long duration;
     /** 歌词文本内容（LRC格式或纯文本）— transient 不参与 Gson 序列化 */
-    public transient String lyrics;
+    public transient volatile String lyrics;
     /** 歌词最后修改时间戳，用于判断是否需要重新加载 — transient 不参与 Gson 序列化 */
-    public transient long lyricsModified;
+    public transient volatile long lyricsModified;
     /** 音乐文件最后修改时间戳 */
     public long fileModified;
     /** 专辑封面图片字节数组 — transient 不参与 Gson 序列化 */

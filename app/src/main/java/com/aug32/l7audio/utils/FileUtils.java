@@ -10,6 +10,11 @@ import java.util.Locale;
  */
 public final class FileUtils {
 
+    /** 支持的音频格式扩展名 */
+    public static final String[] AUDIO_EXTENSIONS = {
+            ".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".amr"
+    };
+
     private FileUtils() {
     }
 

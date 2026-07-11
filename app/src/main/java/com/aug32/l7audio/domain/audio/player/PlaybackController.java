@@ -75,8 +75,6 @@ public class PlaybackController {
             new AudioFocusManager.OnAudioFocusChangeListener() {
                 @Override
                 public void onFocusGained() {
-                    // 内部触发的焦点变化不处理，避免循环调用
-                    if (isInternalFocusChange) return;
                     AppLog.d(TAG, "onFocusGained, wasPlaying=" + wasPlayingBeforeFocusLoss);
                     // 焦点恢复时，如果之前在播放则自动恢复播放
                     if (wasPlayingBeforeFocusLoss) {
@@ -87,8 +85,6 @@ public class PlaybackController {
 
                 @Override
                 public void onFocusLostTransient() {
-                    // 内部触发的焦点变化不处理，避免循环调用
-                    if (isInternalFocusChange) return;
                     AppLog.d(TAG, "onFocusLostTransient, isPlaying=" + isPlaying());
                     // 短暂丢失焦点（如来电），暂停播放并记录状态以便恢复
                     if (isPlaying()) {
@@ -99,8 +95,6 @@ public class PlaybackController {
 
                 @Override
                 public void onFocusLostPermanent() {
-                    // 内部触发的焦点变化不处理，避免循环调用
-                    if (isInternalFocusChange) return;
                     AppLog.d(TAG, "onFocusLostPermanent");
                     // 永久丢失焦点（如其他应用开始播放），停止播放并清除恢复标记
                     wasPlayingBeforeFocusLoss = false;
@@ -112,9 +106,6 @@ public class PlaybackController {
     private final android.os.Handler progressHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     // 上次保存播放位置的时间戳，用于节流控制
     private long lastSavedPositionTime = 0;
-    // 标记是否为内部触发的焦点变化，用于避免焦点监听器与内部请求之间的循环调用
-    private boolean isInternalFocusChange = false;
-
     /**
      * 构造函数，初始化播放控制器
      *
@@ -262,12 +253,13 @@ public class PlaybackController {
         AppLog.d(TAG, ">>> play() called: title=" + item.title + ", path=" + item.filePath + ", startPosition=" + startPosition);
 
         try {
-            // 第一步：请求音频焦点，标记为内部触发避免循环回调
+            // 第一步：请求音频焦点，被拒则不播放
             AppLog.d(TAG, "play: step1 - requesting focus");
-            isInternalFocusChange = true;
-            boolean focusGranted = requestFocus();
-            isInternalFocusChange = false;
-            AppLog.d(TAG, "play: step1 - focus granted=" + focusGranted);
+            if (!requestFocus()) {
+                AppLog.w(TAG, "play: focus denied, abort playback");
+                return;
+            }
+            AppLog.d(TAG, "play: step1 - focus granted");
 
             // 第二步：构建 MediaItem，将 MusicItem 转换为 ExoPlayer 可识别的格式
             AppLog.d(TAG, "play: step2 - building media item");
@@ -352,11 +344,12 @@ public class PlaybackController {
         AppLog.d(TAG, ">>> resume() called: position=" + position + ", currentCount=" + exoPlayer.getMediaItemCount()
                 + ", currentState=" + exoPlayer.getPlaybackState() + ", currentItem=" + currentState.getCurrentItem());
 
-        // 请求音频焦点，标记为内部触发避免循环回调
-        isInternalFocusChange = true;
-        boolean focusGranted = requestFocus();
-        isInternalFocusChange = false;
-        AppLog.d(TAG, "resume: focus granted=" + focusGranted);
+        // 请求音频焦点，被拒则不恢复播放
+        if (!requestFocus()) {
+            AppLog.w(TAG, "resume: focus denied, abort");
+            return;
+        }
+        AppLog.d(TAG, "resume: focus granted");
 
         // 判断是否需要重新 prepare
         boolean needPrepare = false;

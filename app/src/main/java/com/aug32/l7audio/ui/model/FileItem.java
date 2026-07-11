@@ -25,8 +25,8 @@ public class FileItem {
     /** 文件大小（字节，仅文件有效） */
     public long size;
 
-    /** 最后修改时间 */
-    public long lastModified;
+    /** 目录子项数（仅目录有效，后台线程预计算，UI 线程只读） */
+    public int childCount;
 
     /**
      * 构造文件项
@@ -39,7 +39,6 @@ public class FileItem {
         this.isDirectory = file.isDirectory();
         this.isSelected = false;
         this.size = file.length();
-        this.lastModified = file.lastModified();
     }
 
     /**
@@ -55,7 +54,6 @@ public class FileItem {
         this.isDirectory = isDirectory;
         this.isSelected = false;
         this.size = 0;
-        this.lastModified = 0;
     }
 
     /**

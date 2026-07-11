@@ -1,13 +1,17 @@
 package com.aug32.l7audio.domain.audio.micoutput.processor;
 
+import com.aug32.l7audio.BuildConfig;
 import com.aug32.l7audio.domain.audio.micoutput.AudioProcessor;
+import com.aug32.l7audio.utils.AppLog;
+
+import java.util.Locale;
 
 public class AutomaticGainControlProcessor implements AudioProcessor {
 
     private static final float TARGET_RMS = 0.3f;
     private static final float MAX_GAIN = 2.0f;
     private static final float MIN_GAIN = 0.5f;
-    private static final float GAIN_CHANGE_LIMIT = 0.2f;
+    private static final float GAIN_CHANGE_LIMIT = 0.05f;
     private static final float SMOOTH_FACTOR = 0.05f;
     private static final int GAIN_UPDATE_INTERVAL = 10;
 
@@ -43,15 +47,17 @@ public class AutomaticGainControlProcessor implements AudioProcessor {
                 } else {
                     currentGain = desiredGain;
                 }
+                if (BuildConfig.DEBUG) {
+                    AppLog.d("AGC", "gain=" + String.format(Locale.US, "%.4f", currentGain)
+                            + " smoothedRms=" + String.format(Locale.US, "%.4f", smoothedRms));
+                }
             }
         }
 
         for (int i = 0; i < samples.length; i++) {
             float normalized = samples[i] / 32768.0f;
             normalized *= currentGain;
-            if (normalized > 1.0f || normalized < -1.0f) {
-                normalized = (float) Math.tanh(normalized);
-            }
+            normalized = (float) Math.tanh(normalized);
             samples[i] = (short) (normalized * 32767.0f);
         }
     }

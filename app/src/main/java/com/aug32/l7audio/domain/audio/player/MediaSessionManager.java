@@ -114,7 +114,7 @@ public class MediaSessionManager {
      *
      * <p>创建 MediaSession 实例并设置回调，处理系统媒体按键事件。
      * 回调中转发到 MusicPlayerManager 进行实际播放控制。
-     * 设置支持的媒体控制动作：播放、暂停、播放/暂停切换、上一曲、下一曲。
+     * 设置支持的媒体控制动作：播放、暂停、播放/暂停切换、上一曲、下一曲、停止、拖拽。
      */
     private void initMediaSession() {
         if (appContext == null) {
@@ -126,11 +126,6 @@ public class MediaSessionManager {
             mediaSession = new MediaSession(appContext, "L7AudioMediaSession");
 
             mediaSession.setCallback(new MediaSession.Callback() {
-                /**
-                 * 播放命令回调
-                 *
-                 * <p>收到系统播放命令时，转发给 MusicPlayerManager 播放。
-                 */
                 @Override
                 public void onPlay() {
                     AppLog.d(TAG, "MediaSession callback: onPlay");
@@ -143,11 +138,6 @@ public class MediaSessionManager {
                     }
                 }
 
-                /**
-                 * 暂停命令回调
-                 *
-                 * <p>收到系统暂停命令时，转发给 MusicPlayerManager 暂停。
-                 */
                 @Override
                 public void onPause() {
                     AppLog.d(TAG, "MediaSession callback: onPause");
@@ -160,11 +150,18 @@ public class MediaSessionManager {
                     }
                 }
 
-                /**
-                 * 下一曲命令回调
-                 *
-                 * <p>收到系统下一曲命令时，转发给 MusicPlayerManager 播放下一首。
-                 */
+                @Override
+                public void onStop() {
+                    AppLog.d(TAG, "MediaSession callback: onStop");
+                    try {
+                        if (musicPlayerManager != null) {
+                            musicPlayerManager.stop();
+                        }
+                    } catch (Exception e) {
+                        AppLog.e(TAG, "Error handling stop command", e);
+                    }
+                }
+
                 @Override
                 public void onSkipToNext() {
                     AppLog.d(TAG, "MediaSession callback: onSkipToNext");
@@ -177,11 +174,6 @@ public class MediaSessionManager {
                     }
                 }
 
-                /**
-                 * 上一曲命令回调
-                 *
-                 * <p>收到系统上一曲命令时，转发给 MusicPlayerManager 播放上一首。
-                 */
                 @Override
                 public void onSkipToPrevious() {
                     AppLog.d(TAG, "MediaSession callback: onSkipToPrevious");
@@ -193,6 +185,18 @@ public class MediaSessionManager {
                         AppLog.e(TAG, "Error handling previous command", e);
                     }
                 }
+
+                @Override
+                public void onSeekTo(long pos) {
+                    AppLog.d(TAG, "MediaSession callback: onSeekTo " + pos);
+                    try {
+                        if (musicPlayerManager != null) {
+                            musicPlayerManager.seekTo(pos);
+                        }
+                    } catch (Exception e) {
+                        AppLog.e(TAG, "Error handling seekTo command", e);
+                    }
+                }
             });
 
             PlaybackState.Builder stateBuilder = new PlaybackState.Builder();
@@ -200,7 +204,9 @@ public class MediaSessionManager {
                     | PlaybackState.ACTION_PAUSE
                     | PlaybackState.ACTION_PLAY_PAUSE
                     | PlaybackState.ACTION_SKIP_TO_NEXT
-                    | PlaybackState.ACTION_SKIP_TO_PREVIOUS;
+                    | PlaybackState.ACTION_SKIP_TO_PREVIOUS
+                    | PlaybackState.ACTION_STOP
+                    | PlaybackState.ACTION_SEEK_TO;
             stateBuilder.setActions(actions);
             stateBuilder.setState(PlaybackState.STATE_NONE, 0, 1.0f);
             mediaSession.setPlaybackState(stateBuilder.build());
@@ -222,7 +228,7 @@ public class MediaSessionManager {
      *
      * @param item 当前播放的音乐项，为 null 时清空元数据
      */
-    public void updateMetadata(@Nullable MusicItem item) {
+public void updateMetadata(@Nullable MusicItem item) {
         if (mediaSession == null) {
             AppLog.w(TAG, "MediaSession not initialized, skip updateMetadata");
             return;
@@ -240,8 +246,8 @@ public class MediaSessionManager {
                 }
 
                 if (appContext != null && item.filePath != null) {
-                    Bitmap bitmap = AlbumArtCache.getInstance(appContext)
-                            .get(item.filePath, item.albumArt);
+                    Bitmap bitmap = AlbumArtCache.getInstance()
+                            .get(item.filePath);
                     if (bitmap != null) {
                         builder.putBitmap(android.media.MediaMetadata.METADATA_KEY_ALBUM_ART, bitmap);
                     }
@@ -297,7 +303,9 @@ public class MediaSessionManager {
                     | PlaybackState.ACTION_PAUSE
                     | PlaybackState.ACTION_PLAY_PAUSE
                     | PlaybackState.ACTION_SKIP_TO_NEXT
-                    | PlaybackState.ACTION_SKIP_TO_PREVIOUS;
+                    | PlaybackState.ACTION_SKIP_TO_PREVIOUS
+                    | PlaybackState.ACTION_STOP
+                    | PlaybackState.ACTION_SEEK_TO;
             stateBuilder.setActions(actions);
 
             mediaSession.setPlaybackState(stateBuilder.build());
@@ -319,6 +327,22 @@ public class MediaSessionManager {
     @Nullable
     public MediaSession getMediaSession() {
         return mediaSession;
+    }
+
+    /**
+     * 释放 MediaSession 资源
+     *
+     * <p>停用并释放 MediaSession，清空引用。
+     */
+    public synchronized void release() {
+        if (mediaSession != null) {
+            mediaSession.setActive(false);
+            mediaSession.release();
+            mediaSession = null;
+        }
+        musicPlayerManager = null;
+        isInitialized = false;
+        AppLog.d(TAG, "MediaSession released");
     }
 
 }

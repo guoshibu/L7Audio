@@ -1,5 +1,7 @@
 package com.aug32.l7audio.data.model;
 
+import java.util.UUID;
+
 /**
  * TTS 列表项数据模型
  *
@@ -13,11 +15,16 @@ public class TTSItem {
     public String customName;
     /** 创建时间戳（毫秒） */
     public long createdAt;
+    /** 唯一标识，用于悬浮窗选中持久化（旧 SP 数据为 null，当作未选中） */
+    public String uid;
+    /** View 层播放状态，不参与序列化 */
+    public transient boolean isPlaying;
 
     /**
      * 无参构造函数
      */
     public TTSItem() {
+        this.uid = UUID.randomUUID().toString();
     }
 
     /**
@@ -30,6 +37,7 @@ public class TTSItem {
         this.text = text;
         this.customName = "";
         this.createdAt = System.currentTimeMillis();
+        this.uid = UUID.randomUUID().toString();
     }
 
     /**
@@ -43,6 +51,7 @@ public class TTSItem {
         this.text = text;
         this.customName = customName != null ? customName : "";
         this.createdAt = System.currentTimeMillis();
+        this.uid = UUID.randomUUID().toString();
     }
 
     /**

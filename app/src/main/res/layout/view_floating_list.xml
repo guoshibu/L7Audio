@@ -90,7 +90,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:text="自动收起时间（秒）"
+            android:text="自动收起时长：10 秒"
             android:textSize="17sp" />
 
         <SeekBar
@@ -133,7 +133,7 @@
             android:id="@+id/btn_select_tts"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="选择"
+            android:text="添加"
             android:textSize="17sp"
             android:minWidth="96dp"
             android:minHeight="58dp" />

@@ -10,6 +10,7 @@ gson = "2.10.1"
 media3 = "1.9.2"
 media = "1.7.0"
 lifecycle = "2.8.7"
+localbroadcastmanager = "1.1.0"
 
 [libraries]
 appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
@@ -25,6 +26,7 @@ media = { group = "androidx.media", name = "media", version.ref = "media" }
 lifecycle-viewmodel = { group = "androidx.lifecycle", name = "lifecycle-viewmodel", version.ref = "lifecycle" }
 lifecycle-livedata = { group = "androidx.lifecycle", name = "lifecycle-livedata", version.ref = "lifecycle" }
 lifecycle-runtime = { group = "androidx.lifecycle", name = "lifecycle-runtime", version.ref = "lifecycle" }
+localbroadcastmanager = { group = "androidx.localbroadcastmanager", name = "localbroadcastmanager", version.ref = "localbroadcastmanager" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

@@ -24,6 +24,9 @@ import com.aug32.l7audio.utils.AudioMetadataReader;
 import com.aug32.l7audio.utils.FileUtils;
 import com.aug32.l7audio.utils.WavMetadataReader;
 
+import java.util.HashSet;
+import java.util.Set;
+
 /**
  * 播放列表管理器
  *
@@ -97,19 +100,27 @@ public class PlaylistManager {
     // 防抖 Handler，1秒内多次修改合并为一次持久化
     private final android.os.Handler debounceHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable saveRunnable = () -> {
-        synchronized (lock) {
-            saveToStorage();
-        }
+        // 在 IO 线程中执行序列化，避免 gson.toJson() O(N) 阻塞主线程
+        AppExecutors.getInstance().executeOnIOThread(() -> {
+            synchronized (lock) {
+                saveToStorage();
+            }
+        });
     };
 
     // 播放列表数据
     private List<MusicItem> items;
+    // 现有路径的规范化集合，用于 O(1) 去重查重，增量维护
+    private final Set<String> existingPaths = new HashSet<>();
     // 当前播放索引，-1 表示无当前播放
     private int currentIndex = -1;
     // 循环模式，默认为列表循环
     private int repeatMode = REPEAT_MODE_ALL;
     // 播放列表变化监听器
     private PlaylistChangeListener listener;
+
+    /** 播放列表最大条目数，防止 SP 序列化/反序列化 O(N) 过大 */
+    private static final int MAX_PLAYLIST_SIZE = 1000;
 
     /** 列表循环模式：按顺序循环播放整个列表 */
     public static final int REPEAT_MODE_ALL = 0;
@@ -342,7 +353,10 @@ public class PlaylistManager {
 
             for (int pos : sorted) {
                 if (pos >= 0 && pos < items.size()) {
+                    // 同时从 existingPaths 移除对应路径
+                    String removedPath = normalizeFilePath(items.get(pos).filePath);
                     items.remove(pos);
+                    existingPaths.remove(removedPath);
                     playlistChanged = true;
                     // 当前播放的歌曲被删除
                     if (currentIndex == pos) {
@@ -464,13 +478,14 @@ public class PlaylistManager {
     }
 
     private int getRandomIndex() {
-        // 只有一首时直接返回 0，避免死循环
-        if (items.size() == 1) return 0;
-        int idx = (int) (Math.random() * items.size());
-        // 如果随机到当前播放的歌曲，则取下一首，保证切歌时一定切换
-        if (idx == currentIndex) {
-            idx = (idx + 1) % items.size();
-        }
+        int n = items.size();
+        // 只有一首时直接返回 0
+        if (n <= 1) return 0;
+        // 重新随机直到与当前不同，保证无偏（拒绝采样）
+        int idx;
+        do {
+            idx = (int) (Math.random() * n);
+        } while (idx == currentIndex);
         return idx;
     }
 
@@ -515,14 +530,14 @@ public class PlaylistManager {
         synchronized (lock) {
             // 记录添加前的列表大小，作为新添加项的起始位置
             startPos[0] = items.size();
-            // 预构建现有路径的规范化集合，加速去重比对
-            java.util.Set<String> existingPaths = new java.util.HashSet<>();
-            for (MusicItem existing : items) {
-                existingPaths.add(normalizeFilePath(existing.filePath));
-            }
             for (MusicItem item : newItems) {
                 // 跳过无效数据
                 if (item == null || item.filePath == null || item.filePath.isEmpty()) {
+                    skippedFailed[0]++;
+                    continue;
+                }
+                // 检查是否达到列表上限
+                if (items.size() >= MAX_PLAYLIST_SIZE) {
                     skippedFailed[0]++;
                     continue;
                 }
@@ -785,6 +800,8 @@ public class PlaylistManager {
                 List<MusicItem> savedItems = gson.fromJson(playlistJson, listType);
                 if (savedItems != null) {
                     items.addAll(savedItems);
+                    // 构建现有路径集合
+                    rebuildExistingPaths();
                 }
             } catch (Exception e) {
                 // 加载失败不影响应用运行，使用空列表即可
@@ -802,6 +819,19 @@ public class PlaylistManager {
         int savedRepeatMode = appConfig.getRepeatMode();
         if (savedRepeatMode >= REPEAT_MODE_ALL && savedRepeatMode <= REPEAT_MODE_OFF) {
             repeatMode = savedRepeatMode;
+        }
+    }
+
+    /**
+     * 重建 existingPaths 集合（全量重建）
+     * 在 loadFromStorage() 和外部批量替换时调用
+     */
+    private void rebuildExistingPaths() {
+        existingPaths.clear();
+        for (MusicItem item : items) {
+            if (item.filePath != null) {
+                existingPaths.add(item.filePath);
+            }
         }
     }
 

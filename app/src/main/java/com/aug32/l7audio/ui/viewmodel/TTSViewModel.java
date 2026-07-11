@@ -43,6 +43,8 @@ public class TTSViewModel extends AndroidViewModel {
     public TTSViewModel(@NonNull Application application) {
         super(application);
         this.ttsRepository = TTSRepository.getInstance(application);
+        // 必须显式初始化：构造函数仅读取，initializeIfNeeded() 负责首次默认数据落盘
+        ttsRepository.initializeIfNeeded();
     }
 
     /**

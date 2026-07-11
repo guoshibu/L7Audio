@@ -1,5 +1,6 @@
 package com.aug32.l7audio.domain.audio.micoutput.processor;
 
+import com.aug32.l7audio.BuildConfig;
 import com.aug32.l7audio.domain.audio.micoutput.AudioProcessor;
 import com.aug32.l7audio.utils.AppLog;
 
@@ -23,6 +24,9 @@ import java.util.Locale;
  * </ul>
  */
 public class GainLimiterProcessor implements AudioProcessor {
+
+    public GainLimiterProcessor() {
+    }
 
     private static final String TAG = "GainLimiter";
     /** 限幅统计日志输出间隔（帧数） */
@@ -50,8 +54,9 @@ public class GainLimiterProcessor implements AudioProcessor {
         for (int i = 0; i < samples.length; i++) {
             float normalized = samples[i] / 32768.0f;
             normalized *= amplificationFactor;
-            if (normalized > 1.0f || normalized < -1.0f) {
-                normalized = (float) Math.tanh(normalized);
+            float prev = normalized;
+            normalized = (float) Math.tanh(normalized);
+            if (Math.abs(prev) > 1.0f) {
                 localClipCount++;
             }
             samples[i] = (short) (normalized * 32767.0f);
@@ -62,7 +67,7 @@ public class GainLimiterProcessor implements AudioProcessor {
         frameCount++;
 
         if (frameCount % LOG_INTERVAL == 0) {
-            if (clippedSamplesInWindow > 0 || (frameCount == LOG_INTERVAL && clippedSamplesTotal > 0)) {
+            if (BuildConfig.DEBUG && clippedSamplesInWindow > 0) {
                 float pct = clippedSamplesInWindow * 100.0f / (LOG_INTERVAL * samples.length);
                 AppLog.i(TAG, "clip=" + String.format(Locale.US, "%.2f", pct) + "% factor=" + String.format(Locale.US, "%.2f", amplificationFactor) + " totalClipped=" + clippedSamplesTotal);
             }

@@ -14,7 +14,9 @@ import android.os.Build;
 import android.os.IBinder;
 
 import androidx.core.app.NotificationCompat;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import androidx.media.app.NotificationCompat.MediaStyle;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import com.aug32.l7audio.R;
 import com.aug32.l7audio.domain.audio.player.MediaSessionManager;
@@ -53,13 +55,15 @@ public class AudioForegroundService extends Service {
     /** 媒体控制通知ID */
     private static final int NOTIFICATION_ID = 1;
 
-    /** 广播 Action 常量 */
+/** 广播 Action 常量 */
     public static final String ACTION_PLAY = "com.aug32.l7audio.ACTION_PLAY";
     public static final String ACTION_PAUSE = "com.aug32.l7audio.ACTION_PAUSE";
     public static final String ACTION_PLAY_PAUSE = "com.aug32.l7audio.ACTION_PLAY_PAUSE";
     public static final String ACTION_PREVIOUS = "com.aug32.l7audio.ACTION_PREVIOUS";
     public static final String ACTION_NEXT = "com.aug32.l7audio.ACTION_NEXT";
     public static final String ACTION_STOP = "com.aug32.l7audio.ACTION_STOP";
+    /** 本地广播 Action：更新通知（替代 startService IPC） */
+    public static final String ACTION_UPDATE_NOTIFICATION = "com.aug32.l7audio.ACTION_UPDATE_NOTIFICATION";
 
     /** 媒体按钮请求码 */
     private static final int REQUEST_PLAY = 1;
@@ -71,12 +75,13 @@ public class AudioForegroundService extends Service {
 
     /** 媒体按钮广播接收器 */
     private BroadcastReceiver mediaButtonReceiver;
+    /** 本地广播接收器：通知更新 */
+    private BroadcastReceiver localUpdateReceiver;
 
     /** 缓存当前播放状态，用于更新通知 */
     private boolean isPlaying = false;
     private String currentTitle = "L7Audio";
     private String currentArtist = "";
-    private Bitmap currentAlbumArt = null;
 
     /**
      * 服务创建时调用
@@ -89,7 +94,24 @@ public class AudioForegroundService extends Service {
         AppLog.d(TAG, "Service created");
         createNotificationChannel();
         registerMediaButtonReceiver();
+        registerLocalUpdateReceiver();
         startForeground(NOTIFICATION_ID, createNotification());
+    }
+
+    /**
+     * 注册本地广播接收器（通知更新，替代 startService IPC）
+     */
+    private void registerLocalUpdateReceiver() {
+        localUpdateReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (ACTION_UPDATE_NOTIFICATION.equals(intent.getAction())) {
+                    updateNotification();
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter(ACTION_UPDATE_NOTIFICATION);
+        LocalBroadcastManager.getInstance(this).registerReceiver(localUpdateReceiver, filter);
     }
 
     /**
@@ -118,11 +140,18 @@ public class AudioForegroundService extends Service {
     public void onDestroy() {
         super.onDestroy();
         unregisterMediaButtonReceiver();
-        if (currentAlbumArt != null && !currentAlbumArt.isRecycled()) {
-            currentAlbumArt.recycle();
-            currentAlbumArt = null;
-        }
+        unregisterLocalUpdateReceiver();
         AppLog.d(TAG, "Service destroyed");
+    }
+
+    /**
+     * 注销本地广播接收器
+     */
+    private void unregisterLocalUpdateReceiver() {
+        if (localUpdateReceiver != null) {
+            LocalBroadcastManager.getInstance(this).unregisterReceiver(localUpdateReceiver);
+            localUpdateReceiver = null;
+        }
     }
 
     /**
@@ -200,11 +229,20 @@ public class AudioForegroundService extends Service {
                 .setSilent(true)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
 
-        if (currentAlbumArt != null && !currentAlbumArt.isRecycled()) {
-            builder.setLargeIcon(currentAlbumArt);
-            AppLog.d(TAG, "createNotification: setLargeIcon, width=" + currentAlbumArt.getWidth());
-        } else {
-            AppLog.d(TAG, "createNotification: no largeIcon available");
+        // 从缓存获取封面（不持有成员引用）
+        MusicPlayerManager manager = com.aug32.l7audio.domain.audio.AudioServiceLocator.getInstance()
+                .getMusicPlayerManager();
+        if (manager != null) {
+            com.aug32.l7audio.domain.audio.player.MusicItem item = manager.getCurrentMusicItem();
+            if (item != null && item.filePath != null) {
+                Bitmap cached = AlbumArtCache.getInstance().get(item.filePath);
+                if (cached != null && !cached.isRecycled()) {
+                    builder.setLargeIcon(cached);
+                    AppLog.d(TAG, "createNotification: setLargeIcon, width=" + cached.getWidth());
+                } else {
+                    AppLog.d(TAG, "createNotification: no largeIcon available");
+                }
+            }
         }
 
         MediaStyle mediaStyle = new MediaStyle();
@@ -309,7 +347,9 @@ public class AudioForegroundService extends Service {
                 break;
             case ACTION_STOP:
                 manager.stop();
-                break;
+                stopForeground(false);
+                stopSelf();
+                return;
         }
 
         updateNotification();
@@ -338,34 +378,18 @@ public class AudioForegroundService extends Service {
 
                     if (item.filePath != null) {
                         AppLog.d(TAG, "updateNotification: loading album art for " + item.filePath);
-                        Bitmap cached = AlbumArtCache.getInstance(AudioForegroundService.this)
-                                .get(item.filePath, item.albumArt);
+                        Bitmap cached = AlbumArtCache.getInstance()
+                                .get(item.filePath);
                         if (cached != null && !cached.isRecycled()) {
-                            if (currentAlbumArt != null && !currentAlbumArt.isRecycled()
-                                    && currentAlbumArt != cached) {
-                                currentAlbumArt.recycle();
-                            }
-                            currentAlbumArt = cached;
-                            AppLog.d(TAG, "updateNotification: album art set, width=" + currentAlbumArt.getWidth());
+                            // 直接用缓存的 Bitmap，不再持有成员引用
+                            // NotificationBuilder 会内部复制/引用
                         } else {
-                            if (currentAlbumArt != null && !currentAlbumArt.isRecycled()) {
-                                currentAlbumArt.recycle();
-                            }
-                            currentAlbumArt = null;
+                            AppLog.d(TAG, "updateNotification: no cached album art");
                         }
-                    } else {
-                        if (currentAlbumArt != null && !currentAlbumArt.isRecycled()) {
-                            currentAlbumArt.recycle();
-                        }
-                        currentAlbumArt = null;
                     }
                 } else {
                     currentTitle = "L7Audio";
                     currentArtist = "";
-                    if (currentAlbumArt != null && !currentAlbumArt.isRecycled()) {
-                        currentAlbumArt.recycle();
-                    }
-                    currentAlbumArt = null;
                 }
             }
         } catch (Exception e) {
@@ -399,19 +423,12 @@ public class AudioForegroundService extends Service {
     }
 
     /**
-     * 触发通知更新
-     *
-     * <p>用于外部调用，通知前台服务更新通知栏状态。
-     * 如果服务尚未启动，则先启动服务。
+     * 触发通知更新（本地广播，零 IPC 开销）
      *
      * @param context 上下文对象
      */
     public static void notifyUpdate(Context context) {
-        Intent intent = new Intent(context, AudioForegroundService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent);
-        } else {
-            context.startService(intent);
-        }
+        LocalBroadcastManager.getInstance(context)
+                .sendBroadcast(new Intent(ACTION_UPDATE_NOTIFICATION));
     }
 }

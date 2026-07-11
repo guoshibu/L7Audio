@@ -230,10 +230,10 @@ public class MusicPlayerManager {
         // 异步加载歌词，不阻塞播放流程
         loadLyricsIfNeeded(item);
 
-        // 扫描时不再提取封面，延迟到播放时按需提取
-        ensureAlbumArt(item);
-
+        // 先播放，封面在后台异步加载，加载完成后刷新通知
         playbackController.play(item, startPosition);
+
+        ensureAlbumArt(item);
 
         // 同步更新 MediaSession（歌曲信息 + 播放状态）
         notifyMediaSession(item, true, startPosition);
@@ -361,6 +361,8 @@ public class MusicPlayerManager {
         // 播放器已准备好 → 直接跳转
         if (playbackController.getCurrentState().hasCurrentItem()) {
             playbackController.seekTo(position);
+            // seek 后刷新 MediaSession 位置，确保车机锁屏/通知栏即时更新
+            notifyMediaSessionPlaybackState(playbackController.isPlaying(), position);
             return;
         }
 
@@ -666,6 +668,24 @@ public class MusicPlayerManager {
 
     private void ensureAlbumArt(MusicItem item) {
         if (item.albumArt != null) return;
+        AppExecutors.getInstance().executeOnComputeThread(() -> {
+            byte[] art = extractEmbeddedPicture(item);
+            if (art != null && art.length > 0) {
+                item.albumArt = art;
+                AlbumArtCache.getInstance().put(item.filePath, art);
+                mainHandler.post(() -> {
+                    if (currentPlayingItem != null
+                            && currentPlayingItem.filePath.equals(item.filePath)) {
+                        notifyMediaSession(item, playbackController.isPlaying(),
+                                playbackController.getCurrentPosition());
+                        AudioForegroundService.notifyUpdate(context);
+                    }
+                });
+            }
+        });
+    }
+
+    private byte[] extractEmbeddedPicture(MusicItem item) {
         android.media.MediaMetadataRetriever retriever = null;
         try {
             retriever = new android.media.MediaMetadataRetriever();
@@ -674,13 +694,10 @@ public class MusicPlayerManager {
             } else {
                 retriever.setDataSource(item.filePath);
             }
-            byte[] art = retriever.getEmbeddedPicture();
-            if (art != null && art.length > 0) {
-                item.albumArt = art;
-                AlbumArtCache.getInstance(context).put(item.filePath, art);
-            }
+            return retriever.getEmbeddedPicture();
         } catch (Exception e) {
             AppLog.d(TAG, "Failed to extract album art for: " + item.filePath);
+            return null;
         } finally {
             if (retriever != null) {
                 try { retriever.release(); } catch (Exception ignored) {}

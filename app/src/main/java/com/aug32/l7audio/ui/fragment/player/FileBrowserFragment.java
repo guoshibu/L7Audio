@@ -56,10 +56,6 @@ public class FileBrowserFragment extends BaseFragment {
     public static final int MODE_FILE = FileBrowserAdapter.MODE_FILE;
 
     /** 支持的音频格式 */
-    private static final String[] AUDIO_EXTENSIONS = {
-            ".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".amr"
-    };
-
     /** 根目录特殊标记：存储设备选择页 */
     private static final String PATH_STORAGE_ROOT = "__storage_root__";
 
@@ -420,6 +416,7 @@ public class FileBrowserFragment extends BaseFragment {
                             // 标记为目录类型（存储设备当作目录处理）
                             FileItem item = new FileItem(name, dir.getAbsolutePath(), true);
                             item.size = -1; // 存储设备不显示大小
+                            item.childCount = countChildren(dir);
                             items.add(item);
                         }
                     }
@@ -454,6 +451,7 @@ public class FileBrowserFragment extends BaseFragment {
             if (external != null && external.exists() && external.canRead()) {
                 FileItem item = new FileItem("内部存储", external.getAbsolutePath(), true);
                 item.size = -1;
+                item.childCount = countChildren(external);
                 items.add(item);
             }
         } catch (Exception ignored) {
@@ -503,7 +501,9 @@ public class FileBrowserFragment extends BaseFragment {
                     if (file.isDirectory()) {
                         // 跳过 .nomedia 目录
                         if (hasNomediaFile(file)) continue;
-                        dirList.add(new FileItem(file));
+                        FileItem item = new FileItem(file);
+                        item.childCount = countChildren(file);
+                        dirList.add(item);
                     } else {
                         // 所有文件都显示（两种模式下都显示全部文件）
                         fileList.add(new FileItem(file));
@@ -560,6 +560,19 @@ public class FileBrowserFragment extends BaseFragment {
     }
 
     /**
+     * 统计目录下非隐藏子项数（在后台线程调用，不阻塞 UI）
+     */
+    private static int countChildren(File dir) {
+        File[] files = dir.listFiles();
+        if (files == null) return 0;
+        int count = 0;
+        for (File f : files) {
+            if (!f.getName().startsWith(".")) count++;
+        }
+        return count;
+    }
+
+    /**
      * 判断是否为音频文件
      *
      * @param file 文件
@@ -568,7 +581,7 @@ public class FileBrowserFragment extends BaseFragment {
     private boolean isAudioFile(File file) {
         if (file == null || !file.isFile()) return false;
         String name = file.getName().toLowerCase(Locale.getDefault());
-        for (String ext : AUDIO_EXTENSIONS) {
+        for (String ext : com.aug32.l7audio.utils.FileUtils.AUDIO_EXTENSIONS) {
             if (name.endsWith(ext)) {
                 return true;
             }

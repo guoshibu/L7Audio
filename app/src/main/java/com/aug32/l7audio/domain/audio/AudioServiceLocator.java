@@ -109,12 +109,13 @@ public class AudioServiceLocator {
             MusicPlayerManager musicPlayerManager,
             AudioFocusManager audioFocusManager) {
 
-        this.audioOutputManager = audioOutputManager;
-        this.microphoneManager = microphoneManager;
-        this.ttsManager = ttsManager;
-        this.audioFocusManager = audioFocusManager;
+        // 每个参数加 null 守卫，防止误传 null 覆盖已有实例
+        if (audioOutputManager != null) this.audioOutputManager = audioOutputManager;
+        if (microphoneManager != null) this.microphoneManager = microphoneManager;
+        if (ttsManager != null) this.ttsManager = ttsManager;
+        if (audioFocusManager != null) this.audioFocusManager = audioFocusManager;
 
-        if (this.musicPlayerManager == null) {
+        if (musicPlayerManager != null && this.musicPlayerManager == null) {
             this.musicPlayerManager = musicPlayerManager;
         }
 

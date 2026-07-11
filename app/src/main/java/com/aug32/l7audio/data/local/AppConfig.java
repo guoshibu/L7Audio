@@ -132,6 +132,7 @@ public class AppConfig {
     public int getRepeatMode() { return musicConfig.getRepeatMode(); }
     public void setRepeatMode(int mode) { musicConfig.setRepeatMode(mode); }
     public void setShuffleModeEnabled(boolean enabled) { musicConfig.setShuffleModeEnabled(enabled); }
+    public boolean isShuffleModeEnabled() { return musicConfig.isShuffleModeEnabled(); }
 
     // 悬浮窗
     public boolean isFloatingWindowEnabled() { return floatingWindowConfig.isEnabled(); }
@@ -150,6 +151,12 @@ public class AppConfig {
     public void setFloatingWindowTTSNames(String namesJson) { floatingWindowConfig.setTTSNames(namesJson); }
     public int getFloatingWindowAutoHideTimeoutSec() { return floatingWindowConfig.getAutoHideTimeoutSec(); }
     public void setFloatingWindowAutoHideTimeoutSec(int seconds) { floatingWindowConfig.setAutoHideTimeoutSec(seconds); }
+
+    // ==================== TTS 悬浮窗（uid 方案） ====================
+    public String getFloatingWindowTTSSelectedUids() { return floatingWindowConfig.getTTSSelectedUids(); }
+    public void setFloatingWindowTTSSelectedUids(String uidsJson) { floatingWindowConfig.setTTSSelectedUids(uidsJson); }
+    public String getFloatingWindowTTSNamesByUid() { return floatingWindowConfig.getTTSNamesByUid(); }
+    public void setFloatingWindowTTSNamesByUid(String namesJson) { floatingWindowConfig.setTTSNamesByUid(namesJson); }
 
     // ==================== 全局操作 ====================
 }

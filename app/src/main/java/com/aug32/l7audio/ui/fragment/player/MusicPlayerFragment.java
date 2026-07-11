@@ -202,7 +202,9 @@ public class MusicPlayerFragment extends Fragment {
                     }
                 } else {
                     pendingPermissionAction = 0;
-                    Toast.makeText(getActivity(), "需要存储权限才能访问文件", Toast.LENGTH_SHORT).show();
+                    if (getActivity() != null) {
+                        Toast.makeText(getActivity(), "需要存储权限才能访问文件", Toast.LENGTH_SHORT).show();
+                    }
                 }
             });
 
@@ -546,27 +548,22 @@ public class MusicPlayerFragment extends Fragment {
             return;
         }
 
-        // 从缓存获取（内存 LRU 命中则直接返回 Bitmap）
-        int reqWidth = ivAlbumArt.getWidth() > 0 ? ivAlbumArt.getWidth() : 360;
-        int reqHeight = ivAlbumArt.getHeight() > 0 ? ivAlbumArt.getHeight() : 360;
-        android.graphics.Bitmap cached = AlbumArtCache.getInstance(requireActivity())
-                .get(item.filePath, item.albumArt, reqWidth, reqHeight);
+        // 从缓存获取（预热的 512px 版本），直接显示
+        android.graphics.Bitmap cached = AlbumArtCache.getInstance().get(item.filePath);
         if (cached != null) {
             ivAlbumArt.setImageBitmap(cached);
             return;
         }
 
-        // 缓存未命中且 albumArt 数据存在 → 后台解码
+        // 缓存未命中且 albumArt 数据存在 → 后台一次性解码指定尺寸（不入缓存）
         if (item.albumArt != null && item.albumArt.length > 0) {
             final String path = item.filePath;
             final byte[] data = item.albumArt;
-            final int targetW = reqWidth;
-            final int targetH = reqHeight;
-            final android.content.Context ctx = getActivity();
-            if (ctx == null) return;
+            final int targetW = ivAlbumArt.getWidth() > 0 ? ivAlbumArt.getWidth() : 360;
+            final int targetH = ivAlbumArt.getHeight() > 0 ? ivAlbumArt.getHeight() : 360;
             AppExecutors.getInstance().executeOnComputeThread(() -> {
-                android.graphics.Bitmap bitmap = AlbumArtCache.getInstance(ctx)
-                        .get(path, data, targetW, targetH);
+                android.graphics.Bitmap bitmap = AlbumArtCache.getInstance()
+                        .decodeForSize(data, targetW, targetH);
                 if (bitmap != null && isAdded()) {
                     getActivity().runOnUiThread(() -> {
                         if (ivAlbumArt != null) {
@@ -606,7 +603,9 @@ public class MusicPlayerFragment extends Fragment {
         musicPlayerManager.setRepeatMode(nextMode);
         updateRepeatButton();
         String[] modeNames = {"全部循环", "随机播放", "单曲循环", "单曲播放"};
-        Toast.makeText(getActivity(), modeNames[nextMode], Toast.LENGTH_SHORT).show();
+        if (getActivity() != null) {
+            Toast.makeText(getActivity(), modeNames[nextMode], Toast.LENGTH_SHORT).show();
+        }
     }
 
     // ========== 播放列表 ==========
@@ -652,15 +651,12 @@ public class MusicPlayerFragment extends Fragment {
 
         musicPlayerManager.removeMusicItems(positions);
         exitSelectionMode();
-        Toast.makeText(getActivity(), "已删除 " + positions.size() + " 首歌曲", Toast.LENGTH_SHORT).show();
+        if (getActivity() != null) {
+            Toast.makeText(getActivity(), "已删除 " + positions.size() + " 首歌曲", Toast.LENGTH_SHORT).show();
+        }
     }
 
     // ========== 文件浏览器 ==========
-
-    /** 支持的音频格式扩展名 */
-    private static final String[] AUDIO_EXTENSIONS = {
-            ".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".amr"
-    };
 
     /**
      * 打开文件浏览器选择目录（扫描音乐）
@@ -705,11 +701,12 @@ public class MusicPlayerFragment extends Fragment {
      * @return true 表示已有存储权限
      */
     private boolean hasStoragePermission() {
+        if (getActivity() == null) return false;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            return ContextCompat.checkSelfPermission(requireActivity(),
+            return ContextCompat.checkSelfPermission(getActivity(),
                     Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED;
         } else {
-            return ContextCompat.checkSelfPermission(requireActivity(),
+            return ContextCompat.checkSelfPermission(getActivity(),
                     Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
         }
     }
@@ -772,7 +769,9 @@ public class MusicPlayerFragment extends Fragment {
      */
     private void scanDirectories(List<String> directoryPaths) {
         if (musicPlayerManager == null || directoryPaths == null || directoryPaths.isEmpty()) return;
-        Toast.makeText(getActivity(), "正在扫描音乐...", Toast.LENGTH_SHORT).show();
+        if (getActivity() != null) {
+            Toast.makeText(getActivity(), "正在扫描音乐...", Toast.LENGTH_SHORT).show();
+        }
 
         AppExecutors.getInstance().executeOnComputeThread(() -> {
             List<String> audioFiles = new ArrayList<>();
@@ -827,7 +826,7 @@ public class MusicPlayerFragment extends Fragment {
     private boolean isAudioFile(File file) {
         if (file == null || !file.isFile()) return false;
         String name = file.getName().toLowerCase(Locale.getDefault());
-        for (String ext : AUDIO_EXTENSIONS) {
+        for (String ext : com.aug32.l7audio.utils.FileUtils.AUDIO_EXTENSIONS) {
             if (name.endsWith(ext)) {
                 return true;
             }
@@ -909,7 +908,7 @@ public class MusicPlayerFragment extends Fragment {
             TextView tv = new TextView(getActivity());
             tv.setText(line.text);
             tv.setTextSize(14f);
-            tv.setTextColor(getResources().getColor(R.color.text_secondary));
+            tv.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_secondary));
             tv.setGravity(android.view.Gravity.CENTER);
             tv.setPadding(0, 8, 0, 8);
             llLyricsContainer.addView(tv);
@@ -934,7 +933,7 @@ public class MusicPlayerFragment extends Fragment {
             // 取消上一行的高亮
             if (currentLyricIndex >= 0 && currentLyricIndex < llLyricsContainer.getChildCount()) {
                 TextView prevTv = (TextView) llLyricsContainer.getChildAt(currentLyricIndex);
-                prevTv.setTextColor(getResources().getColor(R.color.text_secondary));
+                prevTv.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_secondary));
                 prevTv.setTextSize(14f);
             }
             // 高亮当前行
