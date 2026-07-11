@@ -731,17 +731,6 @@ adb install app/build/outputs/apk/release/L7音频工具-versionName-versionCode
 - 🐛 **修复 TTS 模拟进度空转**：删除 progressHandler/progressRunnable/currentProgress 及所有 onTTSProgress 调用
 - 🚀 **性能优化**：AlbumArtCache 去掉 MD5 cacheKey 改用 hashCode；LruCache 淘汰时主动 recycle() Bitmap；PlaylistManager saveToStorage 防抖 1s 窗口
 - 🔧 **TTS 悬浮窗持久化迁移至 uid 方案**：TTSItem 新增 uid(UUID) + transient isPlaying；删 TTSFragment 内部类，改用 model；悬浮窗编辑器按 uid 匹配
-
-### v1.5.6 (versionCode: 70)
-
-- 🐛 **修复静音检测失效**：MicOutputController 改用 pre-RMS（getCurrentRms），替代被 AGC 拉平的 postProcessRms
-- 🐛 **修复录制线程崩溃不释放资源**：MicrophoneManager catch 中主动调用 releaseResources()
-- 🐛 **修复 AudioRecord 阻塞导致僵尸线程**：stop() 中先 stop AudioRecord 强制解除 read 阻塞
-- 🐛 **修复悬浮窗服务泄漏**：FloatingWindowService onDestroy 未注销 MicOutputListener
-- 🐛 **修复 TTS 监听无限重试**：retrySetupTTSRunnable 加最多 10 次重试上限
-- 🐛 **修复 TTS 模拟进度空转**：删除 progressHandler/progressRunnable/currentProgress 及所有 onTTSProgress 调用
-- 🚀 **性能优化**：AlbumArtCache 去掉 MD5 cacheKey 改用 hashCode；LruCache 淘汰时主动 recycle() Bitmap；PlaylistManager saveToStorage 防抖 1s 窗口
-- 🔧 **TTS 悬浮窗持久化迁移至 uid 方案**：TTSItem 新增 uid(UUID) + transient isPlaying；删 TTSFragment 内部类，改用 model；悬浮窗编辑器按 uid 匹配
 - 🔧 versionCode 69 → 70
 
 ### v1.5.5 (versionCode: 66)
