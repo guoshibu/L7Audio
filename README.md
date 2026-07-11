@@ -694,13 +694,26 @@ adb install app/build/outputs/apk/release/L7音频工具-versionName-versionCode
 
 ## 版本历史
 
-### v1.5.7 (versionCode: 90)
+### v1.5.7 (versionCode: 91)
 
+- 🐛 **修复悬浮窗深色模式显示问题**：深色模式下悬浮窗列表背景颜色调整为 `#464646ff`，不再发白
+- 🐛 **修复自动收起时长标签颜色**：`tv_auto_hide_label` 添加 `applyTextTheme()` 调用，与其他标签颜色一致
 - ✨ **新增第三方 Intent 调用方式**：新增 `MicToggleActivity` 透明 Activity，支持通过 `startActivity` 触发车外喊话
   - Intent Action：`com.aug32.l7audio.ACTION_TOGGLE_MIC`
   - 相比广播方式更可靠，保证完整初始化音频管线
 - 🐛 **修复广播触发静默失败**：`MicOutputReceiver` 添加 `AudioServiceLocator.init()` 调用，确保各 Manager 正确初始化
 - 🔧 **更新设置页面第三方调用说明**：标注 Intent 为推荐方式
+
+### v1.5.6 (versionCode: 70)
+
+- 🐛 **修复静音检测失效**：MicOutputController 改用 pre-RMS（getCurrentRms），替代被 AGC 拉平的 postProcessRms
+- 🐛 **修复录制线程崩溃不释放资源**：MicrophoneManager catch 中主动调用 releaseResources()
+- 🐛 **修复 AudioRecord 阻塞导致僵尸线程**：stop() 中先 stop AudioRecord 强制解除 read 阻塞
+- 🐛 **修复悬浮窗服务泄漏**：FloatingWindowService onDestroy 未注销 MicOutputListener
+- 🐛 **修复 TTS 监听无限重试**：retrySetupTTSRunnable 加最多 10 次重试上限
+- 🐛 **修复 TTS 模拟进度空转**：删除 progressHandler/progressRunnable/currentProgress 及所有 onTTSProgress 调用
+- 🚀 **性能优化**：AlbumArtCache 去掉 MD5 cacheKey 改用 hashCode；LruCache 淘汰时主动 recycle() Bitmap；PlaylistManager saveToStorage 防抖 1s 窗口
+- 🔧 **TTS 悬浮窗持久化迁移至 uid 方案**：TTSItem 新增 uid(UUID) + transient isPlaying；删 TTSFragment 内部类，改用 model；悬浮窗编辑器按 uid 匹配
 
 ### v1.5.6 (versionCode: 70)
 

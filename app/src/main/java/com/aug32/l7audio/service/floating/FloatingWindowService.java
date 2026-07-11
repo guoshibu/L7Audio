@@ -1,5 +1,6 @@
 package com.aug32.l7audio.service.floating;
 
+import android.app.AlertDialog;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -17,19 +18,25 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.core.app.NotificationCompat;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import com.aug32.l7audio.data.local.AppConfig;
+import com.aug32.l7audio.data.local.config.floating.FloatingWindowConfig;
 import com.aug32.l7audio.data.model.TTSItem;
 import com.aug32.l7audio.domain.audio.micoutput.MicOutputController;
 import com.aug32.l7audio.domain.audio.AudioFocusManager;
@@ -40,8 +47,6 @@ import com.aug32.l7audio.domain.audio.tts.TTSManager;
 import com.aug32.l7audio.R;
 import com.aug32.l7audio.ui.activity.MainActivity;
 import com.aug32.l7audio.utils.AppLog;
-
-import com.google.gson.Gson;
 
 /**
  * 悬浮窗服务
@@ -56,7 +61,7 @@ import com.google.gson.Gson;
  * 设计意图：
  * - 前台服务 + 悬浮窗组合：在应用退到后台后仍可操作音频功能
  * - 悬浮球与列表分离：默认显示小球，展开后显示完整功能，减少视觉干扰
- * - 自动隐藏机制：10秒无操作自动收起列表，提升用户体验
+ * - 自动隐藏机制：默认10秒（可配置）无操作自动收起列表，提升用户体验
  * - 主题适配：支持深色/浅色主题，跟随系统或用户设置
  * - 音频焦点协调：TTS/喊话与音乐互斥，通过AudioFocus自动管理
  *
@@ -80,6 +85,9 @@ public class FloatingWindowService extends Service {
     private AppConfig appConfig;
     // 悬浮窗列表是否可见
     private boolean isListViewVisible = false;
+    
+    // 自动收起时长标签，用于显示当前秒数
+    private TextView tvAutoHideLabel;
     
     // 车外喊话按钮
     private Button announcementBtn;
@@ -132,6 +140,9 @@ public class FloatingWindowService extends Service {
     private Runnable autoHideRunnable;
     // 重试设置TTS监听的 Runnable（TTSManager未就绪时延迟重试）
     private Runnable retrySetupTTSRunnable;
+    // TTS 监听重试计数器，最多重试 10 次后放弃
+    private int retrySetupTTSCount = 0;
+    private static final int MAX_RETRY_SETUP_TTS = 10;
 
     /**
      * 服务创建时调用
@@ -237,6 +248,8 @@ public class FloatingWindowService extends Service {
         if (handler != null && retrySetupTTSRunnable != null) {
             handler.removeCallbacks(retrySetupTTSRunnable);
         }
+        // 注销喊话状态监听器，避免服务实例泄漏
+        MicOutputController.getInstance().removeListener(micOutputListener);
         // 兜底：若处于车外喊话/TTS 状态，强制停止并释放焦点
         try {
             if (isAnnouncing && audioServiceLocator.getMicrophoneManager() != null) {
@@ -455,6 +468,7 @@ public class FloatingWindowService extends Service {
                 R.drawable.floating_button_dark, R.drawable.floating_button_light);
         applyTextTheme((TextView) floatingListView.findViewById(R.id.tv_alpha_label));
         applyTextTheme((TextView) floatingListView.findViewById(R.id.tv_width_label));
+        applyTextTheme((TextView) floatingListView.findViewById(R.id.tv_auto_hide_label));
         applyButtonTheme((Button) floatingListView.findViewById(R.id.btn_announcement),
                 R.drawable.floating_button_dark_selected, R.drawable.floating_button_light);
         applyButtonTheme((Button) floatingListView.findViewById(R.id.btn_select_tts),
@@ -709,21 +723,27 @@ public class FloatingWindowService extends Service {
         });
 
         Button btnSelectTTS = floatingListView.findViewById(R.id.btn_select_tts);
-        btnSelectTTS.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                resetAutoHideTimer();
-                openMainActivityToSelectTTS();
+        btnSelectTTS.setOnClickListener(new View.OnClickListener() {// 点击添加 TTS 按钮
+                   @Override
+            public void onClick(View v) {// 点击添加 TTS 按钮
+                resetAutoHideTimer();// 点击后重置自动隐藏定时器，避免用户操作后列表自动收起
+                openMainActivityToSelectTTS();// 打开 MainActivity 并导航到 TTS 模块的编辑悬浮窗列表页面
             }
         });
 
         // 自动收起时长 SeekBar
         final SeekBar sbAutoHide = floatingListView.findViewById(R.id.sb_auto_hide_timeout);
+        final TextView tvAutoHideLabel = floatingListView.findViewById(R.id.tv_auto_hide_label);
         int savedTimeout = appConfig.getFloatingWindowAutoHideTimeoutSec();
         sbAutoHide.setProgress(savedTimeout - 5);
+        // 初始化标签文本
+        tvAutoHideLabel.setText("自动收起时长：" + savedTimeout + " 秒");
         sbAutoHide.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                // 实时更新标签显示当前秒数
+                int seconds = 5 + progress;
+                tvAutoHideLabel.setText("自动收起时长：" + seconds + " 秒");
                 resetAutoHideTimer();
             }
 
@@ -750,6 +770,12 @@ public class FloatingWindowService extends Service {
         TTSManager ttsManager = audioServiceLocator.getTTSManager();
         if (ttsManager == null) {
             AppLog.w(TAG, "setupTTSListener: TTSManager is null, will retry later");
+            // 最大重试次数限制，避免 TTSManager 一直初始化失败时无限重试
+            if (retrySetupTTSCount >= MAX_RETRY_SETUP_TTS) {
+                AppLog.w(TAG, "setupTTSListener: max retries reached, giving up");
+                return;
+            }
+            retrySetupTTSCount++;
             // 为什么延迟重试：TTSManager 可能还在初始化中，延迟500ms再试
             // 为什么要先 removeCallbacks：避免多次重试排队，确保只有一个重试任务在等待
             if (handler != null && retrySetupTTSRunnable != null) {
@@ -797,10 +823,9 @@ public class FloatingWindowService extends Service {
                     resetAutoHideTimer();
                 });
             }
-
-            @Override
-            public void onTTSProgress(int progress) {}
         });
+        // 注册成功，重置重试计数器（若之前重试过），下次进入时恢复重试能力
+        retrySetupTTSCount = 0;
         AppLog.d(TAG, "TTS progress listener registered successfully");
     }
 
@@ -829,14 +854,15 @@ public class FloatingWindowService extends Service {
         }
     }
 
-    /** 打开 MainActivity 以便用户选择、编辑 TTS 项 */
+    /** 打开 MainActivity 并导航到 TTS 模块，自动打开编辑悬浮窗列表对话框 */
     private void openMainActivityToSelectTTS() {
         Intent intent = new Intent(this, MainActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                 | Intent.FLAG_ACTIVITY_CLEAR_TOP
                 | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         intent.putExtra("navigate_to_tts", true);
-        AppLog.d(TAG, "openMainActivityToSelectTTS: 启动 MainActivity 并导航到 TTS");
+        intent.putExtra("open_floating_editor", true);
+        AppLog.d(TAG, "openMainActivityToSelectTTS: 启动 MainActivity 并自动打开编辑悬浮窗列表");
         startActivity(intent);
         hideListView();
     }
@@ -859,60 +885,65 @@ public class FloatingWindowService extends Service {
         ttsContainer.removeAllViews();
 
         String ttsItemsJson = appConfig.getTTSItems();
-        String indicesJson = appConfig.getFloatingWindowTTSIndices();
-        String namesJson = appConfig.getFloatingWindowTTSNames();
+        // 读新 sp key（uid 方案），旧 indices/names 不再使用
+        String uidsJson = appConfig.getFloatingWindowTTSSelectedUids();
+        String namesJson = appConfig.getFloatingWindowTTSNamesByUid();
 
         AppLog.d(TAG, "ttsItemsJson length: " + (ttsItemsJson != null ? ttsItemsJson.length() : "null"));
-        AppLog.d(TAG, "indicesJson: " + indicesJson);
-        AppLog.d(TAG, "namesJson: " + namesJson);
+        AppLog.d(TAG, "uidsJson: " + uidsJson);
 
         if (ttsItemsJson == null || ttsItemsJson.isEmpty()) {
             AppLog.d(TAG, "TTS items is empty, no data to load");
             return;
         }
 
-        if (indicesJson == null || indicesJson.isEmpty() || "[]".equals(indicesJson)) {
-            AppLog.d(TAG, "Indices is empty or [], no selected TTS items");
+        if (uidsJson == null || uidsJson.isEmpty() || "[]".equals(uidsJson)) {
+            AppLog.d(TAG, "Uids is empty or [], no selected TTS items");
             return;
         }
 
         try {
             List<TTSItem> allItems = gson.fromJson(ttsItemsJson, new TypeToken<List<TTSItem>>(){}.getType());
-            List<Integer> selectedIndices = gson.fromJson(indicesJson, new TypeToken<List<Integer>>(){}.getType());
-            Map<Integer, String> customNames = gson.fromJson(namesJson, new TypeToken<Map<Integer, String>>(){}.getType());
+            List<String> selectedUids = gson.fromJson(uidsJson, new TypeToken<List<String>>(){}.getType());
+            Map<String, String> customNamesByUid = gson.fromJson(namesJson, new TypeToken<Map<String, String>>(){}.getType());
 
             AppLog.d(TAG, "Parsed allItems: " + (allItems != null ? allItems.size() : "null"));
-            AppLog.d(TAG, "Parsed selectedIndices: " + (selectedIndices != null ? selectedIndices.size() : "null"));
+            AppLog.d(TAG, "Parsed selectedUids: " + (selectedUids != null ? selectedUids.size() : "null"));
 
             if (allItems == null || allItems.isEmpty()) {
                 AppLog.d(TAG, "TTS items list is null or empty after parse");
                 return;
             }
 
-            if (selectedIndices == null || selectedIndices.isEmpty()) {
-                AppLog.d(TAG, "Selected indices list is null or empty after parse");
+            if (selectedUids == null || selectedUids.isEmpty()) {
+                AppLog.d(TAG, "Selected uids list is null or empty after parse");
                 return;
             }
 
-            if (customNames == null) {
-                customNames = new HashMap<>();
+            if (customNamesByUid == null) {
+                customNamesByUid = new HashMap<>();
             }
 
-            AppLog.d(TAG, "Loading " + selectedIndices.size() + " TTS items from " + allItems.size() + " available");
+            // 按 uid 匹配，不再依赖下标顺序
+            Map<String, TTSItem> uidToItem = new HashMap<>();
+            for (TTSItem item : allItems) {
+                if (item.uid != null) {
+                    uidToItem.put(item.uid, item);
+                }
+            }
+
+            AppLog.d(TAG, "Loading " + selectedUids.size() + " TTS items by uid from " + allItems.size() + " available");
             
-            for (int i = 0; i < selectedIndices.size(); i++) {
-                int index = selectedIndices.get(i);
-                AppLog.d(TAG, "Processing index " + i + ": value=" + index);
-                
-                if (index >= 0 && index < allItems.size()) {
-                    TTSItem item = allItems.get(index);
-                    String text = item.text;
-                    String customName = customNames.containsKey(index) ? customNames.get(index) : item.customName;
+            for (int i = 0; i < selectedUids.size(); i++) {
+                String uid = selectedUids.get(i);
+                TTSItem item = uidToItem.get(uid);
+                if (item != null) {
+                    String customName = customNamesByUid.containsKey(uid) ? customNamesByUid.get(uid) : item.customName;
                     String displayName = (customName != null && !customName.isEmpty()) ? customName : item.getDisplayName();
-                    AppLog.d(TAG, "Adding TTS item: " + displayName);
-                    addTTSItemToView(ttsContainer, displayName, index, text);
+                    AppLog.d(TAG, "Adding TTS item: " + displayName + " uid=" + uid);
+                    addTTSItemToView(ttsContainer, displayName, uid, item.text);
                 } else {
-                    AppLog.d(TAG, "Invalid index: " + index + " (valid range: 0-" + (allItems.size() - 1) + ")");
+                    AppLog.w(TAG, "TTS item not found for uid: " + uid + " (may have been deleted)");
                 }
             }
             
@@ -923,8 +954,8 @@ public class FloatingWindowService extends Service {
     }
 
     /** 将单个 TTS 项添加到悬浮窗列表（含播放/删除按钮） */
-    private void addTTSItemToView(LinearLayout container, String displayName, final int index, final String originalText) {
-        AppLog.d(TAG, "addTTSItemToView: index=" + index + " displayName=\"" + displayName + "\" textLen=" + (originalText != null ? originalText.length() : 0));
+    private void addTTSItemToView(LinearLayout container, String displayName, final String uid, final String originalText) {
+        AppLog.d(TAG, "addTTSItemToView: uid=" + uid + " displayName=\"" + displayName + "\" textLen=" + (originalText != null ? originalText.length() : 0));
         View itemView = LayoutInflater.from(this).inflate(R.layout.item_floating_tts, container, false);
         
         final Button btnPlay = itemView.findViewById(R.id.btn_play_tts);
@@ -942,7 +973,7 @@ public class FloatingWindowService extends Service {
             @Override
             public void onClick(View v) {
                 resetAutoHideTimer();
-                removeTTSIndex(index);
+                removeTTSByUid(uid);
             }
         });
 
@@ -1032,30 +1063,30 @@ public class FloatingWindowService extends Service {
                 R.drawable.floating_button_light);
     }
 
-    /** 从配置中移除指定索引的 TTS 项并重新渲染列表 */
-    private void removeTTSIndex(int indexToRemove) {
-        AppLog.d(TAG, "removeTTSIndex: indexToRemove=" + indexToRemove);
+    /** 从配置中移除指定 uid 的 TTS 项并重新渲染列表 */
+    private void removeTTSByUid(String uidToRemove) {
+        AppLog.d(TAG, "removeTTSByUid: uid=" + uidToRemove);
         try {
-            String indicesJson = appConfig.getFloatingWindowTTSIndices();
-            List<Integer> selectedIndices = gson.fromJson(indicesJson, new TypeToken<List<Integer>>(){}.getType());
+            String uidsJson = appConfig.getFloatingWindowTTSSelectedUids();
+            List<String> selectedUids = gson.fromJson(uidsJson, new TypeToken<List<String>>(){}.getType());
             
-            if (selectedIndices != null) {
-                selectedIndices.remove(Integer.valueOf(indexToRemove));
-                String newIndicesJson = gson.toJson(selectedIndices);
-                appConfig.setFloatingWindowTTSIndices(newIndicesJson);
+            if (selectedUids != null) {
+                selectedUids.remove(uidToRemove);
+                String newUidsJson = gson.toJson(selectedUids);
+                appConfig.setFloatingWindowTTSSelectedUids(newUidsJson);
                 
-                String namesJson = appConfig.getFloatingWindowTTSNames();
-                Map<Integer, String> customNames = gson.fromJson(namesJson, new TypeToken<Map<Integer, String>>(){}.getType());
+                String namesJson = appConfig.getFloatingWindowTTSNamesByUid();
+                Map<String, String> customNames = gson.fromJson(namesJson, new TypeToken<Map<String, String>>(){}.getType());
                 if (customNames != null) {
-                    customNames.remove(indexToRemove);
+                    customNames.remove(uidToRemove);
                     String newNamesJson = gson.toJson(customNames);
-                    appConfig.setFloatingWindowTTSNames(newNamesJson);
+                    appConfig.setFloatingWindowTTSNamesByUid(newNamesJson);
                 }
                 
                 loadTTSItems();
             }
         } catch (Exception e) {
-            AppLog.e(TAG, "Failed to remove TTS index", e);
+            AppLog.e(TAG, "Failed to remove TTS item by uid", e);
         }
     }
 

@@ -1,9 +1,20 @@
 # L7Audio CHANGELOG
 
 > 日期：2026-07-11
-> 版本：v1.5.7 (versionCode: 90)
+> 版本：v1.5.7 (versionCode: 91)
 
 ---
+
+---
+
+## v1.5.7 修复悬浮窗深色模式显示问题 (versionCode: 91)
+
+### 修复的问题
+
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| floating_list_bg_dark.xml | 深色模式下悬浮窗列表背景颜色过浅（#BDBDBD），看起来发白 | 改为 #464646ff，与深色模式按钮背景协调 |
+| FloatingWindowService.java | 自动收起时长标签 `tv_auto_hide_label` 未应用主题颜色 | 添加 `applyTextTheme()` 调用 |
 
 ---
 
