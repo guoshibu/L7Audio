@@ -640,16 +640,18 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="方法一（推荐）- Intent：com.aug32.l7audio.ACTION_TOGGLE_MIC \n EVCC→自动化→添加按钮启动app→包名填→com.aug32.17audio/.ui.activity.MicToggleActivity \n 就可以物理按键触发车外喊话开关（开→关/关→开）"
+                    android:text="方法一（推荐）- Intent：com.aug32.l7audio.ACTION_TOGGLE_MIC"
                     android:textColor="?android:attr/textColorSecondary"
                     android:textSize="12sp"
-                    android:layout_marginTop="8dp"/><TextView
+                    android:layout_marginTop="8dp"/>
+                <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="EVCC→自动化→添加按钮启动app→包名填→com.aug32.l7audio/.ui.activity.MicToggleActivity）"
                     android:textColor="?android:attr/textColorSecondary"
                     android:textSize="12sp"
-                    android:layout_marginTop="8dp"/><TextView
+                    android:layout_marginTop="8dp"/>
+                <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="就可以物理按键触发车外喊话开关（开→关/关→开）"

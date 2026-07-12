@@ -100,6 +100,12 @@ intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 context.startActivity(intent);
 ```
 
+**EVCC 配置步骤**：
+
+1. 打开 EVCC → 点击 自动化 → 新建脚本 → 编辑规则 → 映射的物理按键 → 点击`动作（按顺序执行）`的`添加`按钮
+2. 弹窗的类型选择 `启动app` → 包名填 `com.aug32.17audio/.ui.activity.MicToggleActivity` → 确定
+3. 点击保存
+
 **Key Mapper 配置步骤**：
 
 1. 打开 Key Mapper → 点击底部 `+` 号 → 选择要映射的物理按键
@@ -714,17 +720,6 @@ adb install app/build/outputs/apk/release/L7音频工具-versionName-versionCode
   - 相比广播方式更可靠，保证完整初始化音频管线
 - 🐛 **修复广播触发静默失败**：`MicOutputReceiver` 添加 `AudioServiceLocator.init()` 调用，确保各 Manager 正确初始化
 - 🔧 **更新设置页面第三方调用说明**：标注 Intent 为推荐方式
-
-### v1.5.6 (versionCode: 70)
-
-- 🐛 **修复静音检测失效**：MicOutputController 改用 pre-RMS（getCurrentRms），替代被 AGC 拉平的 postProcessRms
-- 🐛 **修复录制线程崩溃不释放资源**：MicrophoneManager catch 中主动调用 releaseResources()
-- 🐛 **修复 AudioRecord 阻塞导致僵尸线程**：stop() 中先 stop AudioRecord 强制解除 read 阻塞
-- 🐛 **修复悬浮窗服务泄漏**：FloatingWindowService onDestroy 未注销 MicOutputListener
-- 🐛 **修复 TTS 监听无限重试**：retrySetupTTSRunnable 加最多 10 次重试上限
-- 🐛 **修复 TTS 模拟进度空转**：删除 progressHandler/progressRunnable/currentProgress 及所有 onTTSProgress 调用
-- 🚀 **性能优化**：AlbumArtCache 去掉 MD5 cacheKey 改用 hashCode；LruCache 淘汰时主动 recycle() Bitmap；PlaylistManager saveToStorage 防抖 1s 窗口
-- 🔧 **TTS 悬浮窗持久化迁移至 uid 方案**：TTSItem 新增 uid(UUID) + transient isPlaying；删 TTSFragment 内部类，改用 model；悬浮窗编辑器按 uid 匹配
 
 ### v1.5.6 (versionCode: 70)
 
