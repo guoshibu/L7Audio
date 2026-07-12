@@ -137,6 +137,12 @@ intent.setPackage("com.aug32.l7audio");
 context.sendBroadcast(intent);
 ```
 
+**EVCC 配置步骤**：
+
+1. 打开 EVCC → 点击 自动化 → 新建脚本 → 编辑规则 → 映射的物理按键 → 点击`动作（按顺序执行）`的`添加`按钮
+2. 弹窗的类型选择 `启动app` → 包名填 `com.aug32.17audio/.ui.activity.MicToggleActivity` → 确定
+3. 点击保存
+
 **Key Mapper 配置步骤**：
 
 1. 打开 Key Mapper → 点击底部 `+` 号 → 选择要映射的物理按键
