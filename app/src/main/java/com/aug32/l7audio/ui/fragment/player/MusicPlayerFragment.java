@@ -105,6 +105,8 @@ public class MusicPlayerFragment extends Fragment {
     private Button btnCancel;
     /** 播放列表标题（含数量） */
     private TextView tvPlaylistTitle;
+    /** 扫描状态提示 */
+    private TextView tvScanStatus;
 
     // ========== 数据 ==========
     /** 音乐播放器管理器（业务逻辑委托） */
@@ -313,6 +315,7 @@ public class MusicPlayerFragment extends Fragment {
         btnDelete = null;
         btnCancel = null;
         tvPlaylistTitle = null;
+        tvScanStatus = null;
         playlistAdapter = null;
     }
 
@@ -341,6 +344,7 @@ public class MusicPlayerFragment extends Fragment {
         btnDelete = view.findViewById(R.id.btn_delete);
         btnCancel = view.findViewById(R.id.btn_cancel);
         tvPlaylistTitle = view.findViewById(R.id.tv_playlist_title);
+        tvScanStatus = view.findViewById(R.id.tv_scan_status);
 
         // 设置 RecyclerView
         playlistAdapter = new MusicPlaylistAdapter();
@@ -769,8 +773,9 @@ public class MusicPlayerFragment extends Fragment {
      */
     private void scanDirectories(List<String> directoryPaths) {
         if (musicPlayerManager == null || directoryPaths == null || directoryPaths.isEmpty()) return;
-        if (getActivity() != null) {
-            Toast.makeText(getActivity(), "正在扫描音乐...", Toast.LENGTH_SHORT).show();
+        
+        if (tvScanStatus != null) {
+            tvScanStatus.setVisibility(View.VISIBLE);
         }
 
         AppExecutors.getInstance().executeOnComputeThread(() -> {
@@ -869,6 +874,10 @@ public class MusicPlayerFragment extends Fragment {
                             message = "添加了 " + addedItems.size() + " 首歌曲";
                         }
                         Toast.makeText(getActivity(), message, Toast.LENGTH_SHORT).show();
+                        
+                        if (tvScanStatus != null) {
+                            tvScanStatus.setVisibility(View.GONE);
+                        }
                     }
                 });
     }

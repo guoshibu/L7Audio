@@ -706,6 +706,16 @@ adb install app/build/outputs/apk/release/L7音频工具-versionName-versionCode
 
 ## 版本历史
 
+### v1.5.9 (versionCode: 105)
+
+- ✨ **UI字体增大优化**：全界面字体统一增大 3sp，提升可读性
+  - 悬浮窗列表：标题 26→29sp，按钮 20→23sp，功能按钮 22→25sp
+  - 音乐播放器：歌曲标题 24→27sp，艺术家 19→22sp，按钮 21→24sp
+  - 麦克风放大器：状态 22→25sp，选项 19→22sp，开始按钮 28→31sp
+  - TTS 界面：输入框/按钮 19→22sp
+  - TTS 列表项：播放 18→21sp，删除 16→19sp
+- 🚀 **性能优化**（v1.5.8 累积）：内存泄漏修复、对象复用、线程安全优化、资源管理、缓存优化
+
 ### v1.5.8 (versionCode: 96)
 
 - 🐛 **修复静音检测误判问题**：`MicrophoneManager.getCurrentRms()` 改为返回最近 10 帧的滑动窗口平均值，避免采样到瞬时静音帧导致误判

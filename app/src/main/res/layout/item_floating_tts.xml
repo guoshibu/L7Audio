@@ -13,7 +13,7 @@
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:text="播放"
-        android:textSize="14sp"
+        android:textSize="21sp"
         android:minHeight="48dp"
         android:gravity="start|center_vertical"
         android:paddingStart="12dp"
@@ -24,7 +24,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="删除"
-        android:textSize="12sp"
+        android:textSize="19sp"
         android:minWidth="60dp"
         android:minHeight="40dp"
         android:layout_marginStart="8dp" />

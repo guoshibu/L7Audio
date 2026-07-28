@@ -5,7 +5,8 @@ import com.aug32.l7audio.utils.AppLog;
 
 public class SpectralAndNotchProcessor {
 
-    static final int FFT_SIZE = 512;
+    /** FFT 大小：从 512 降低到 256，平衡频率分辨率和 CPU 性能 */
+    static final int FFT_SIZE = 256;
     static final int HALF_FFT = FFT_SIZE / 2;
 
     static void fft(float[] real, float[] imag) {
@@ -108,9 +109,12 @@ public class SpectralAndNotchProcessor {
 
         private static final float OVER_SUBTRACTION = 1.3f;
         private static final float SPECTRAL_FLOOR = 0.01f;
-        private static final int NOISE_LEARN_FRAMES = 30;
+        /** 噪声学习帧数：从 30 帧延长至 375 帧（约 1 秒），确保噪声模型足够稳定 */
+        private static final int NOISE_LEARN_FRAMES = 375;
         private static final float NOISE_UPDATE_RATE = 0.05f;
         private static final float VAD_THRESHOLD = 2.5f;
+        /** 噪声谱更新间隔：从每帧改为每 3 帧更新一次，减少计算开销 */
+        private static final int NOISE_UPDATE_INTERVAL = 3;
 
         private final float[] sineWindow;
         private final float[] noiseProfile;
@@ -123,6 +127,7 @@ public class SpectralAndNotchProcessor {
         private float[] outputBuf;
 
         private int noiseUpdateCount = 0;
+        private int frameCount = 0;
         private boolean enabled = true;
 
         public SpectralNoiseReduction() {
@@ -190,7 +195,7 @@ public class SpectralAndNotchProcessor {
                                 / (noiseUpdateCount + 1);
                     }
                     noiseUpdateCount++;
-                } else if (!voiceActive) {
+                } else if (!voiceActive && frameCount % NOISE_UPDATE_INTERVAL == 0) {
                     for (int i = 0; i <= HALF_FFT; i++) {
                         noiseProfile[i] = (1.0f - NOISE_UPDATE_RATE) * noiseProfile[i]
                                 + NOISE_UPDATE_RATE * magnitude[i];
@@ -231,26 +236,53 @@ public class SpectralAndNotchProcessor {
             }
 
             for (int i = 0; i < n; i++) {
-                float val = output[i];
-                if (val > 1.0f) val = 1.0f;
-                else if (val < -1.0f) val = -1.0f;
-                samples[i] = (short) (val * 32767.0f);
-            }
+            float val = output[i];
+            if (val > 1.0f) val = 1.0f;
+            else if (val < -1.0f) val = -1.0f;
+            samples[i] = (short) (val * 32767.0f);
         }
+
+        frameCount++;
+    }
+
+    /** 谱平坦度阈值：语音信号谱平坦度低（有明显峰值），噪声信号谱平坦度高 */
+        private static final float FLATNESS_THRESHOLD = 0.4f;
 
         private boolean isVoiceActive(float[] mag) {
             float currentEnergy = 0.0f;
             float noiseEnergy = 0.0f;
+            float sumMag = 0.0f;
+            float productMag = 1.0f;
+            int validBins = 0;
+
             for (int i = 0; i <= HALF_FFT; i++) {
                 currentEnergy += mag[i] * mag[i];
                 noiseEnergy += noiseProfile[i] * noiseProfile[i];
+                if (mag[i] > 0.0001f) {
+                    sumMag += mag[i];
+                    productMag *= mag[i];
+                    validBins++;
+                }
             }
-            return currentEnergy > VAD_THRESHOLD * noiseEnergy;
+
+            boolean energyCondition = currentEnergy > VAD_THRESHOLD * noiseEnergy;
+
+            // 谱平坦度检测：语音信号有明显峰值，谱平坦度低；噪声信号平坦，谱平坦度高
+            float spectralFlatness = 0.0f;
+            if (validBins > 0 && sumMag > 0) {
+                float geometricMean = (float) Math.pow(productMag, 1.0f / validBins);
+                float arithmeticMean = sumMag / validBins;
+                spectralFlatness = geometricMean / arithmeticMean;
+            }
+
+            // 双重条件：能量超过阈值 AND 谱平坦度低于阈值（有峰值特征）
+            return energyCondition && spectralFlatness < FLATNESS_THRESHOLD;
         }
 
         @Override
         public void reset() {
             noiseUpdateCount = 0;
+            frameCount = 0;
             for (int i = 0; i < HALF_FFT + 1; i++) noiseProfile[i] = 0.0f;
             for (int i = 0; i < HALF_FFT; i++) prevInput[i] = 0.0f;
             for (int i = 0; i < HALF_FFT; i++) overlap[i] = 0.0f;
@@ -270,22 +302,32 @@ public class SpectralAndNotchProcessor {
     /**
      * 啸叫检测与 IIR 陷波滤波器。
      *
-     * <p>512 FFT 谱峰检测，寻找频率峰值超过周围 3 倍且连续出现 3 次的频点，
+     * <p>512 FFT 谱峰检测（频率分辨率 93.75Hz），寻找频率峰值超过周围 3 倍且连续出现 3 次的频点，
      * 添加 IIR 双二阶陷波器（Q=30, -12dB）进行抑制，最多同时抑制 3 个频点。
      * 啸叫消失 10 帧后自动释放陷波器。
+     * </p>
+     *
+     * <p>与降噪处理器独立使用不同的 FFT 大小：降噪使用 256 点（平衡性能），
+     * 啸叫检测使用 512 点（提高频率分辨率，确保陷波器频率定位准确）。
+     * </p>
      */
     public static class HowlingNotchFilter implements AudioProcessor {
 
         private static final String TAG = "HowlingNotchFilter";
         private static final int SAMPLE_RATE = 48000;
+        /** 啸叫检测独立使用 512 点 FFT，频率分辨率 93.75Hz，确保陷波器频率定位准确 */
+        private static final int HOWLING_FFT_SIZE = 512;
+        private static final int HOWLING_HALF_FFT = HOWLING_FFT_SIZE / 2;
         private static final float PEAK_RATIO = 3.0f;
         private static final float HOWLING_AMP_THRESHOLD = 0.01f;
         private static final int DETECTION_COUNT = 3;
         private static final int MAX_NOTCHES = 3;
         private static final float NOTCH_Q = 30.0f;
         private static final int RELEASE_FRAMES = 10;
-        private static final int MIN_FREQ_BIN = 500 * FFT_SIZE / SAMPLE_RATE;
-        private static final int MAX_FREQ_BIN = Math.min(8000 * FFT_SIZE / SAMPLE_RATE, HALF_FFT - 1);
+        private static final int MIN_FREQ_BIN = 500 * HOWLING_FFT_SIZE / SAMPLE_RATE;
+        private static final int MAX_FREQ_BIN = Math.min(8000 * HOWLING_FFT_SIZE / SAMPLE_RATE, HOWLING_HALF_FFT - 1);
+        /** 陷波器频率锁定范围：已激活的陷波器附近的频点不再检测，避免抖动 */
+        private static final float LOCKED_FREQ_RANGE = 50.0f;
 
         private final float[] window;
         private final int[] howlingCounters;
@@ -332,15 +374,15 @@ public class SpectralAndNotchProcessor {
         }
 
         public HowlingNotchFilter() {
-            window = new float[FFT_SIZE];
-            howlingCounters = new int[HALF_FFT];
-            real = new float[FFT_SIZE];
-            imag = new float[FFT_SIZE];
-            magnitude = new float[HALF_FFT];
+            window = new float[HOWLING_FFT_SIZE];
+            howlingCounters = new int[HOWLING_HALF_FFT];
+            real = new float[HOWLING_FFT_SIZE];
+            imag = new float[HOWLING_FFT_SIZE];
+            magnitude = new float[HOWLING_HALF_FFT];
             activeNotches = new NotchFilter[MAX_NOTCHES];
 
-            for (int i = 0; i < FFT_SIZE; i++) {
-                window[i] = (float) Math.sin(Math.PI * (i + 0.5) / FFT_SIZE);
+            for (int i = 0; i < HOWLING_FFT_SIZE; i++) {
+                window[i] = (float) Math.sin(Math.PI * (i + 0.5) / HOWLING_FFT_SIZE);
             }
         }
 
@@ -366,42 +408,55 @@ public class SpectralAndNotchProcessor {
             int n = samples.length;
             if (n <= 0) return;
 
-            int numChunks = (n + HALF_FFT - 1) / HALF_FFT;
+            int numChunks = (n + HOWLING_HALF_FFT - 1) / HOWLING_HALF_FFT;
 
             for (int chunk = 0; chunk < numChunks; chunk++) {
-                int base = chunk * HALF_FFT;
-                int fftLen = Math.min(FFT_SIZE, n - base);
+                int base = chunk * HOWLING_HALF_FFT;
+                int fftLen = Math.min(HOWLING_FFT_SIZE, n - base);
 
                 for (int i = 0; i < fftLen; i++) {
                     real[i] = (samples[base + i] / 32768.0f) * window[i];
                     imag[i] = 0.0f;
                 }
-                for (int i = fftLen; i < FFT_SIZE; i++) {
+                for (int i = fftLen; i < HOWLING_FFT_SIZE; i++) {
                     real[i] = 0.0f;
                     imag[i] = 0.0f;
                 }
 
                 fft(real, imag);
 
-                for (int i = 0; i < HALF_FFT; i++) {
+                for (int i = 0; i < HOWLING_HALF_FFT; i++) {
                     magnitude[i] = (float) Math.sqrt(real[i] * real[i] + imag[i] * imag[i]);
                 }
 
                 float avgMagnitude = 0.0f;
-                for (int i = MIN_FREQ_BIN; i <= MAX_FREQ_BIN && i < HALF_FFT; i++) {
+                for (int i = MIN_FREQ_BIN; i <= MAX_FREQ_BIN && i < HOWLING_HALF_FFT; i++) {
                     avgMagnitude += magnitude[i];
                 }
                 avgMagnitude /= (MAX_FREQ_BIN - MIN_FREQ_BIN + 1);
                 float adaptiveThreshold = Math.max(HOWLING_AMP_THRESHOLD, avgMagnitude * 0.5f);
 
-                for (int i = MIN_FREQ_BIN; i <= MAX_FREQ_BIN && i < HALF_FFT - 1; i++) {
+                for (int i = MIN_FREQ_BIN; i <= MAX_FREQ_BIN && i < HOWLING_HALF_FFT - 1; i++) {
+                    float freq = (float) i * SAMPLE_RATE / HOWLING_FFT_SIZE;
+                    
+                    boolean freqLocked = false;
+                    for (int j = 0; j < notchCount; j++) {
+                        if (Math.abs(activeNotches[j].freq - freq) < LOCKED_FREQ_RANGE) {
+                            freqLocked = true;
+                            break;
+                        }
+                    }
+                    
+                    if (freqLocked) {
+                        continue;
+                    }
+                    
                     if (magnitude[i] > adaptiveThreshold
                             && magnitude[i] > magnitude[i - 1] * PEAK_RATIO
                             && magnitude[i] > magnitude[i + 1] * PEAK_RATIO) {
                         howlingCounters[i]++;
                         if (howlingCounters[i] >= DETECTION_COUNT) {
                             howlingCounters[i] = 0;
-                            float freq = (float) i * SAMPLE_RATE / FFT_SIZE;
                             addNotch(freq);
                         }
                     } else {
@@ -427,11 +482,11 @@ public class SpectralAndNotchProcessor {
                         oldestIdx = i;
                     }
                 }
-                AppLog.i(TAG, "Howling notch replaced: " + (int) activeNotches[oldestIdx].freq + "Hz -> " + (int) freq + "Hz");
+                AppLog.i(TAG, "啸叫陷波器替换: " + (int) activeNotches[oldestIdx].freq + "Hz -> " + (int) freq + "Hz");
                 activeNotches[oldestIdx] = new NotchFilter(freq);
                 return;
             }
-            AppLog.i(TAG, "Howling notch activated: " + (int) freq + "Hz");
+            AppLog.i(TAG, "啸叫陷波器激活: " + (int) freq + "Hz");
             activeNotches[notchCount++] = new NotchFilter(freq);
         }
 
@@ -445,7 +500,7 @@ public class SpectralAndNotchProcessor {
                     }
                     writeIdx++;
                 } else {
-                    AppLog.i(TAG, "Howling notch released: " + (int) activeNotches[readIdx].freq + "Hz");
+                    AppLog.i(TAG, "啸叫陷波器释放: " + (int) activeNotches[readIdx].freq + "Hz");
                 }
             }
             notchCount = writeIdx;
@@ -453,7 +508,7 @@ public class SpectralAndNotchProcessor {
 
         @Override
         public void reset() {
-            for (int i = 0; i < HALF_FFT; i++) {
+            for (int i = 0; i < HOWLING_HALF_FFT; i++) {
                 howlingCounters[i] = 0;
             }
             notchCount = 0;

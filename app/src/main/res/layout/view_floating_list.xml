@@ -21,7 +21,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="L7 Audio"
-            android:textSize="22sp"
+            android:textSize="29sp"
             android:textStyle="bold" />
 
         <Button
@@ -30,7 +30,7 @@
             android:layout_height="wrap_content"
             android:layout_marginEnd="12dp"
             android:text="设置"
-            android:textSize="17sp"
+            android:textSize="23sp"
             android:minWidth="80dp"
             android:minHeight="50dp" />
 
@@ -39,7 +39,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="收起"
-            android:textSize="17sp"
+            android:textSize="23sp"
             android:minWidth="80dp"
             android:minHeight="50dp" />
 
@@ -59,7 +59,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
             android:text="悬浮窗透明度"
-            android:textSize="17sp" />
+            android:textSize="23sp" />
 
         <SeekBar
             android:id="@+id/sb_alpha"
@@ -75,7 +75,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
             android:text="悬浮窗宽度"
-            android:textSize="17sp" />
+            android:textSize="23sp" />
 
         <SeekBar
             android:id="@+id/sb_width"
@@ -91,7 +91,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
             android:text="自动收起时长：10 秒"
-            android:textSize="17sp" />
+            android:textSize="23sp" />
 
         <SeekBar
             android:id="@+id/sb_auto_hide_timeout"
@@ -110,7 +110,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="19dp"
         android:text="车外喊话"
-        android:textSize="19sp"
+        android:textSize="25sp"
         android:minHeight="67dp" />
 
     <LinearLayout
@@ -126,7 +126,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="TTS列表"
-            android:textSize="19sp"
+            android:textSize="25sp"
             android:textStyle="bold" />
 
         <Button
@@ -134,7 +134,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="添加"
-            android:textSize="17sp"
+            android:textSize="23sp"
             android:minWidth="96dp"
             android:minHeight="58dp" />
 

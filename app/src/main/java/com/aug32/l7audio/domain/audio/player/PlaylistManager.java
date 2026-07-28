@@ -26,6 +26,7 @@ import com.aug32.l7audio.utils.WavMetadataReader;
 
 import java.util.HashSet;
 import java.util.Set;
+import android.util.LruCache;
 
 /**
  * 播放列表管理器
@@ -112,6 +113,8 @@ public class PlaylistManager {
     private List<MusicItem> items;
     // 现有路径的规范化集合，用于 O(1) 去重查重，增量维护
     private final Set<String> existingPaths = new HashSet<>();
+    // 路径规范化缓存，减少文件系统调用
+    private final LruCache<String, String> pathNormalizeCache = new LruCache<>(500);
     // 当前播放索引，-1 表示无当前播放
     private int currentIndex = -1;
     // 循环模式，默认为列表循环
@@ -508,16 +511,23 @@ public class PlaylistManager {
         if (path == null || path.isEmpty()) {
             return "";
         }
-        // content:// URI 不做规范化
+        String cached = pathNormalizeCache.get(path);
+        if (cached != null) {
+            return cached;
+        }
+        String result;
         if (path.startsWith("content://")) {
-            return path.toLowerCase(java.util.Locale.ROOT);
+            result = path.toLowerCase(java.util.Locale.ROOT);
+        } else {
+            try {
+                java.io.File file = new java.io.File(path);
+                result = file.getCanonicalPath().toLowerCase(java.util.Locale.ROOT);
+            } catch (Exception e) {
+                result = path.toLowerCase(java.util.Locale.ROOT).replace('\\', '/');
+            }
         }
-        try {
-            java.io.File file = new java.io.File(path);
-            return file.getCanonicalPath().toLowerCase(java.util.Locale.ROOT);
-        } catch (Exception e) {
-            return path.toLowerCase(java.util.Locale.ROOT).replace('\\', '/');
-        }
+        pathNormalizeCache.put(path, result);
+        return result;
     }
 
     private void addItemsInternal(List<MusicItem> newItems, AddCallback callback) {
@@ -635,8 +645,7 @@ public class PlaylistManager {
                         }
                         break;
                     default:
-                        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-                        try {
+                        try (MediaMetadataRetriever retriever = new MediaMetadataRetriever()) {
                             retriever.setDataSource(filePath);
                             String extractedTitle = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
                             if (extractedTitle != null && !extractedTitle.isEmpty()) title = extractedTitle;
@@ -646,8 +655,6 @@ public class PlaylistManager {
                             if (durationStr != null) duration = Long.parseLong(durationStr);
                         } catch (Exception e) {
                             AppLog.d(TAG, "Failed to extract metadata from " + actualPath);
-                        } finally {
-                            try { retriever.release(); } catch (Exception ignore) {}
                         }
                         if (AudioMetadataReader.isUnknownTitle(title) || title.equals(file.getName())) {
                             title = parseTitleFromFileName(filePath);
@@ -656,8 +663,7 @@ public class PlaylistManager {
                 }
             } else {
                 // content:// URI：使用 MediaMetadataRetriever（原逻辑）
-                MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-                try {
+                try (MediaMetadataRetriever retriever = new MediaMetadataRetriever()) {
                     if (contentUri != null && contentUri.startsWith("content://")) {
                         retriever.setDataSource(context, Uri.parse(contentUri));
                     } else {
@@ -671,8 +677,6 @@ public class PlaylistManager {
                     if (durationStr != null) duration = Long.parseLong(durationStr);
                 } catch (Exception e) {
                     AppLog.d(TAG, "Failed to extract metadata from " + actualPath);
-                } finally {
-                    try { retriever.release(); } catch (Exception ignore) {}
                 }
             }
 

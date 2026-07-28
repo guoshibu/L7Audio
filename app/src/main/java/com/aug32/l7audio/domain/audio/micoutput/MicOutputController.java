@@ -12,8 +12,10 @@ import com.aug32.l7audio.domain.audio.AudioServiceLocator;
 import com.aug32.l7audio.domain.audio.AudioFocusManager;
 import com.aug32.l7audio.utils.AppLog;
 
+import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * 车外喊话控制器（单例）
@@ -69,10 +71,12 @@ public class MicOutputController {
 
     // ========== UI 回调（主线程） ==========
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    /** 状态监听器列表 */
-    private final List<MicOutputListener> listeners = new ArrayList<>();
-    /** 输出模式监听器列表 */
-    private final List<OutputModeListener> outputModeListeners = new ArrayList<>();
+    /** RMS 值格式化器，复用避免每次创建 */
+    private static final DecimalFormat RMS_FORMAT = new DecimalFormat("0.000000");
+    /** 状态监听器列表（使用 CopyOnWriteArrayList 避免同步和副本创建） */
+    private final List<MicOutputListener> listeners = new CopyOnWriteArrayList<>();
+    /** 输出模式监听器列表（使用 CopyOnWriteArrayList） */
+    private final List<OutputModeListener> outputModeListeners = new CopyOnWriteArrayList<>();
 
     /**
      * 喊话状态监听接口
@@ -142,7 +146,7 @@ public class MicOutputController {
      */
     public synchronized void init(Context context) {
         if (this.appContext != null) {
-            AppLog.d(TAG, "Already initialized, skipping");
+            AppLog.d(TAG, "已初始化，跳过");
             return;
         }
         android.content.Context appCtx = context.getApplicationContext();
@@ -152,7 +156,7 @@ public class MicOutputController {
         this.appConfig = new AppConfig(appCtx);
         this.appContext = appCtx;
         this.preferExternal = prefs.getBoolean(PREF_PREFER_EXTERNAL, true);
-        AppLog.d(TAG, "MicOutputController initialized, preferExternal=" + preferExternal);
+        AppLog.d(TAG, "车外喊话控制器初始化完成，preferExternal=" + preferExternal);
     }
 
     /**
@@ -178,7 +182,7 @@ public class MicOutputController {
                     appContext.getPackageName() + "_preferences", Context.MODE_PRIVATE);
             prefs.edit().putBoolean(PREF_PREFER_EXTERNAL, prefer).apply();
         }
-        AppLog.i(TAG, "preferExternal set to " + prefer);
+        AppLog.i(TAG, "preferExternal 设置为 " + prefer);
     }
 
     /**
@@ -195,14 +199,14 @@ public class MicOutputController {
      */
     public synchronized void toggle(boolean forceExternal, boolean showToast) {
         if (appContext == null) {
-            AppLog.e(TAG, "Controller not initialized, call init() first");
+            AppLog.e(TAG, "控制器未初始化，请先调用 init()");
             return;
         }
 
         long now = System.currentTimeMillis();
         int debounceInterval = micOutputConfig.getDebounceInterval();
         if (now - lastToggleTime < debounceInterval) {
-            AppLog.w(TAG, "Toggle ignored: debounce (interval=" + debounceInterval + "ms)");
+            AppLog.w(TAG, "切换被忽略：防抖中 (interval=" + debounceInterval + "ms)");
             return;
         }
         lastToggleTime = now;
@@ -236,7 +240,7 @@ public class MicOutputController {
         AudioFocusManager focusManager = locator.getAudioFocusManager();
         MicrophoneManager micManager = locator.getMicrophoneManager();
 
-        AppLog.i(TAG, "========== startAnnouncement() called ==========");
+        AppLog.i(TAG, "========== 启动喊话() ==========");
         AppLog.i(TAG, "forceExternal=" + forceExternal + ", showToast=" + showToast);
 
         // 记录音乐播放器状态
@@ -244,25 +248,25 @@ public class MicOutputController {
             com.aug32.l7audio.domain.audio.player.MusicPlayerManager musicManager = locator.getMusicPlayerManager();
             if (musicManager != null) {
                 boolean isPlaying = musicManager.isPlaying();
-                AppLog.i(TAG, "MusicPlayerManager: isPlaying=" + isPlaying);
+                AppLog.i(TAG, "音乐播放器: isPlaying=" + isPlaying);
             } else {
-                AppLog.i(TAG, "MusicPlayerManager: null (lazy init not triggered)");
+                AppLog.i(TAG, "音乐播放器: null (懒加载未触发)");
             }
         } catch (Exception e) {
-            AppLog.e(TAG, "Failed to get music player state", e);
+            AppLog.e(TAG, "获取音乐播放器状态失败", e);
         }
 
         // 记录 AudioFocus 状态
         try {
             if (focusManager != null) {
-                AppLog.i(TAG, "AudioFocusManager: instance exists (will request transient focus)");
+                AppLog.i(TAG, "音频焦点管理器: 实例存在 (将申请短暂焦点)");
             }
         } catch (Exception e) {
-            AppLog.e(TAG, "Failed to get audio focus state", e);
+            AppLog.e(TAG, "获取音频焦点状态失败", e);
         }
 
         if (outputManager == null || focusManager == null || micManager == null) {
-            AppLog.e(TAG, "Required manager is null, cannot start announcement");
+            AppLog.e(TAG, "必需的管理器为空，无法启动喊话");
             AppLog.e(TAG, "  outputManager=" + outputManager + ", focusManager=" + focusManager + ", micManager=" + micManager);
             return;
         }
@@ -271,31 +275,31 @@ public class MicOutputController {
         try {
             if (locator.getTTSManager() != null && locator.getTTSManager().isSpeaking()) {
                 locator.getTTSManager().stop();
-                AppLog.d(TAG, "Stopped TTS before announcement");
+                AppLog.d(TAG, "喊话前停止 TTS");
             }
         } catch (Exception e) {
-            AppLog.e(TAG, "Failed to stop TTS", e);
+            AppLog.e(TAG, "停止 TTS 失败", e);
         }
 
         // 记录当前输出模式（喊话结束后恢复）
         savedOutputMode = outputManager.getOutputMode();
-        AppLog.i(TAG, "startAnnouncement: savedOutputMode=" + savedOutputMode + ", forceExternal=" + forceExternal);
+        AppLog.i(TAG, "启动喊话: 保存输出模式=" + savedOutputMode + ", forceExternal=" + forceExternal);
 
         // 申请短暂独占焦点，音乐通过焦点回调自动暂停
         boolean granted = focusManager.requestTransientFocus();
-        AppLog.d(TAG, "Announcement started, transient focus granted=" + granted);
+        AppLog.d(TAG, "喊话启动，短暂焦点申请结果=" + granted);
 
         // forceExternal=true 强制车外；否则按用户偏好（MainActivity 的"仅车外/仅车内"）
         if (forceExternal || preferExternal) {
             outputManager.setOutputMode(AudioOutputManager.OUTPUT_EXTERNAL);
-            AppLog.i(TAG, "Switched output mode to external (forceExternal=" + forceExternal + ", preferExternal=" + preferExternal + "), AudioTrack will use usage=" + outputManager.getAudioUsage());
+            AppLog.i(TAG, "切换输出模式为车外 (forceExternal=" + forceExternal + ", preferExternal=" + preferExternal + "), AudioTrack 将使用 usage=" + outputManager.getAudioUsage());
             notifyOutputModeChanged(AudioOutputManager.OUTPUT_EXTERNAL);
         }
 
         // 启动麦克风
         boolean started = micManager.start();
         if (!started) {
-            AppLog.e(TAG, "Microphone start failed, aborting announcement");
+            AppLog.e(TAG, "麦克风启动失败，取消喊话");
             // 回滚：恢复输出模式和焦点
             if (savedOutputMode >= 0) {
                 outputManager.setOutputMode(savedOutputMode);
@@ -341,7 +345,7 @@ public class MicOutputController {
                 micManager.stop();
             }
         } catch (Exception e) {
-            AppLog.e(TAG, "Failed to stop microphone", e);
+            AppLog.e(TAG, "停止麦克风失败", e);
         }
 
         isAnnouncing = false;
@@ -349,7 +353,7 @@ public class MicOutputController {
         // 恢复输出模式到喊话前的状态，并同步更新 UI 和音乐播放器
         if (outputManager != null && savedOutputMode >= 0) {
             outputManager.setOutputMode(savedOutputMode);
-            AppLog.i(TAG, "stopAnnouncement: restored output mode to " + savedOutputMode);
+            AppLog.i(TAG, "停止喊话: 恢复输出模式为 " + savedOutputMode);
             notifyOutputModeChanged(savedOutputMode);
             try {
                 com.aug32.l7audio.domain.audio.player.MusicPlayerManager musicManager = locator.getMusicPlayerManager();
@@ -357,7 +361,7 @@ public class MicOutputController {
                     musicManager.updateAudioOutputUsage(outputManager.getAudioUsage());
                 }
             } catch (Exception e) {
-                AppLog.e(TAG, "Failed to update music player audio usage", e);
+                AppLog.e(TAG, "更新音乐播放器音频用法失败", e);
             }
             savedOutputMode = -1;
         }
@@ -365,7 +369,7 @@ public class MicOutputController {
         // 释放短暂独占焦点，音乐通过焦点回调自动恢复
         if (focusManager != null) {
             focusManager.abandonTransientFocus();
-            AppLog.d(TAG, "Announcement stopped, abandoned transient focus");
+            AppLog.d(TAG, "喊话停止，释放短暂焦点");
         }
 
         // 通知 UI
@@ -388,55 +392,61 @@ public class MicOutputController {
             float threshold = micOutputConfig.getSilenceThreshold();
             long silenceStartTime = 0;
             int checkIntervalMs = 500;
-            // 启动宽限期：前 3 秒不计静音，等麦克风信号稳定后再开始检测
             long detectionStartTime = System.currentTimeMillis();
             long startupGraceMs = 3000;
 
-            AppLog.d(TAG, "Silence detection started: timeout=" + timeoutMs + "ms, threshold=" + threshold + " gracePeriod=" + startupGraceMs + "ms");
+            AppLog.d(TAG, "静音检测启动: timeout=" + timeoutMs + "ms, threshold=" + threshold + " gracePeriod=" + startupGraceMs + "ms");
 
-            while (!stopSilenceDetection && isAnnouncing) {
-                AudioServiceLocator locator = AudioServiceLocator.getInstance();
-                MicrophoneManager micManager = locator.getMicrophoneManager();
-                if (micManager == null || !micManager.isRecording()) {
-                    try { Thread.sleep(checkIntervalMs); } catch (InterruptedException ignored) { break; }
-                    continue;
-                }
+            try {
+                while (!stopSilenceDetection && isAnnouncing && !Thread.interrupted()) {
+                    AudioServiceLocator locator = AudioServiceLocator.getInstance();
+                    MicrophoneManager micManager = locator.getMicrophoneManager();
+                    if (micManager == null || !micManager.isRecording()) {
+                        Thread.sleep(checkIntervalMs);
+                        continue;
+                    }
 
-                float rms = micManager.getCurrentRms();
-                long now = System.currentTimeMillis();
-                long elapsedSinceStart = now - detectionStartTime;
-                boolean inGracePeriod = elapsedSinceStart < startupGraceMs;
+                    float rms = micManager.getCurrentRms();
+                    long now = System.currentTimeMillis();
+                    long elapsedSinceStart = now - detectionStartTime;
+                    boolean inGracePeriod = elapsedSinceStart < startupGraceMs;
 
-                if (rms < threshold) {
-                    if (inGracePeriod) {
-                        silenceStartTime = 0;
-                        AppLog.d(TAG, "Silence check: RMS=" + String.format(java.util.Locale.US, "%.6f", rms) + " < threshold=" + threshold + ", in grace period (" + (startupGraceMs - elapsedSinceStart) + "ms remaining), ignoring");
-                    } else if (silenceStartTime == 0) {
-                        silenceStartTime = now;
-                        AppLog.d(TAG, "Silence check: RMS=" + String.format(java.util.Locale.US, "%.6f", rms) + " < threshold=" + threshold + ", silence started, will timeout in " + timeoutMs + "ms");
+                    if (rms < threshold) {
+                        if (inGracePeriod) {
+                            silenceStartTime = 0;
+                            AppLog.d(TAG, "静音检测: RMS=" + RMS_FORMAT.format(rms) + " < threshold=" + threshold + ", 在宽限期内 (" + (startupGraceMs - elapsedSinceStart) + "ms 剩余), 忽略");
+                        } else if (silenceStartTime == 0) {
+                            silenceStartTime = now;
+                            AppLog.d(TAG, "静音检测: RMS=" + RMS_FORMAT.format(rms) + " < threshold=" + threshold + ", 静音开始, 将在 " + timeoutMs + "ms 后超时");
+                        } else {
+                            long silenceDuration = now - silenceStartTime;
+                            long remainingMs = timeoutMs - silenceDuration;
+                            if (remainingMs <= 0) {
+                                AppLog.w(TAG, "静音超时，自动停止喊话。RMS=" + RMS_FORMAT.format(rms) + ", silenceDuration=" + silenceDuration + "ms, timeout=" + timeoutMs + "ms");
+                                mainHandler.post(() -> {
+                                    stopAnnouncement(false);
+                                    notifyAutoClosed("长时间无声音输入");
+                                });
+                                break;
+                            } else if (remainingMs <= 3000 || remainingMs % 2000 == 0) {
+                                AppLog.d(TAG, "静音检测: RMS=" + RMS_FORMAT.format(rms) + " < threshold=" + threshold + ", elapsed=" + silenceDuration + "ms, remaining=" + remainingMs + "ms");
+                            }
+                        }
                     } else {
-                        long silenceDuration = now - silenceStartTime;
-                        long remainingMs = timeoutMs - silenceDuration;
-                        if (remainingMs <= 0) {
-                            AppLog.w(TAG, "Silence timeout reached, auto stop announcement. RMS=" + String.format(java.util.Locale.US, "%.6f", rms) + ", silenceDuration=" + silenceDuration + "ms, timeout=" + timeoutMs + "ms");
-                            mainHandler.post(() -> {
-                                stopAnnouncement(false);
-                                notifyAutoClosed("长时间无声音输入");
-                            });
-                            break;
-                        } else if (remainingMs <= 3000 || remainingMs % 2000 == 0) {
-                            AppLog.d(TAG, "Silence check: RMS=" + String.format(java.util.Locale.US, "%.6f", rms) + " < threshold=" + threshold + ", elapsed=" + silenceDuration + "ms, remaining=" + remainingMs + "ms");
+                        long previousDuration = silenceStartTime > 0 ? now - silenceStartTime : 0;
+                        silenceStartTime = 0;
+                        if (previousDuration > 0) {
+                            AppLog.d(TAG, "静音检测: RMS=" + RMS_FORMAT.format(rms) + " >= threshold=" + threshold + ", 静音结束 (持续 " + previousDuration + "ms), 计时器重置");
                         }
                     }
-                } else {
-                    long previousDuration = silenceStartTime > 0 ? now - silenceStartTime : 0;
-                    silenceStartTime = 0;
-                    if (previousDuration > 0) {
-                        AppLog.d(TAG, "Silence check: RMS=" + String.format(java.util.Locale.US, "%.6f", rms) + " >= threshold=" + threshold + ", silence broken after " + previousDuration + "ms, timer reset");
-                    }
-                }
 
-                try { Thread.sleep(checkIntervalMs); } catch (InterruptedException ignored) { break; }
+                    Thread.sleep(checkIntervalMs);
+                }
+            } catch (InterruptedException e) {
+                AppLog.d(TAG, "静音检测线程被中断");
+                Thread.currentThread().interrupt();
+            } finally {
+                AppLog.d(TAG, "静音检测线程退出");
             }
         }, "SilenceDetectionThread");
         silenceDetectorThread.start();
@@ -446,13 +456,13 @@ public class MicOutputController {
      * 停止静音检测线程
      */
     private void stopSilenceDetection() {
-        AppLog.d(TAG, "Stopping silence detection");
+        AppLog.d(TAG, "停止静音检测");
         stopSilenceDetection = true;
         if (silenceDetectorThread != null) {
             silenceDetectorThread.interrupt();
             silenceDetectorThread = null;
         }
-        AppLog.d(TAG, "Silence detection stopped");
+        AppLog.d(TAG, "静音检测已停止");
     }
 
     /**
@@ -470,12 +480,8 @@ public class MicOutputController {
      * @param listener 监听器
      */
     public void addListener(MicOutputListener listener) {
-        if (listener != null) {
-            synchronized (listeners) {
-                if (!listeners.contains(listener)) {
-                    listeners.add(listener);
-                }
-            }
+        if (listener != null && !listeners.contains(listener)) {
+            listeners.add(listener);
         }
     }
 
@@ -485,9 +491,7 @@ public class MicOutputController {
      * @param listener 监听器
      */
     public void removeListener(MicOutputListener listener) {
-        synchronized (listeners) {
-            listeners.remove(listener);
-        }
+        listeners.remove(listener);
     }
 
     /**
@@ -496,12 +500,8 @@ public class MicOutputController {
      * @param listener 监听器
      */
     public void addOutputModeListener(OutputModeListener listener) {
-        if (listener != null) {
-            synchronized (outputModeListeners) {
-                if (!outputModeListeners.contains(listener)) {
-                    outputModeListeners.add(listener);
-                }
-            }
+        if (listener != null && !outputModeListeners.contains(listener)) {
+            outputModeListeners.add(listener);
         }
     }
 
@@ -511,9 +511,7 @@ public class MicOutputController {
      * @param listener 监听器
      */
     public void removeOutputModeListener(OutputModeListener listener) {
-        synchronized (outputModeListeners) {
-            outputModeListeners.remove(listener);
-        }
+        outputModeListeners.remove(listener);
     }
 
     /**
@@ -523,15 +521,11 @@ public class MicOutputController {
      */
     private void notifyOutputModeChanged(int mode) {
         mainHandler.post(() -> {
-            List<OutputModeListener> snapshot;
-            synchronized (outputModeListeners) {
-                snapshot = new ArrayList<>(outputModeListeners);
-            }
-            for (OutputModeListener l : snapshot) {
+            for (OutputModeListener l : outputModeListeners) {
                 try {
                     l.onOutputModeChanged(mode);
                 } catch (Throwable t) {
-                    AppLog.e(TAG, "OutputModeListener callback error", t);
+                    AppLog.e(TAG, "输出模式监听器回调错误", t);
                 }
             }
         });
@@ -544,15 +538,11 @@ public class MicOutputController {
      */
     private void notifyStateChanged(boolean announcing) {
         mainHandler.post(() -> {
-            List<MicOutputListener> snapshot;
-            synchronized (listeners) {
-                snapshot = new ArrayList<>(listeners);
-            }
-            for (MicOutputListener l : snapshot) {
+            for (MicOutputListener l : listeners) {
                 try {
                     l.onAnnouncementStateChanged(announcing);
                 } catch (Throwable t) {
-                    AppLog.e(TAG, "Listener callback error", t);
+                    AppLog.e(TAG, "监听器回调错误", t);
                 }
             }
         });
@@ -565,15 +555,11 @@ public class MicOutputController {
      */
     private void notifyAutoClosed(String reason) {
         mainHandler.post(() -> {
-            List<MicOutputListener> snapshot;
-            synchronized (listeners) {
-                snapshot = new ArrayList<>(listeners);
-            }
-            for (MicOutputListener l : snapshot) {
+            for (MicOutputListener l : listeners) {
                 try {
                     l.onAnnouncementAutoClosed(reason);
                 } catch (Throwable t) {
-                    AppLog.e(TAG, "Listener callback error", t);
+                    AppLog.e(TAG, "监听器回调错误", t);
                 }
             }
         });

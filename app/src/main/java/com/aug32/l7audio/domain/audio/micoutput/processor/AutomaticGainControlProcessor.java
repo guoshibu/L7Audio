@@ -8,25 +8,45 @@ import java.util.Locale;
 
 public class AutomaticGainControlProcessor implements AudioProcessor {
 
-    private static final float TARGET_RMS = 0.3f;
+    /** 目标 RMS：从 0.3 降至 0.2（约 -14dBFS），减少安静时段背景噪声放大 */
+    private static final float TARGET_RMS = 0.2f;
     private static final float MAX_GAIN = 2.0f;
     private static final float MIN_GAIN = 0.5f;
     private static final float GAIN_CHANGE_LIMIT = 0.05f;
     private static final float SMOOTH_FACTOR = 0.05f;
-    private static final int GAIN_UPDATE_INTERVAL = 10;
+    /** 增益更新间隔：从 10 帧增加到 20 帧，减少计算开销 */
+    private static final int GAIN_UPDATE_INTERVAL = 20;
 
     private float currentGain = 1.0f;
     private float smoothedRms = 0.0f;
     private int frameCount = 0;
+    /** 增量 RMS 计算：累积样本平方和，避免每次全帧遍历 */
+    private double rmsSum = 0.0;
+    private int rmsSampleCount = 0;
     private boolean enabled = true;
 
     @Override
     public void process(short[] samples) {
         if (!enabled) return;
 
+        // 增量 RMS 计算：累积样本平方和
+        for (short sample : samples) {
+            float normalized = sample / 32768.0f;
+            rmsSum += normalized * normalized;
+        }
+        rmsSampleCount += samples.length;
+
         frameCount++;
         if (frameCount % GAIN_UPDATE_INTERVAL == 0) {
-            float rms = calculateRms(samples);
+            float rms = 0.0f;
+            if (rmsSampleCount > 0) {
+                rms = (float) Math.sqrt(rmsSum / rmsSampleCount);
+            }
+            
+            // 重置增量累积
+            rmsSum = 0.0;
+            rmsSampleCount = 0;
+
             if (smoothedRms == 0.0f) {
                 smoothedRms = rms;
             } else {
@@ -57,18 +77,10 @@ public class AutomaticGainControlProcessor implements AudioProcessor {
         for (int i = 0; i < samples.length; i++) {
             float normalized = samples[i] / 32768.0f;
             normalized *= currentGain;
-            normalized = (float) Math.tanh(normalized);
+            if (normalized > 1.0f) normalized = 1.0f;
+            else if (normalized < -1.0f) normalized = -1.0f;
             samples[i] = (short) (normalized * 32767.0f);
         }
-    }
-
-    private float calculateRms(short[] samples) {
-        double sum = 0.0;
-        for (short sample : samples) {
-            float normalized = sample / 32768.0f;
-            sum += normalized * normalized;
-        }
-        return (float) Math.sqrt(sum / samples.length);
     }
 
     public float getCurrentGain() {
@@ -80,6 +92,8 @@ public class AutomaticGainControlProcessor implements AudioProcessor {
         currentGain = 1.0f;
         smoothedRms = 0.0f;
         frameCount = 0;
+        rmsSum = 0.0;
+        rmsSampleCount = 0;
     }
 
     @Override

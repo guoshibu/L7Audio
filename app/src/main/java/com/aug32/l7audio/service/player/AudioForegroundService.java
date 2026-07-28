@@ -245,7 +245,9 @@ public class AudioForegroundService extends Service {
                     builder.setLargeIcon(cached);
                     AppLog.d(TAG, "createNotification: setLargeIcon, width=" + cached.getWidth());
                 } else {
-                    AppLog.d(TAG, "createNotification: no largeIcon available");
+                    AppLog.d(TAG, "createNotification: no largeIcon available, triggering async load");
+                    // 异步加载封面，加载完成后更新通知
+                    triggerAsyncAlbumArtLoad(item.filePath);
                 }
             }
         }
@@ -441,5 +443,33 @@ public class AudioForegroundService extends Service {
     public static void notifyUpdate(Context context) {
         LocalBroadcastManager.getInstance(context)
                 .sendBroadcast(new Intent(ACTION_UPDATE_NOTIFICATION));
+    }
+
+    /**
+     * 异步加载专辑封面
+     * <p>
+     * 在后台线程加载封面，加载完成后通过本地广播通知更新通知栏。
+     * 避免在主线程阻塞加载导致通知更新延迟。
+     * </p>
+     *
+     * @param filePath 音乐文件路径
+     */
+    private void triggerAsyncAlbumArtLoad(String filePath) {
+        new Thread(() -> {
+            try {
+                MusicPlayerManager manager = com.aug32.l7audio.domain.audio.AudioServiceLocator.getInstance()
+                        .getMusicPlayerManager();
+                if (manager != null) {
+                    com.aug32.l7audio.domain.audio.player.MusicItem item = manager.getCurrentMusicItem();
+                    if (item != null && item.albumArt != null) {
+                        AlbumArtCache.getInstance().put(filePath, item.albumArt);
+                        AppLog.d(TAG, "Async album art loaded for " + filePath);
+                        notifyUpdate(this);
+                    }
+                }
+            } catch (Exception e) {
+                AppLog.e(TAG, "Failed to load album art asynchronously", e);
+            }
+        }).start();
     }
 }

@@ -48,6 +48,22 @@ public class GainLimiterProcessor implements AudioProcessor {
         this.amplificationFactor = factor;
     }
 
+    /**
+     * tanh 多项式近似：tanh(x) ≈ x - x³/3 + x⁵/5
+     * 范围 ±1.5 内精度足够，避免逐样本 native 调用
+     *
+     * @param x 输入值
+     * @return tanh(x) 的近似值
+     */
+    private static float fastTanh(float x) {
+        if (x > 4.0f) return 1.0f;
+        if (x < -4.0f) return -1.0f;
+        float x2 = x * x;
+        float x3 = x2 * x;
+        float x5 = x2 * x3;
+        return x - x3 / 3.0f + x5 / 5.0f;
+    }
+
     @Override
     public void process(short[] samples) {
         int localClipCount = 0;
@@ -55,7 +71,7 @@ public class GainLimiterProcessor implements AudioProcessor {
             float normalized = samples[i] / 32768.0f;
             normalized *= amplificationFactor;
             float prev = normalized;
-            normalized = (float) Math.tanh(normalized);
+            normalized = fastTanh(normalized);
             if (Math.abs(prev) > 1.0f) {
                 localClipCount++;
             }

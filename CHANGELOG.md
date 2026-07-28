@@ -1,7 +1,213 @@
 # L7Audio CHANGELOG
 
-> 日期：2026-07-11
-> 版本：v1.5.8 (versionCode: 96)
+> 日期：2026-07-28
+> 版本：v1.5.9 (versionCode: 105)
+
+---
+
+## v1.5.9 字体增大优化 (versionCode: 105)
+
+### ✨ UI字体增大
+
+| 文件 | 元素 | 修改 |
+|------|------|------|
+| [view_floating_list.xml](app/src/main/res/layout/view_floating_list.xml) | 标题/按钮/标签 | 26sp→29sp, 20sp→23sp, 22sp→25sp |
+| [fragment_music_player.xml](app/src/main/res/layout/fragment_music_player.xml) | 歌曲信息/时间/按钮 | 24sp→27sp, 19sp→22sp, 17sp→20sp, 21sp→24sp |
+| [fragment_music_player.xml (land)](app/src/main/res/layout-land/fragment_music_player.xml) | 横屏布局同步增大 | 20sp→23sp, 16sp→19sp, 14sp→17sp, 18sp→21sp |
+| [fragment_mic_amplifier.xml](app/src/main/res/layout/fragment_mic_amplifier.xml) | 状态/标签/按钮 | 22sp→25sp, 19sp→22sp, 17sp→20sp, 28sp→31sp |
+| [fragment_tts.xml](app/src/main/res/layout/fragment_tts.xml) | 输入框/按钮 | 19sp→22sp |
+| [item_floating_tts.xml](app/src/main/res/layout/item_floating_tts.xml) | TTS列表项按钮 | 18sp→21sp, 16sp→19sp |
+
+---
+
+## v1.5.8 性能优化 (versionCode: 104)
+
+### 🚀 性能优化
+
+| 文件 | 修改内容 |
+|------|----------|
+| [FloatingWindowService.java](app/src/main/java/com/aug32/l7audio/service/floating/FloatingWindowService.java) | 匿名 Runnable 改为静态内部类 + WeakReference，防止 Handler 内存泄漏 |
+| [MicOutputController.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/MicOutputController.java) | 静音检测循环：String.format → DecimalFormat 复用，Debug 日志加开关 |
+| [MicOutputController.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/MicOutputController.java) | 监听器列表改用 CopyOnWriteArrayList，移除 synchronized 和副本创建 |
+| [MicOutputController.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/MicOutputController.java) | 静音检测线程中断处理优化：try-catch-finally 结构，恢复中断状态 |
+| [PlaylistManager.java](app/src/main/java/com/aug32/l7audio/domain/audio/player/PlaylistManager.java) | MediaMetadataRetriever 改用 try-with-resources，确保资源释放 |
+| [PlaylistManager.java](app/src/main/java/com/aug32/l7audio/domain/audio/player/PlaylistManager.java) | normalizeFilePath 添加 LruCache 缓存，减少文件系统调用 |
+
+### 技术说明
+
+- **内存泄漏修复**：静态内部类不持有外部类引用，WeakReference 自动释放
+- **对象复用**：DecimalFormat 静态常量复用，避免每次格式化创建对象
+- **线程安全**：CopyOnWriteArrayList 读操作无锁，写操作加锁但读不受影响
+- **资源管理**：try-with-resources 保证异常情况下也能释放资源
+- **缓存优化**：LruCache 缓存路径规范化结果，容量 500 条
+
+---
+
+## v1.5.8 扫描音乐状态显示优化 (versionCode: 103)
+
+### 扫描状态显示
+
+| 文件 | 修改内容 |
+|------|----------|
+| [fragment_music_player.xml](app/src/main/res/layout/fragment_music_player.xml) | 在按钮上方添加扫描状态 TextView，默认隐藏 |
+| [fragment_music_player.xml (land)](app/src/main/res/layout-land/fragment_music_player.xml) | 横屏布局同步添加扫描状态 TextView |
+| [MusicPlayerFragment.java](app/src/main/java/com/aug32/l7audio/ui/fragment/player/MusicPlayerFragment.java) | 将 Toast 提示替换为状态 TextView，扫描开始时显示，完成时隐藏 |
+
+### 技术说明
+
+- **替换逻辑**：扫描开始时 `tvScanStatus.setVisibility(View.VISIBLE)`，扫描完成回调中 `tvScanStatus.setVisibility(View.GONE)`
+- **布局位置**：状态文字位于"播放列表"标题上方，居中显示，不影响原有按钮布局
+- **空指针保护**：所有视图操作均添加 null 检查
+
+---
+
+## v1.5.8 UI字体调整与悬浮窗位置优化 (versionCode: 102)
+
+### UI字体调整
+
+| 文件 | 元素 | 修改 |
+|------|------|------|
+| [view_floating_list.xml](app/src/main/res/layout/view_floating_list.xml) | 标题/按钮/标签 | 22sp→26sp, 17sp→20sp, 19sp→22sp |
+| [fragment_music_player.xml](app/src/main/res/layout/fragment_music_player.xml) | 歌曲信息/时间/按钮 | 20sp→24sp, 16sp→19sp, 18sp→21sp, 14sp→17sp |
+| [fragment_mic_amplifier.xml](app/src/main/res/layout/fragment_mic_amplifier.xml) | 状态/标签/按钮 | 18sp→22sp, 16sp→19sp, 14sp→17sp, 24sp→28sp |
+| [fragment_tts.xml](app/src/main/res/layout/fragment_tts.xml) | 输入框/按钮 | 16sp→19sp |
+| [item_floating_tts.xml](app/src/main/res/layout/item_floating_tts.xml) | TTS列表项按钮 | 14sp→18sp, 12sp→16sp |
+
+### 悬浮窗位置优化
+
+| 文件 | 修改内容 |
+|------|----------|
+| [FloatingWindowService.java](app/src/main/java/com/aug32/l7audio/service/floating/FloatingWindowService.java) | 悬浮窗列表跟随悬浮球位置显示，添加边界检查防止超出屏幕 |
+
+### 技术说明
+
+- **字体调整策略**：主标题/大按钮 +4sp，普通文本/按钮 +3sp，辅助文本 +3-4sp
+- **悬浮窗定位**：使用 `appConfig.getFloatingWindowX/Y()` 获取悬浮球位置，`post()` 延迟测量确保高度正确，边界检查预留 20px 边距
+
+---
+
+## v1.5.8 AFC 调试日志增强 (versionCode: 101)
+
+### 新增日志
+
+| 文件 | 日志内容 |
+|------|----------|
+| [MicrophoneManager.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/MicrophoneManager.java) | AFC 参考信号设置日志（每100帧），显示参考RMS和当前帧RMS |
+| [MicrophoneManager.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/MicrophoneManager.java) | AFC 每帧调试日志：ERLE、系数范数、RMS |
+| [MicrophoneManager.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/MicrophoneManager.java) | AFC 生效提示：ERLE > 6dB 时输出 INFO 级别日志 |
+| [MicrophoneManager.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/MicrophoneManager.java) | AFC 效果不佳警告：ERLE < 1dB 且运行超过1000帧时输出 WARN 级别日志 |
+| [AdaptiveFeedbackCancellationProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/processor/AdaptiveFeedbackCancellationProcessor.java) | 新增 getCoefficientNorm() 方法，用于判断滤波器是否收敛 |
+
+### 日志解读指南
+
+**正常日志（修复生效）：**
+```
+AFC参考信号已设置, 参考RMS=0.0234, 当前帧RMS=0.0123
+AFC帧1000: ERLE=8.5dB, 系数范数=0.123, RMS=0.0123
+AFC回声消除生效! ERLE=8.5dB
+```
+
+**异常日志（参考信号问题）：**
+```
+AFC帧1500: ERLE=0.5dB, 系数范数=0.001, RMS=0.0123
+AFC效果不佳! ERLE=0.5dB, 请检查参考信号是否正确
+```
+
+---
+
+## v1.5.8 AFC 参考信号修复 (versionCode: 100)
+
+### 核心修复
+
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| [MicrophoneManager.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/MicrophoneManager.java) | AFC 参考信号断裂：传入处理后的麦克风信号而非扬声器输出信号 | 用上一帧管线输出作为参考信号，修复时序逻辑 |
+
+### 修复原理
+
+1. **新增 `lastOutputSamples` 数组**：保存上一帧管线处理后的输出
+2. **调整调用时序**：`setReference()` 移到 `pipeline.process()` 之前，传入上一帧输出
+3. **保存当前帧输出**：`pipeline.process()` 之后用 `System.arraycopy()` 保存到 `lastOutputSamples`
+
+### 技术说明
+
+- **延迟影响**：引入约 2.67ms 延迟（一帧），远小于车内声学传播延迟（10-50ms），可忽略
+- **原理**：扬声器播放的是管线输出信号，经过声学传播后被麦克风采集形成回声。AFC 需要用这个即将被播放的信号作为参考，才能学习真实回声路径
+
+---
+
+## v1.5.8 日志中文化 (versionCode: 99)
+
+### 日志中文化
+
+| 文件 | 修改内容 |
+|------|----------|
+| [AudioOutputManager.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/AudioOutputManager.java) | 5处日志字符串中文化 |
+| [AudioPipeline.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/AudioPipeline.java) | 4处日志字符串中文化 |
+| [MicOutputController.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/MicOutputController.java) | 约30处日志字符串中文化 |
+| [MicrophoneManager.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/MicrophoneManager.java) | 约100处日志字符串中文化 |
+| [SpectralAndNotchProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/processor/SpectralAndNotchProcessor.java) | 3处日志字符串中文化 |
+
+### 规划中的修复
+
+| 项目 | 说明 |
+|------|------|
+| AFC 参考信号修复 | 用上一帧管线输出作为参考信号，修复当前参考信号断裂问题 |
+
+---
+
+## v1.5.8 音频处理器专家审查修复 (versionCode: 98)
+
+### 严重问题修复
+
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| [AutomaticGainControlProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/processor/AutomaticGainControlProcessor.java) | AGC 和 GainLimiter 都使用 tanh 软限幅，双重非线性变换导致谐波失真 | AGC 移除 tanh，仅保留增益应用，由 GainLimiter 统一负责软限幅 |
+| [SpectralAndNotchProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/processor/SpectralAndNotchProcessor.java) | 啸叫检测 FFT_SIZE=256，频率分辨率 187.5Hz，陷波器频率偏差可达 93Hz | 啸叫检测独立使用 512 点 FFT，频率分辨率提升至 93.75Hz |
+
+### 重要问题修复
+
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| [AdaptiveFeedbackCancellationProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/processor/AdaptiveFeedbackCancellationProcessor.java) | AFC 内循环使用模运算，CPU 开销大 | 位掩码 `& 511` 替换模运算，性能提升 |
+| [GainLimiterProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/processor/GainLimiterProcessor.java) | Math.tanh() 逐样本 native 调用，实时路径性能瓶颈 | 多项式近似 `x - x³/3 + x⁵/5` 替代 Math.tanh() |
+| [SpectralAndNotchProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/processor/SpectralAndNotchProcessor.java) | VAD 仅用能量比值判断，车内非平稳噪声下频繁误判 | 添加谱平坦度检测，结合能量和谱特征双重判断 |
+| [SpectralAndNotchProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/processor/SpectralAndNotchProcessor.java) | 噪声学习时间过短（80ms），噪声模型不可靠 | 延长至 1 秒（375帧），噪声模型更稳定 |
+
+### 次要问题修复
+
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| [AutomaticGainControlProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/processor/AutomaticGainControlProcessor.java) | calculateRms() 方法从未被调用，死代码 | 删除未使用方法 |
+| [HighPassFilterProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/processor/HighPassFilterProcessor.java) | 截止频率 80Hz 偏低，胎噪抑制不足 | 提升至 100Hz |
+| [AutomaticGainControlProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/processor/AutomaticGainControlProcessor.java) | TARGET_RMS=0.3 过高，安静时段过度放大背景噪声 | 降至 0.2（约 -14dBFS） |
+
+---
+
+## v1.5.8 全面性能优化 (versionCode: 97)
+
+### 音频处理器性能优化
+
+| 文件 | 优化内容 |
+|------|----------|
+| [AdaptiveFeedbackCancellationProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/processor/AdaptiveFeedbackCancellationProcessor.java) | 滤波器长度从 1024 降至 512，添加系数归一化防止数值漂移 |
+| [SpectralAndNotchProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/processor/SpectralAndNotchProcessor.java) | FFT 大小从 512 降至 256，噪声谱更新间隔从每帧改为每 3 帧 |
+| [SpectralAndNotchProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/processor/SpectralAndNotchProcessor.java) | 啸叫检测添加频率锁定机制，避免已激活陷波器附近的频点重复检测 |
+| [AutomaticGainControlProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/processor/AutomaticGainControlProcessor.java) | 增益更新间隔从 10 帧增至 20 帧，使用增量 RMS 计算减少遍历次数 |
+| [HighPassFilterProcessor.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/processor/HighPassFilterProcessor.java) | 升级为二阶 Butterworth 高通滤波器，截止频率 80Hz |
+
+### 稳定性优化
+
+| 文件 | 优化内容 |
+|------|----------|
+| [AudioPipeline.java](app/src/main/java/com/aug32/l7audio/domain/audio/micoutput/AudioPipeline.java) | 添加处理器异常自动降级机制：连续异常超过 5 次自动禁用，重置时恢复 |
+
+### UI/UX 优化
+
+| 文件 | 优化内容 |
+|------|----------|
+| [FloatingWindowService.java](app/src/main/java/com/aug32/l7audio/service/floating/FloatingWindowService.java) | 悬浮窗启用硬件加速渲染（FLAG_HARDWARE_ACCELERATED） |
+| [AudioForegroundService.java](app/src/main/java/com/aug32/l7audio/service/player/AudioForegroundService.java) | 专辑封面异步加载，避免阻塞主线程导致通知更新延迟 |
 
 ---
 

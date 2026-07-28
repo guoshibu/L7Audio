@@ -44,7 +44,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="未选择歌曲"
-                    android:textSize="20sp"
+                    android:textSize="27sp"
                     android:textColor="?attr/colorOnSurface"
                     android:layout_marginBottom="8dp" />
 
@@ -53,7 +53,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text=""
-                    android:textSize="16sp"
+                    android:textSize="22sp"
                     android:textColor="?attr/colorOnSurfaceVariant"
                     android:layout_marginBottom="8dp" />
                 
@@ -79,7 +79,7 @@
                             android:layout_height="wrap_content"
                             android:gravity="center"
                             android:text="暂无歌词"
-                            android:textSize="14sp"
+                            android:textSize="20sp"
                             android:textColor="?attr/colorOnSurfaceVariant" />
                     </LinearLayout>
                 </ScrollView>
@@ -102,7 +102,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="00:00"
-                android:textSize="16sp"
+                android:textSize="22sp"
                 android:textColor="?attr/colorOnSurfaceVariant" />
 
             <TextView
@@ -110,7 +110,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="00:00"
-                android:textSize="16sp"
+                android:textSize="22sp"
                 android:textColor="?attr/colorOnSurfaceVariant"
                 android:layout_gravity="end"
                 android:layout_weight="1"
@@ -131,7 +131,7 @@
                 android:layout_height="64dp"
                 android:layout_weight="1"
                 android:text="上一曲"
-                android:textSize="18sp"
+                android:textSize="24sp"
                 android:backgroundTint="?attr/colorPrimary"
                 android:textColor="?attr/colorOnPrimary"
                 android:layout_marginEnd="8dp" />
@@ -142,7 +142,7 @@
                 android:layout_height="64dp"
                 android:layout_weight="1"
                 android:text="播放"
-                android:textSize="18sp"
+                android:textSize="24sp"
                 android:backgroundTint="?attr/colorPrimary"
                 android:textColor="?attr/colorOnPrimary"
                 android:layout_marginStart="8dp"
@@ -154,7 +154,7 @@
                 android:layout_height="64dp"
                 android:layout_weight="1"
                 android:text="下一曲"
-                android:textSize="18sp"
+                android:textSize="24sp"
                 android:backgroundTint="?attr/colorPrimary"
                 android:textColor="?attr/colorOnPrimary"
                 android:layout_marginStart="8dp"
@@ -166,7 +166,7 @@
                 android:layout_height="64dp"
                 android:layout_weight="1"
                 android:text="不循环"
-                android:textSize="16sp"
+                android:textSize="22sp"
                 android:backgroundTint="?attr/colorPrimary"
                 android:textColor="?attr/colorOnPrimary"
                 android:layout_marginStart="8dp" />
@@ -184,7 +184,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="音量"
-                android:textSize="16sp"
+                android:textSize="22sp"
                 android:textColor="?attr/colorOnSurfaceVariant"
                 android:layout_marginBottom="4dp" />
 
@@ -209,6 +209,17 @@
         android:layout_weight="1"
         android:orientation="vertical">
 
+        <TextView
+            android:id="@+id/tv_scan_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="正在扫描音乐..."
+            android:textSize="22sp"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:gravity="center"
+            android:padding="8dp"
+            android:visibility="gone" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -222,7 +233,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="播放列表"
-                android:textSize="16sp"
+                android:textSize="22sp"
                 android:textColor="?attr/colorOnSurface" />
 
             <Button
@@ -230,7 +241,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="60dp"
                 android:text="扫描音乐"
-                android:textSize="16sp"
+                android:textSize="22sp"
                 android:backgroundTint="?attr/colorPrimary"
                 android:textColor="?attr/colorOnPrimary"
                 android:layout_marginEnd="8dp"
@@ -241,7 +252,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="60dp"
                 android:text="添加音乐"
-                android:textSize="16sp"
+                android:textSize="22sp"
                 android:backgroundTint="?attr/colorPrimary"
                 android:textColor="?attr/colorOnPrimary"
                 android:layout_marginEnd="8dp"
@@ -252,7 +263,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="60dp"
                 android:text="全选"
-                android:textSize="16sp"
+                android:textSize="22sp"
                 android:backgroundTint="?attr/colorPrimary"
                 android:textColor="?attr/colorOnPrimary"
                 android:visibility="gone"
@@ -264,7 +275,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="60dp"
                 android:text="删除"
-                android:textSize="16sp"
+                android:textSize="22sp"
                 android:backgroundTint="?attr/colorPrimary"
                 android:textColor="?attr/colorOnPrimary"
                 android:visibility="gone"
@@ -276,7 +287,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="60dp"
                 android:text="取消"
-                android:textSize="16sp"
+                android:textSize="22sp"
                 android:backgroundTint="?attr/colorPrimary"
                 android:textColor="?attr/colorOnPrimary"
                 android:visibility="gone"

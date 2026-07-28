@@ -7,7 +7,8 @@ public class AdaptiveFeedbackCancellationProcessor implements AudioProcessor {
 
     private static final String TAG = "AdaptiveFeedbackCancel";
 
-    private static final int FILTER_LENGTH = 1024;
+    /** 滤波器长度：从 1024 降低到 512，兼顾回声消除效果和 CPU 性能 */
+    private static final int FILTER_LENGTH = 512;
     private static final float MU = 0.05f;
     private static final float DELTA = 0.0001f;
     private static final float LEAKAGE = 0.001f;
@@ -17,6 +18,8 @@ public class AdaptiveFeedbackCancellationProcessor implements AudioProcessor {
     private static final float DT_THRESHOLD = 1.5f;
     // 最小有效回声阈值：|y| 低于此值时跳过双讲检测，保证初始收敛
     private static final float MIN_ECHO_AMP = 0.001f;
+    // 系数归一化阈值：防止滤波器系数无限增长导致数值漂移
+    private static final float NORM_THRESHOLD = 10.0f;
 
     // 滑动窗口 xnorm 优化
     private float xnorm = 0;
@@ -70,8 +73,9 @@ public class AdaptiveFeedbackCancellationProcessor implements AudioProcessor {
 
             float y = 0;
             int idx = xpos;
+            // 使用位掩码替代模运算：FILTER_LENGTH=512 是 2 的幂，等价于 idx & 511
             for (int j = 0; j < FILTER_LENGTH; j++) {
-                idx = (idx - 1 + FILTER_LENGTH) % FILTER_LENGTH;
+                idx = (idx - 1) & (FILTER_LENGTH - 1);
                 y += w[j] * xbuf[idx];
             }
             echoEnergy += y * y;
@@ -83,12 +87,25 @@ public class AdaptiveFeedbackCancellationProcessor implements AudioProcessor {
             if (adapt && xnorm > 1e-6f) {
                 idx = xpos;
                 for (int j = 0; j < FILTER_LENGTH; j++) {
-                    idx = (idx - 1 + FILTER_LENGTH) % FILTER_LENGTH;
+                    idx = (idx - 1) & (FILTER_LENGTH - 1);
                     w[j] = w[j] * (1.0f - LEAKAGE) + mu * e * xbuf[idx];
                 }
             }
 
             samples[i] = (short) (e * 32767.0f);
+        }
+
+        // 系数归一化：防止滤波器系数无限增长导致数值漂移
+        float wNorm = 0.0f;
+        for (int j = 0; j < FILTER_LENGTH; j++) {
+            wNorm += w[j] * w[j];
+        }
+        wNorm = (float) Math.sqrt(wNorm);
+        if (wNorm > NORM_THRESHOLD) {
+            float scale = NORM_THRESHOLD / wNorm;
+            for (int j = 0; j < FILTER_LENGTH; j++) {
+                w[j] *= scale;
+            }
         }
 
         // 保存当前帧能量供下一帧使用
@@ -132,5 +149,14 @@ public class AdaptiveFeedbackCancellationProcessor implements AudioProcessor {
     /** 返回最近一次计算的 ERLE（dB），用于文件日志记录 */
     public float getLastErleDb() {
         return lastErleDb;
+    }
+
+    /** 返回滤波器系数范数，用于判断滤波器是否收敛 */
+    public float getCoefficientNorm() {
+        float norm = 0.0f;
+        for (float wj : w) {
+            norm += wj * wj;
+        }
+        return (float) Math.sqrt(norm);
     }
 }

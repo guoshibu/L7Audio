@@ -108,6 +108,8 @@ public class MicrophoneManager {
     private final SpectralAndNotchProcessor.HowlingNotchFilter howlingNotchProcessor;
     /** 自动增益控制器 */
     private final AutomaticGainControlProcessor agcProcessor;
+    // 上一帧管线输出，作为 AFC 的参考信号（扬声器即将播放的信号）
+    private short[] lastOutputSamples;
 
     /**
      * 构造函数
@@ -145,10 +147,10 @@ public class MicrophoneManager {
         pipeline.addProcessor(howlingNotchProcessor);
         pipeline.addProcessor(agcProcessor);
 
-        AppLog.i(TAG, "MicrophoneManager initialized, SR=" + SAMPLE_RATE + "Hz");
+        AppLog.i(TAG, "麦克风管理器初始化，SR=" + SAMPLE_RATE + "Hz");
         AppLog.i(TAG, "AFC (NLMS): " + afcProcessor.isEnabled());
-        AppLog.i(TAG, "Noise reduction (spectral): " + noiseReductionProcessor.isEnabled());
-        AppLog.i(TAG, "Howling notch: " + howlingNotchProcessor.isEnabled());
+        AppLog.i(TAG, "谱减法降噪: " + noiseReductionProcessor.isEnabled());
+        AppLog.i(TAG, "啸叫陷波: " + howlingNotchProcessor.isEnabled());
 
     }
 
@@ -173,27 +175,27 @@ public class MicrophoneManager {
                     .append("(").append(element.getFileName()).append(":").append(element.getLineNumber()).append(")");
         }
 
-        AppLog.i(TAG, "========== MicrophoneManager.start() called ==========");
-        AppLog.i(TAG, "Thread: " + threadName + " (id=" + Thread.currentThread().getId() + ")");
-        AppLog.i(TAG, "Caller: " + callerInfo.toString());
-        AppLog.i(TAG, "Current isRecording=" + isRecording + ", audioRecord=" + (audioRecord == null ? "null" : "not null"));
+        AppLog.i(TAG, "========== 麦克风管理器启动() ==========");
+        AppLog.i(TAG, "线程: " + threadName + " (id=" + Thread.currentThread().getId() + ")");
+        AppLog.i(TAG, "调用方: " + callerInfo.toString());
+        AppLog.i(TAG, "当前 isRecording=" + isRecording + ", audioRecord=" + (audioRecord == null ? "null" : "not null"));
 
         // 已在录制，直接返回成功
         if (isRecording) {
-            AppLog.d(TAG, "Already recording");
+            AppLog.d(TAG, "已在录制");
             return true;
         }
 
         // 检查录音权限，无权限则失败
         if (!checkPermissions()) {
-            AppLog.e(TAG, "RECORD_AUDIO permission not granted");
+            AppLog.e(TAG, "RECORD_AUDIO 权限未授予");
             return false;
         }
 
         try {
             // 先释放旧资源，确保每次启动都是全新初始化
             releaseResources();
-            AppLog.i(TAG, "Starting microphone amplifier with fresh initialization");
+            AppLog.i(TAG, "启动麦克风放大器（全新初始化）");
 
             // 初始化音频录制和播放组件
             if (!initializeAudioComponents()) {
@@ -212,13 +214,13 @@ public class MicrophoneManager {
             // 启动录制处理线程
             startRecordingThread();
 
-            AppLog.i(TAG, "Microphone amplifier started successfully");
-            AppLog.i(TAG, "========== MicrophoneManager.start() completed ==========");
+            AppLog.i(TAG, "麦克风放大器启动成功");
+            AppLog.i(TAG, "========== 麦克风管理器启动() 完成 ==========");
 
             return true;
         } catch (Exception e) {
             // 启动失败时释放所有资源，避免资源泄漏
-            AppLog.e(TAG, "Failed to start microphone amplifier", e);
+            AppLog.e(TAG, "启动麦克风放大器失败", e);
 
             releaseResources();
             return false;
@@ -244,13 +246,13 @@ public class MicrophoneManager {
     private int getBufferSize() {
         int bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT);
         if (bufferSize <= 0) {
-            AppLog.e(TAG, "getMinBufferSize returned invalid value: " + bufferSize + ", using fallback buffer size");
+            AppLog.e(TAG, "getMinBufferSize 返回无效值: " + bufferSize + ", 使用回退缓冲区大小");
             bufferSize = 2 * AudioTrack.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AUDIO_FORMAT);
             if (bufferSize <= 0) {
                 bufferSize = 1536 * 2;
             }
         }
-        AppLog.d(TAG, "getBufferSize(): SR=" + SAMPLE_RATE + ", channel=" + CHANNEL_CONFIG + ", format=" + AUDIO_FORMAT + ", bufferSize=" + bufferSize);
+        AppLog.d(TAG, "获取缓冲区大小: SR=" + SAMPLE_RATE + ", channel=" + CHANNEL_CONFIG + ", format=" + AUDIO_FORMAT + ", bufferSize=" + bufferSize);
         return bufferSize;
     }
 
@@ -273,14 +275,14 @@ public class MicrophoneManager {
 
             String sourceName = getAudioSourceName(audioSource);
             if (success) {
-                AppLog.i(TAG, "AudioRecord init SUCCESS: source=" + sourceName + "(" + audioSource + "), SR=" + SAMPLE_RATE + ", buf=" + bufferSize + ", sessionId=" + audioRecord.getAudioSessionId());
+                AppLog.i(TAG, "AudioRecord 初始化成功: source=" + sourceName + "(" + audioSource + "), SR=" + SAMPLE_RATE + ", buf=" + bufferSize + ", sessionId=" + audioRecord.getAudioSessionId());
             } else {
-                AppLog.e(TAG, "AudioRecord init FAILED: source=" + sourceName + "(" + audioSource + "), SR=" + SAMPLE_RATE + ", buf=" + bufferSize + ", state=" + state);
+                AppLog.e(TAG, "AudioRecord 初始化失败: source=" + sourceName + "(" + audioSource + "), SR=" + SAMPLE_RATE + ", buf=" + bufferSize + ", state=" + state);
             }
             return success;
         } catch (Exception e) {
             String sourceName = getAudioSourceName(audioSource);
-            AppLog.e(TAG, "AudioRecord init EXCEPTION: source=" + sourceName + "(" + audioSource + "), SR=" + SAMPLE_RATE + ", buf=" + bufferSize, e);
+            AppLog.e(TAG, "AudioRecord 初始化异常: source=" + sourceName + "(" + audioSource + "), SR=" + SAMPLE_RATE + ", buf=" + bufferSize, e);
             return false;
         }
     }
@@ -322,34 +324,34 @@ public class MicrophoneManager {
         int bufferSize = getBufferSize();
         int audioSource = appConfig.getAudioInputSource();
 
-        AppLog.i(TAG, "=== AudioRecord init starting ===");
-        AppLog.i(TAG, "Static BUFFER_SIZE=" + BUFFER_SIZE + ", dynamic bufferSize=" + bufferSize);
-        AppLog.i(TAG, "User configured audio source: " + getAudioSourceName(audioSource) + "(" + audioSource + ")");
+        AppLog.i(TAG, "=== AudioRecord 初始化开始 ===");
+        AppLog.i(TAG, "静态 BUFFER_SIZE=" + BUFFER_SIZE + ", 动态 bufferSize=" + bufferSize);
+        AppLog.i(TAG, "用户配置的音频源: " + getAudioSourceName(audioSource) + "(" + audioSource + ")");
 
         // 第一级：使用用户配置的音频源
         if (tryInitAudioRecord(audioSource, bufferSize)) {
-            AppLog.i(TAG, "=== AudioRecord init succeeded at level 1 ===");
+            AppLog.i(TAG, "=== AudioRecord 初始化在第1级成功 ===");
         } else {
             // 第二级回退：用户配置的音频源失败，回退到MIC
-            AppLog.w(TAG, "Falling back to MIC");
+            AppLog.w(TAG, "回退到 MIC");
             audioSource = MediaRecorder.AudioSource.MIC;
             if (tryInitAudioRecord(audioSource, bufferSize)) {
-                AppLog.i(TAG, "=== AudioRecord init succeeded at level 2 ===");
+                AppLog.i(TAG, "=== AudioRecord 初始化在第2级成功 ===");
             } else {
                 // 第三级回退：MIC也失败，回退到DEFAULT
-                AppLog.e(TAG, "Falling back to DEFAULT");
+                AppLog.e(TAG, "回退到 DEFAULT");
                 audioSource = MediaRecorder.AudioSource.DEFAULT;
                 if (tryInitAudioRecord(audioSource, bufferSize)) {
-                    AppLog.i(TAG, "=== AudioRecord init succeeded at level 3 ===");
+                    AppLog.i(TAG, "=== AudioRecord 初始化在第3级成功 ===");
                 } else {
                     // 三级都失败，尝试增大缓冲区重试一次
-                    AppLog.e(TAG, "All audio sources failed, trying with larger buffer");
+                    AppLog.e(TAG, "所有音频源都失败，尝试增大缓冲区");
                     int largerBufferSize = bufferSize * 2;
                     audioSource = MediaRecorder.AudioSource.MIC;
                     if (tryInitAudioRecord(audioSource, largerBufferSize)) {
-                        AppLog.i(TAG, "=== AudioRecord init succeeded with larger buffer ===");
+                        AppLog.i(TAG, "=== AudioRecord 使用增大缓冲区初始化成功 ===");
                     } else {
-                        AppLog.e(TAG, "=== AudioRecord init FAILED, all retries exhausted ===");
+                        AppLog.e(TAG, "=== AudioRecord 初始化失败，所有重试都已耗尽 ===");
                         return false;
                     }
                 }
@@ -377,10 +379,10 @@ public class MicrophoneManager {
         int audioUsage;
         if (audioOutputManager != null) {
             audioUsage = audioOutputManager.getAudioUsage();
-            AppLog.d(TAG, "Using audio usage from AudioOutputManager: " + audioUsage);
+            AppLog.d(TAG, "使用 AudioOutputManager 的音频用法: " + audioUsage);
         } else {
             audioUsage = android.media.AudioAttributes.USAGE_MEDIA;
-            AppLog.d(TAG, "AudioOutputManager null, fallback to USAGE_MEDIA");
+            AppLog.d(TAG, "AudioOutputManager 为空，回退到 USAGE_MEDIA");
         }
 
         AudioAttributes audioAttributes = new AudioAttributes.Builder()
@@ -401,11 +403,11 @@ public class MicrophoneManager {
                 .build();
 
         if (audioTrack.getState() != AudioTrack.STATE_INITIALIZED) {
-            AppLog.e(TAG, "AudioTrack init FAILED: usage=" + audioUsage + " SR=" + SAMPLE_RATE + " buf=" + BUFFER_SIZE);
+            AppLog.e(TAG, "AudioTrack 初始化失败: usage=" + audioUsage + " SR=" + SAMPLE_RATE + " buf=" + BUFFER_SIZE);
             return false;
         }
 
-        AppLog.i(TAG, "AudioTrack init OK: usage=" + audioUsage + " SR=" + SAMPLE_RATE + " buf=" + BUFFER_SIZE + " state=" + audioTrack.getState());
+        AppLog.i(TAG, "AudioTrack 初始化成功: usage=" + audioUsage + " SR=" + SAMPLE_RATE + " buf=" + BUFFER_SIZE + " state=" + audioTrack.getState());
         return true;
     }
 
@@ -423,18 +425,18 @@ public class MicrophoneManager {
         hardwareAecAvailable = false;
         hardwareAgcAvailable = false;
 
-        AppLog.i(TAG, "── Hardware Effects ──");
+        AppLog.i(TAG, "── 硬件效果器 ──");
         initNoiseSuppressor(sessionId);
         initEchoCanceler(sessionId);
     initAutomaticGainControl(sessionId);
         String pStatus = pipelineStatus();
-        AppLog.i(TAG, "── Pipeline Summary ──");
+        AppLog.i(TAG, "── 管线状态摘要 ──");
         AppLog.i(TAG, pStatus);
     }
 
     private void initNoiseSuppressor(int sessionId) {
         if (!noiseReductionProcessor.isEnabled()) {
-            AppLog.i(TAG, "NoiseSuppressor:   SKIPPED (noise reduction disabled by user)");
+            AppLog.i(TAG, "NoiseSuppressor:   跳过 (用户禁用降噪)");
             return;
         }
         try {
@@ -444,21 +446,21 @@ public class MicrophoneManager {
                     noiseSuppressor.setEnabled(true);
                     hardwareNsAvailable = true;
                     noiseReductionProcessor.setEnabled(false);
-                    AppLog.i(TAG, "NoiseSuppressor:   AVAILABLE → enabled, SpectralNR disabled");
+                    AppLog.i(TAG, "NoiseSuppressor:   可用 → 已启用, 谱减降噪禁用");
         } else {
-                    AppLog.i(TAG, "NoiseSuppressor:   create() returned null");
+                    AppLog.i(TAG, "NoiseSuppressor:   create() 返回 null");
                 }
             } else {
-                AppLog.i(TAG, "NoiseSuppressor:   NOT_AVAILABLE → using software SpectralNR");
+                AppLog.i(TAG, "NoiseSuppressor:   不可用 → 使用软件谱减降噪");
             }
         } catch (Exception e) {
-            AppLog.e(TAG, "NoiseSuppressor:   ERROR → using software SpectralNR", e);
+            AppLog.e(TAG, "NoiseSuppressor:   错误 → 使用软件谱减降噪", e);
         }
     }
 
     private void initEchoCanceler(int sessionId) {
         if (!afcProcessor.isEnabled()) {
-            AppLog.i(TAG, "AcousticEchoCanceler: SKIPPED (echo cancellation disabled by user)");
+            AppLog.i(TAG, "AcousticEchoCanceler: 跳过 (用户禁用回声消除)");
             return;
         }
         try {
@@ -467,28 +469,28 @@ public class MicrophoneManager {
                 if (acousticEchoCanceler != null) {
                     acousticEchoCanceler.setEnabled(true);
                     hardwareAecAvailable = true;
-                    AppLog.i(TAG, "AcousticEchoCanceler: AVAILABLE → enabled (AFC NLMS residual on)");
+                    AppLog.i(TAG, "AcousticEchoCanceler: 可用 → 已启用 (AFC NLMS 残留处理开启)");
                 } else {
-                    AppLog.i(TAG, "AcousticEchoCanceler: create() on AudioRecord returned null, trying AudioTrack");
+                    AppLog.i(TAG, "AcousticEchoCanceler: 在 AudioRecord 上 create() 返回 null, 尝试 AudioTrack");
                     try {
                         int trackSessionId = audioTrack.getAudioSessionId();
                         acousticEchoCanceler = AcousticEchoCanceler.create(trackSessionId);
                         if (acousticEchoCanceler != null) {
                             acousticEchoCanceler.setEnabled(true);
                             hardwareAecAvailable = true;
-                            AppLog.i(TAG, "AcousticEchoCanceler: AVAILABLE on AudioTrack → enabled (AFC NLMS residual on)");
+                            AppLog.i(TAG, "AcousticEchoCanceler: 在 AudioTrack 上可用 → 已启用 (AFC NLMS 残留处理开启)");
                         } else {
-                            AppLog.i(TAG, "AcousticEchoCanceler: create() on AudioTrack also returned null → using software AFC");
+                            AppLog.i(TAG, "AcousticEchoCanceler: 在 AudioTrack 上 create() 也返回 null → 使用软件 AFC");
                         }
                     } catch (Exception e2) {
-                        AppLog.e(TAG, "AcousticEchoCanceler: AudioTrack fallback error", e2);
+                        AppLog.e(TAG, "AcousticEchoCanceler: AudioTrack 回退错误", e2);
                     }
                 }
             } else {
-                AppLog.i(TAG, "AcousticEchoCanceler: NOT_AVAILABLE → using software AFC (NLMS)");
+                AppLog.i(TAG, "AcousticEchoCanceler: 不可用 → 使用软件 AFC (NLMS)");
             }
         } catch (Exception e) {
-            AppLog.e(TAG, "AcousticEchoCanceler: ERROR → using software AFC", e);
+            AppLog.e(TAG, "AcousticEchoCanceler: 错误 → 使用软件 AFC", e);
         }
     }
 
@@ -500,15 +502,15 @@ public class MicrophoneManager {
                     automaticGainControl.setEnabled(true);
                     hardwareAgcAvailable = true;
                     agcProcessor.setEnabled(false);
-                    AppLog.i(TAG, "AutomaticGainControl: AVAILABLE → enabled, AGC Processor disabled");
+                    AppLog.i(TAG, "AutomaticGainControl: 可用 → 已启用, AGC 处理器禁用");
                 } else {
-                    AppLog.i(TAG, "AutomaticGainControl: create() returned null → using software AGC");
+                    AppLog.i(TAG, "AutomaticGainControl: create() 返回 null → 使用软件 AGC");
                 }
             } else {
-                AppLog.i(TAG, "AutomaticGainControl: NOT_AVAILABLE → using software AGC");
+                AppLog.i(TAG, "AutomaticGainControl: 不可用 → 使用软件 AGC");
             }
         } catch (Exception e) {
-            AppLog.e(TAG, "AutomaticGainControl: ERROR → using software AGC", e);
+            AppLog.e(TAG, "AutomaticGainControl: 错误 → 使用软件 AGC", e);
         }
     }
 
@@ -530,11 +532,11 @@ public class MicrophoneManager {
      * </p>
      */
     private void startAudioComponents() {
-        AppLog.d(TAG, "Starting AudioRecord & AudioTrack");
+        AppLog.d(TAG, "启动 AudioRecord & AudioTrack");
         audioRecord.startRecording();
         audioTrack.play();
         isRecording = true;
-        AppLog.i(TAG, "AudioRecord & AudioTrack started, sessionId=" + audioRecord.getAudioSessionId());
+        AppLog.i(TAG, "AudioRecord & AudioTrack 已启动, sessionId=" + audioRecord.getAudioSessionId());
     }
 
     /**
@@ -545,11 +547,11 @@ public class MicrophoneManager {
      */
     private void startRecordingThread() {
         recordingThread = new Thread(() -> {
-            AppLog.d(TAG, "Recording thread started");
+            AppLog.d(TAG, "录制线程已启动");
             recordAndPlay();
         }, "MicrophoneRecordingThread");
         recordingThread.start();
-        AppLog.d(TAG, "Recording thread dispatched");
+        AppLog.d(TAG, "录制线程已分发");
     }
 
     /**
@@ -561,7 +563,7 @@ public class MicrophoneManager {
      */
     public synchronized void stop() {
         if (!isRecording) {
-            AppLog.d(TAG, "Not recording");
+            AppLog.d(TAG, "未在录制");
             return;
         }
 
@@ -575,7 +577,7 @@ public class MicrophoneManager {
             try {
                 audioRecord.stop();
             } catch (Exception e) {
-                AppLog.e(TAG, "Error force-stopping AudioRecord", e);
+                AppLog.e(TAG, "强制停止 AudioRecord 错误", e);
             }
         }
 
@@ -584,14 +586,14 @@ public class MicrophoneManager {
             try {
                 recordingThread.join(1000);
             } catch (InterruptedException e) {
-                AppLog.e(TAG, "Failed to join recording thread", e);
+                AppLog.e(TAG, "等待录制线程结束失败", e);
             }
         }
 
         // 释放所有音频资源
         releaseResources();
         currentRms = 0.0f;
-        AppLog.i(TAG, "Microphone amplifier stopped, all resources released");
+        AppLog.i(TAG, "麦克风放大器已停止，所有资源已释放");
     }
 
     /**
@@ -615,41 +617,45 @@ public class MicrophoneManager {
                     if (samples.length != sampleCount) {
                         samples = new short[sampleCount];
                     }
-                    processAudioData(buffer, readSize, samples);
-                    audioTrack.write(buffer, 0, readSize);
                     frameCount++;
+                    processAudioData(buffer, readSize, samples, frameCount);
+                    audioTrack.write(buffer, 0, readSize);
                     if (frameCount % 100 == 0) {
-                        AppLog.i(TAG, "Recording alive: frame=" + frameCount + " preRms=" + String.format(java.util.Locale.US, "%.4f", currentRms) + " postRms=" + String.format(java.util.Locale.US, "%.4f", currentPostProcessRms) + " written=" + readSize);
+                        AppLog.i(TAG, "录制中: frame=" + frameCount + " preRms=" + String.format(java.util.Locale.US, "%.4f", currentRms) + " postRms=" + String.format(java.util.Locale.US, "%.4f", currentPostProcessRms) + " written=" + readSize);
                     }
                 } else if (readSize < 0) {
-                    AppLog.e(TAG, "AudioRecord read error: " + readSize);
+                    AppLog.e(TAG, "AudioRecord 读取错误: " + readSize);
                 } else {
                     if (frameCount % 100 == 0) {
-                        AppLog.w(TAG, "AudioRecord read zero bytes, frame=" + frameCount);
+                        AppLog.w(TAG, "AudioRecord 读取零字节, frame=" + frameCount);
                     }
                 }
             } catch (Exception e) {
-                AppLog.e(TAG, "Error in recording thread at frame " + frameCount, e);
+                AppLog.e(TAG, "录制线程错误, frame=" + frameCount, e);
                 releaseResources();
                 break;
             }
         }
-        AppLog.i(TAG, "Recording thread exited, total frames=" + frameCount);
+        AppLog.i(TAG, "录制线程退出, 总帧数=" + frameCount);
     }
 
     /**
      * 通过管线处理音频数据
      * <p>
-     * 处理流程：byte[] → short[] → pipeline.process → setReference → short[] → byte[]
-     * 增益处理器在每次处理前更新放大倍数，确保实时响应配置变化。
-     * pipeline 执行后，将处理后的信号传给 AFC 作为下一轮的参考信号，
-     * 并计算处理后 RMS 供静音检测使用。
+     * 处理流程：byte[] → short[] → setReference(上一帧输出) → pipeline.process → 保存当前帧输出 → short[] → byte[]
+     * </p>
+     * <p>
+     * AFC 参考信号修复：用上一帧的管线输出（即将写入 AudioTrack 并被扬声器播放的信号）作为当前帧的参考，
+     * 这样 NLMS 滤波器才能学习真实的回声路径（扬声器输出 → 车内声学传播 → 麦克风采集）。
+     * 引入约 2.67ms 延迟（一帧），远小于车内声学传播延迟（10-50ms），可忽略。
      * </p>
      *
-     * @param buffer 音频数据缓冲区
-     * @param length 有效数据长度
+     * @param buffer     音频数据缓冲区
+     * @param length     有效数据长度
+     * @param samples    采样数据数组
+     * @param frameCount 当前帧计数
      */
-    private void processAudioData(byte[] buffer, int length, short[] samples) {
+    private void processAudioData(byte[] buffer, int length, short[] samples, int frameCount) {
         double sum = 0.0;
         int sampleCount = length / 2;
         for (int i = 0; i < sampleCount; i++) {
@@ -667,17 +673,45 @@ public class MicrophoneManager {
         for (float r : rmsWindow) sumRms += r;
         averageRms = sumRms / RMS_WINDOW_SIZE;
 
+        if (afcProcessor.isEnabled()) {
+            if (lastOutputSamples != null) {
+                afcProcessor.setReference(lastOutputSamples);
+                if (BuildConfig.DEBUG && frameCount % 100 == 0) {
+                    float refRms = calculateShortArrayRms(lastOutputSamples);
+                    AppLog.d(TAG, "AFC参考信号已设置, 参考RMS=" + String.format(Locale.US, "%.4f", refRms) + ", 当前帧RMS=" + String.format(Locale.US, "%.4f", currentRms));
+                }
+            } else {
+                if (BuildConfig.DEBUG && frameCount == 1) {
+                    AppLog.d(TAG, "AFC参考信号暂不可用(首帧), 等待下一帧");
+                }
+            }
+        }
+
         try {
             pipeline.process(samples);
         } catch (Exception e) {
-            AppLog.e(TAG, "Pipeline error", e);
+            AppLog.e(TAG, "管线处理错误", e);
         }
 
         if (BuildConfig.DEBUG && afcProcessor.isEnabled()) {
-            AppLog.d(TAG, "ERLE=" + String.format(Locale.US, "%.1f", afcProcessor.getLastErleDb()) + "dB rms=" + String.format(Locale.US, "%.4f", currentRms));
+            float erle = afcProcessor.getLastErleDb();
+            float coeffNorm = afcProcessor.getCoefficientNorm();
+            AppLog.d(TAG, "AFC帧" + frameCount + ": ERLE=" + String.format(Locale.US, "%.1f", erle) + "dB, 系数范数=" + String.format(Locale.US, "%.3f", coeffNorm) + ", RMS=" + String.format(Locale.US, "%.4f", currentRms));
+            if (erle > 6.0f && frameCount % 500 == 0) {
+                AppLog.i(TAG, "AFC回声消除生效! ERLE=" + String.format(Locale.US, "%.1f", erle) + "dB");
+            }
+            if (erle < 1.0f && frameCount > 1000 && frameCount % 500 == 0) {
+                AppLog.w(TAG, "AFC效果不佳! ERLE=" + String.format(Locale.US, "%.1f", erle) + "dB, 请检查参考信号是否正确");
+            }
         }
 
-        afcProcessor.setReference(samples);
+        if (lastOutputSamples == null || lastOutputSamples.length != samples.length) {
+            lastOutputSamples = new short[samples.length];
+            if (BuildConfig.DEBUG) {
+                AppLog.d(TAG, "初始化AFC参考缓冲区, 大小=" + samples.length);
+            }
+        }
+        System.arraycopy(samples, 0, lastOutputSamples, 0, samples.length);
 
         calculatePostProcessRms(samples);
 
@@ -686,6 +720,16 @@ public class MicrophoneManager {
             buffer[index] = (byte) (samples[i] & 0xFF);
             buffer[index + 1] = (byte) (samples[i] >> 8);
         }
+    }
+
+    /** 计算 short 数组的 RMS 值 */
+    private float calculateShortArrayRms(short[] samples) {
+        double sum = 0.0;
+        for (short s : samples) {
+            float normalized = s / 32768.0f;
+            sum += normalized * normalized;
+        }
+        return sum > 0 ? (float) Math.sqrt(sum / samples.length) : 0.0f;
     }
 
     /** 计算处理后 RMS */
@@ -700,8 +744,8 @@ public class MicrophoneManager {
 
     /** 释放所有资源 */
     private void releaseResources() {
-        AppLog.d(TAG, "========== releaseResources() called ==========");
-        AppLog.d(TAG, "Before release: audioRecord=" + (audioRecord == null ? "null" : "not null")
+        AppLog.d(TAG, "========== 释放资源() ==========");
+        AppLog.d(TAG, "释放前: audioRecord=" + (audioRecord == null ? "null" : "not null")
                 + ", audioTrack=" + (audioTrack == null ? "null" : "not null")
                 + ", isRecording=" + isRecording);
 
@@ -714,15 +758,15 @@ public class MicrophoneManager {
         pipeline.reset();
         agcProcessor.reset();
 
-        AppLog.d(TAG, "After release: audioRecord=" + (audioRecord == null ? "null" : "not null")
+        AppLog.d(TAG, "释放后: audioRecord=" + (audioRecord == null ? "null" : "not null")
                 + ", audioTrack=" + (audioTrack == null ? "null" : "not null")
                 + ", isRecording=" + isRecording);
-        AppLog.d(TAG, "========== releaseResources() completed ==========");
+        AppLog.d(TAG, "========== 释放资源() 完成 ==========");
     }
 
     /** 释放所有 Android 原生硬件效果器 */
     private void releaseHardwareEffects() {
-        AppLog.d(TAG, "Releasing hardware effects NS=" + hardwareNsAvailable + " AEC=" + hardwareAecAvailable + " AGC=" + hardwareAgcAvailable);
+        AppLog.d(TAG, "释放硬件效果器 NS=" + hardwareNsAvailable + " AEC=" + hardwareAecAvailable + " AGC=" + hardwareAgcAvailable);
         releaseNoiseSuppressor();
         releaseEchoCanceler();
         releaseAutomaticGainControl();
@@ -733,9 +777,9 @@ public class MicrophoneManager {
             try {
                 noiseSuppressor.setEnabled(false);
                 noiseSuppressor.release();
-                AppLog.d(TAG, "NoiseSuppressor released");
+                AppLog.d(TAG, "NoiseSuppressor 已释放");
             } catch (Exception e) {
-                AppLog.e(TAG, "Error releasing NoiseSuppressor", e);
+                AppLog.e(TAG, "释放 NoiseSuppressor 错误", e);
             }
             noiseSuppressor = null;
         }
@@ -747,9 +791,9 @@ public class MicrophoneManager {
             try {
                 acousticEchoCanceler.setEnabled(false);
                 acousticEchoCanceler.release();
-                AppLog.d(TAG, "AcousticEchoCanceler released");
+                AppLog.d(TAG, "AcousticEchoCanceler 已释放");
             } catch (Exception e) {
-                AppLog.e(TAG, "Error releasing AcousticEchoCanceler", e);
+                AppLog.e(TAG, "释放 AcousticEchoCanceler 错误", e);
             }
             acousticEchoCanceler = null;
         }
@@ -761,9 +805,9 @@ public class MicrophoneManager {
             try {
                 automaticGainControl.setEnabled(false);
                 automaticGainControl.release();
-                AppLog.d(TAG, "AutomaticGainControl released");
+                AppLog.d(TAG, "AutomaticGainControl 已释放");
             } catch (Exception e) {
-                AppLog.e(TAG, "Error releasing AutomaticGainControl", e);
+                AppLog.e(TAG, "释放 AutomaticGainControl 错误", e);
             }
             automaticGainControl = null;
         }
@@ -777,13 +821,13 @@ public class MicrophoneManager {
                 if (audioRecord.getState() == AudioRecord.STATE_INITIALIZED) {
                     if (audioRecord.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) {
                         audioRecord.stop();
-                        AppLog.d(TAG, "AudioRecord stopped");
+                        AppLog.d(TAG, "AudioRecord 已停止");
                     }
                     audioRecord.release();
-                    AppLog.d(TAG, "AudioRecord released");
+                    AppLog.d(TAG, "AudioRecord 已释放");
                 }
             } catch (Exception e) {
-                AppLog.e(TAG, "Error releasing AudioRecord", e);
+                AppLog.e(TAG, "释放 AudioRecord 错误", e);
             }
             audioRecord = null;
         }
@@ -796,13 +840,13 @@ public class MicrophoneManager {
                 if (audioTrack.getState() == AudioTrack.STATE_INITIALIZED) {
                     if (audioTrack.getPlayState() == AudioTrack.PLAYSTATE_PLAYING) {
                         audioTrack.stop();
-                        AppLog.d(TAG, "AudioTrack stopped");
+                        AppLog.d(TAG, "AudioTrack 已停止");
                     }
                     audioTrack.release();
-                    AppLog.d(TAG, "AudioTrack released");
+                    AppLog.d(TAG, "AudioTrack 已释放");
                 }
             } catch (Exception e) {
-                AppLog.e(TAG, "Error releasing AudioTrack", e);
+                AppLog.e(TAG, "释放 AudioTrack 错误", e);
             }
             audioTrack = null;
         }
@@ -827,7 +871,7 @@ public class MicrophoneManager {
         int maxAmp = appConfig.getMaxAmplification();
         float factor = level == 0 ? 0.0f : maxAmp * level / 10.0f;
         gainProcessor.setAmplificationFactor(factor);
-        AppLog.d(TAG, "Amplification level set to: " + level + " (factor=" + String.format(java.util.Locale.US, "%.2f", factor) + ")");
+        AppLog.d(TAG, "放大级别设置为: " + level + " (factor=" + String.format(java.util.Locale.US, "%.2f", factor) + ")");
     }
 
     /**
@@ -882,7 +926,7 @@ public class MicrophoneManager {
     public void setNoiseReductionEnabled(boolean enabled) {
         noiseReductionProcessor.setEnabled(enabled);
         appConfig.setNoiseReductionEnabled(enabled);
-        AppLog.d(TAG, "Spectral noise reduction " + (enabled ? "enabled" : "disabled"));
+        AppLog.d(TAG, "谱减法降噪 " + (enabled ? "已启用" : "已禁用"));
     }
 
     /**
@@ -897,7 +941,7 @@ public class MicrophoneManager {
     public void setEchoCancellationEnabled(boolean enabled) {
         afcProcessor.setEnabled(enabled);
         appConfig.setEchoCancellationEnabled(enabled);
-        AppLog.d(TAG, "AFC (NLMS) " + (enabled ? "enabled" : "disabled"));
+        AppLog.d(TAG, "AFC (NLMS) " + (enabled ? "已启用" : "已禁用"));
     }
 
     /**
@@ -911,7 +955,7 @@ public class MicrophoneManager {
     public void setHowlingSuppressionEnabled(boolean enabled) {
         howlingNotchProcessor.setEnabled(enabled);
         appConfig.setHowlingSuppressionEnabled(enabled);
-        AppLog.d(TAG, "Howling notch " + (enabled ? "enabled" : "disabled"));
+        AppLog.d(TAG, "啸叫陷波 " + (enabled ? "已启用" : "已禁用"));
     }
 
     /**
@@ -929,7 +973,7 @@ public class MicrophoneManager {
             agcProcessor.setEnabled(false);
         }
         appConfig.setAgcEnabled(enabled);
-        AppLog.d(TAG, "AGC " + (enabled ? "enabled" : "disabled"));
+        AppLog.d(TAG, "AGC " + (enabled ? "已启用" : "已禁用"));
     }
 
 }

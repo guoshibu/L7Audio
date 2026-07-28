@@ -17,6 +17,8 @@ import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.util.DisplayMetrics;
+import java.lang.ref.WeakReference;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -172,18 +174,8 @@ public class FloatingWindowService extends Service {
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, createNotification());
         showFloatingBall();
-        autoHideRunnable = new Runnable() {
-            @Override
-            public void run() {
-                hideListView();
-            }
-        };
-        retrySetupTTSRunnable = new Runnable() {
-            @Override
-            public void run() {
-                setupTTSListener();
-            }
-        };
+        autoHideRunnable = new AutoHideRunnable(this);
+        retrySetupTTSRunnable = new RetrySetupTTSRunnable(this);
         // 立即初始化 TTS 监听（不依赖悬浮窗列表是否打开）
         // 为什么 onCreate 就初始化：TTS播放监听是全局的，悬浮窗列表只是展示入口
         setupTTSListener();
@@ -385,7 +377,9 @@ public class FloatingWindowService extends Service {
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 // FLAG_NOT_FOCUSABLE：悬浮窗不获取焦点，避免抢占输入法等焦点
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                // FLAG_HARDWARE_ACCELERATED：启用硬件加速渲染，提升悬浮窗绘制性能
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
                 PixelFormat.TRANSLUCENT
         );
         params.gravity = Gravity.TOP | Gravity.START;
@@ -503,17 +497,24 @@ public class FloatingWindowService extends Service {
                     (int) (widthDp * getResources().getDisplayMetrics().density),
                     WindowManager.LayoutParams.WRAP_CONTENT,
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                    // FLAG_NOT_FOCUSABLE：悬浮窗不获取焦点，避免抢占输入法等焦点
+                    // FLAG_HARDWARE_ACCELERATED：启用硬件加速渲染，提升悬浮窗绘制性能
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
                     PixelFormat.TRANSLUCENT
             );
-            params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-            params.y = 100;
+            params.gravity = Gravity.TOP | Gravity.START;
+            params.x = appConfig.getFloatingWindowX();
+            params.y = appConfig.getFloatingWindowY();
 
             int alpha = appConfig.getFloatingWindowAlpha();
             // alpha取值范围0-100，除以100转换为0.0-1.0的透明度值
             floatingListView.setAlpha(alpha / 100.0f);
 
             windowManager.addView(floatingListView, params);
+            
+            // 边界检查：确保悬浮窗不会超出屏幕
+            applyBoundaryCheck(params, widthDp);
             isListViewVisible = true;
             AppLog.d(TAG, "floatingListView added to windowManager");
 
@@ -1130,6 +1131,34 @@ public class FloatingWindowService extends Service {
         AppLog.d(TAG, "Floating window service stopped");
     }
 
+    /** 边界检查：确保悬浮窗不会超出屏幕 */
+    private void applyBoundaryCheck(WindowManager.LayoutParams params, int widthDp) {
+        DisplayMetrics metrics = getResources().getDisplayMetrics();
+        int screenWidth = metrics.widthPixels;
+        int screenHeight = metrics.heightPixels;
+        int listWidth = (int) (widthDp * metrics.density);
+        
+        // 等待视图测量完成后再检查高度
+        floatingListView.post(new Runnable() {
+            @Override
+            public void run() {
+                int listHeight = floatingListView.getHeight();
+                
+                // 水平边界检查：确保悬浮窗右边缘不超出屏幕
+                if (params.x + listWidth > screenWidth) {
+                    params.x = screenWidth - listWidth - 20;
+                }
+                // 垂直边界检查：确保悬浮窗底部不超出屏幕
+                if (params.y + listHeight > screenHeight) {
+                    params.y = screenHeight - listHeight - 20;
+                }
+                
+                // 更新悬浮窗位置
+                windowManager.updateViewLayout(floatingListView, params);
+            }
+        });
+    }
+
     // ==================== 主题工具方法 ====================
 
     /** 为按钮应用主题背景和文字色 */
@@ -1156,5 +1185,41 @@ public class FloatingWindowService extends Service {
         textView.setTextColor(isDarkTheme()
                 ? getResources().getColor(android.R.color.white)
                 : getResources().getColor(android.R.color.black));
+    }
+
+    // ========== 静态内部类：防止 Handler 内存泄漏 ==========
+
+    /** 自动隐藏 Runnable，使用弱引用避免内存泄漏 */
+    private static class AutoHideRunnable implements Runnable {
+        private final WeakReference<FloatingWindowService> serviceRef;
+
+        AutoHideRunnable(FloatingWindowService service) {
+            this.serviceRef = new WeakReference<>(service);
+        }
+
+        @Override
+        public void run() {
+            FloatingWindowService service = serviceRef.get();
+            if (service != null) {
+                service.hideListView();
+            }
+        }
+    }
+
+    /** TTS 监听重试 Runnable，使用弱引用避免内存泄漏 */
+    private static class RetrySetupTTSRunnable implements Runnable {
+        private final WeakReference<FloatingWindowService> serviceRef;
+
+        RetrySetupTTSRunnable(FloatingWindowService service) {
+            this.serviceRef = new WeakReference<>(service);
+        }
+
+        @Override
+        public void run() {
+            FloatingWindowService service = serviceRef.get();
+            if (service != null) {
+                service.setupTTSListener();
+            }
+        }
     }
 }

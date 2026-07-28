@@ -43,7 +43,7 @@ public class AudioOutputManager {
         this.context = context;
         this.appConfig = new AppConfig(context);
         this.currentOutputMode = appConfig.getAudioOutputMode();
-        AppLog.i(TAG, "AudioOutputManager initialized with mode: " + modeToString(currentOutputMode));
+        AppLog.i(TAG, "音频输出管理器初始化，模式: " + modeToString(currentOutputMode));
     }
 
     /**
@@ -58,12 +58,12 @@ public class AudioOutputManager {
     public synchronized void setOutputMode(int mode) {
         // 边界检查：确保模式在有效范围内
         if (mode < OUTPUT_CAR || mode > OUTPUT_EXTERNAL) {
-            AppLog.e(TAG, "Invalid output mode: " + mode);
+            AppLog.e(TAG, "无效输出模式: " + mode);
             return;
         }
         currentOutputMode = mode;
         appConfig.setAudioOutputMode(mode);
-        AppLog.i(TAG, "Output mode set to: " + modeToString(mode));
+        AppLog.i(TAG, "输出模式设置为: " + modeToString(mode));
     }
 
     /**
@@ -90,7 +90,7 @@ public class AudioOutputManager {
         } else {
             usage = appConfig.getAudioOutputUsageExternal();
         }
-        AppLog.i(TAG, "getAudioUsage() mode=" + currentOutputMode + " → usage=" + usage);
+        AppLog.i(TAG, "获取音频用法: mode=" + currentOutputMode + " → usage=" + usage);
         return usage;
     }
 
@@ -119,7 +119,7 @@ public class AudioOutputManager {
      * </p>
      */
     public void resume() {
-        AppLog.d(TAG, "Audio output resumed");
+        AppLog.d(TAG, "音频输出已恢复");
     }
 
     private String modeToString(int mode) {
