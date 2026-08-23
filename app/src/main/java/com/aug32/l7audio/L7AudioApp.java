@@ -25,5 +25,24 @@ public class L7AudioApp extends Application {
         AudioServiceLocator.getInstance().init(this);
         // 初始化车外喊话控制器（统一管理喊话/麦克风放大的开启关闭）
         MicOutputController.getInstance().init(this);
+
+        // 注册进程级前后台观察者：App 退后台时降低进度更新频率，减少后台无效 CPU。
+        // onStart/onStop 在主线程回调，直接透传前后台状态给音乐播放管理器。
+        androidx.lifecycle.ProcessLifecycleOwner.get().getLifecycle().addObserver(
+                new androidx.lifecycle.DefaultLifecycleObserver() {
+                    @Override
+                    public void onStart(@androidx.annotation.NonNull androidx.lifecycle.LifecycleOwner owner) {
+                        com.aug32.l7audio.domain.audio.player.MusicPlayerManager m =
+                                AudioServiceLocator.getInstance().getMusicPlayerManager();
+                        if (m != null) m.setForeground(true);
+                    }
+
+                    @Override
+                    public void onStop(@androidx.annotation.NonNull androidx.lifecycle.LifecycleOwner owner) {
+                        com.aug32.l7audio.domain.audio.player.MusicPlayerManager m =
+                                AudioServiceLocator.getInstance().getMusicPlayerManager();
+                        if (m != null) m.setForeground(false);
+                    }
+                });
     }
 }

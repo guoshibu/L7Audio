@@ -50,10 +50,13 @@ public class PlaybackController {
 
     // 日志标签
     private static final String TAG = "PlaybackController";
-    // 进度更新间隔（毫秒），控制播放进度回调的频率
-    private static final long PROGRESS_UPDATE_INTERVAL_MS = 500;
-    // 播放位置保存间隔（毫秒），用于节流，避免频繁保存
-    private static final long POSITION_SAVE_INTERVAL_MS = 1000;
+    // 前台进度更新间隔（毫秒），UI 可见时需要平滑刷新
+    private static final long PROGRESS_INTERVAL_FG_MS = 500;
+    // 后台进度更新间隔（毫秒），UI 不可见，降频减少主线程唤醒与无效回调
+    private static final long PROGRESS_INTERVAL_BG_MS = 1000;
+    // 【性能敏感路径】当前是否前台，由外部（ProcessLifecycleOwner）驱动；
+    // volatile 保证前后台切换时的跨线程可见性
+    private volatile boolean foreground = true;
 
     // 应用上下文，用于初始化播放器和音频焦点管理
     private final Context context;
@@ -104,8 +107,6 @@ public class PlaybackController {
 
     // 主线程 Handler，用于定时更新播放进度
     private final android.os.Handler progressHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-    // 上次保存播放位置的时间戳，用于节流控制
-    private long lastSavedPositionTime = 0;
     /**
      * 构造函数，初始化播放控制器
      *
@@ -122,7 +123,43 @@ public class PlaybackController {
 
     private void initPlayer() {
         try {
-            exoPlayer = new ExoPlayer.Builder(context).build();
+            // 硬解优先：不使用软解扩展，交给平台 MediaCodec 走高通硬解码器（c2.qti.* / OMX.qcom.*），
+            // 降低 CPU 逐帧解码开销
+            androidx.media3.exoplayer.DefaultRenderersFactory renderersFactory =
+                    new androidx.media3.exoplayer.DefaultRenderersFactory(context)
+                            .setExtensionRendererMode(
+                                    androidx.media3.exoplayer.DefaultRenderersFactory
+                                            .EXTENSION_RENDERER_MODE_OFF);
+
+            // 【性能敏感路径】显式声明音频用途为“媒体音乐”。
+            // 这是 offload 生效的必要前提：media3 只有在 USAGE_MEDIA + CONTENT_TYPE_MUSIC
+            // 且开启 offload 偏好时，才会把音轨路由到 aDSP 硬件 offload 的 AudioTrack。
+            // 之前未设置 AudioAttributes 导致平台拒绝 offload（日志表现为 offload=false）。
+            // handleAudioFocus 传 false：焦点由本项目的 AudioFocusManager 统一管理，避免重复申请。
+            androidx.media3.common.AudioAttributes audioAttributes =
+                    new androidx.media3.common.AudioAttributes.Builder()
+                            .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                            .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC)
+                            .build();
+            exoPlayer = new ExoPlayer.Builder(context, renderersFactory)
+                    .setAudioAttributes(audioAttributes, /* handleAudioFocus= */ false)
+                    .build();
+
+            // 【性能敏感路径】请求音频硬件 offload：让骁龙 8155 的 aDSP 直接解码播放，
+            // CPU 不参与逐帧解码与 ~20ms 送 PCM，后台纯播放 CPU 可显著下降。
+            // 用 ENABLED（非 REQUIRED）保证不支持 offload 的格式（如 APE）自动回退常规解码，不会播不出。
+            androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences offloadPrefs =
+                    new androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences.Builder()
+                            .setAudioOffloadMode(
+                                    androidx.media3.common.TrackSelectionParameters
+                                            .AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED)
+                            .setIsGaplessSupportRequired(false)
+                            .setIsSpeedChangeSupportRequired(false)
+                            .build();
+            exoPlayer.setTrackSelectionParameters(
+                    exoPlayer.getTrackSelectionParameters().buildUpon()
+                            .setAudioOffloadPreferences(offloadPrefs)
+                            .build());
 
             playerListener = new Player.Listener() {
                 @Override
@@ -142,7 +179,21 @@ public class PlaybackController {
             };
             exoPlayer.addListener(playerListener);
 
-            AppLog.d(TAG, "ExoPlayer initialized");
+            // 【需要日志验证】监听 AudioTrack 初始化，确认是否真正进入 offload 模式；
+            // 该埋点仅用于诊断（[OFFLOAD-CHECK]），offload=true 表示走了 aDSP 硬件 offload
+            exoPlayer.addAnalyticsListener(new androidx.media3.exoplayer.analytics.AnalyticsListener() {
+                @Override
+                public void onAudioTrackInitialized(
+                        androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime eventTime,
+                        androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig audioTrackConfig) {
+                    AppLog.d(TAG, "[OFFLOAD-CHECK] AudioTrack init: offload="
+                            + audioTrackConfig.offload
+                            + ", encoding=" + audioTrackConfig.encoding
+                            + ", sampleRate=" + audioTrackConfig.sampleRate);
+                }
+            });
+
+            AppLog.d(TAG, "ExoPlayer initialized (offload requested, hardware decode preferred)");
         } catch (Exception e) {
             AppLog.e(TAG, "Failed to initialize ExoPlayer", e);
             setState(PlaybackState.builder()
@@ -163,6 +214,15 @@ public class PlaybackController {
     }
 
     // ========== 公共 API ==========
+
+    /**
+     * 设置前后台状态，控制进度更新频率。
+     * <p>前台 500ms 保证 UI 平滑；后台 1000ms 降低主线程唤醒频率与无效回调。
+     * 由 ProcessLifecycleOwner 在 App 前后台切换时调用。
+     */
+    public void setForeground(boolean fg) {
+        this.foreground = fg;
+    }
 
     /**
      * 设置播放状态回调接口
@@ -593,7 +653,9 @@ public class PlaybackController {
 
     private void startProgressUpdates() {
         stopProgressUpdates();
-        progressHandler.postDelayed(progressRunnable, PROGRESS_UPDATE_INTERVAL_MS);
+        // 首次投递按当前前后台状态选择间隔
+        long interval = foreground ? PROGRESS_INTERVAL_FG_MS : PROGRESS_INTERVAL_BG_MS;
+        progressHandler.postDelayed(progressRunnable, interval);
     }
 
     private void stopProgressUpdates() {
@@ -605,7 +667,9 @@ public class PlaybackController {
         public void run() {
             updateProgressState();
             if (isPlaying()) {
-                progressHandler.postDelayed(this, PROGRESS_UPDATE_INTERVAL_MS);
+                // 【性能敏感路径】后台降频，减少不可见时的无效唤醒
+                long interval = foreground ? PROGRESS_INTERVAL_FG_MS : PROGRESS_INTERVAL_BG_MS;
+                progressHandler.postDelayed(this, interval);
             }
         }
     };
@@ -621,16 +685,9 @@ public class PlaybackController {
                 .duration(dur)
                 .build());
 
-        // 通知外部进度变化
+        // 通知外部进度变化（落盘节流由 MusicPlayerManager.onProgressChanged 负责）
         if (callback != null) {
             callback.onProgressChanged(pos, dur);
-        }
-
-        // 定期保存位置（每秒一次），通过时间间隔节流控制保存频率
-        // 注意：此处仅更新时间戳，实际保存逻辑由外部实现
-        long now = System.currentTimeMillis();
-        if (now - lastSavedPositionTime >= POSITION_SAVE_INTERVAL_MS) {
-            lastSavedPositionTime = now;
         }
     }
 

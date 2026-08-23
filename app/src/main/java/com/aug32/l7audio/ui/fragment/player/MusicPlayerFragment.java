@@ -878,6 +878,13 @@ public class MusicPlayerFragment extends Fragment {
                         if (tvScanStatus != null) {
                             tvScanStatus.setVisibility(View.GONE);
                         }
+
+                        // 【bug 修复】扫描/添加完成后直接刷新列表。
+                        // 原先仅依赖 onPlaylistChanged 反应式回调，但在文件浏览器覆盖本页时
+                        // Fragment 处于 PAUSED 状态、MusicPlayerManager.callback 被置空，
+                        // 该回调会被静默丢弃，导致全新安装扫描后列表不刷新。
+                        // 这里从添加结果回调直接刷新，不依赖反应式回调是否存活。
+                        refreshPlaylist();
                     }
                 });
     }

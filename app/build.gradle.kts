@@ -18,9 +18,9 @@ android {
         applicationId = "com.aug32.l7audio"
         minSdk = 30
         targetSdk = 30
-        versionCode = 105
+        versionCode = 115
 
-        versionName = "1.5.9"
+        versionName = "1.5.10"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -136,6 +136,8 @@ dependencies {
     implementation(libs.lifecycle.viewmodel)
     implementation(libs.lifecycle.livedata)
     implementation(libs.lifecycle.runtime)
+    // ProcessLifecycleOwner：进程级前后台感知，用于退后台时降低无效 CPU
+    implementation(libs.lifecycle.process)
 
     // LocalBroadcastManager（本地广播，替代 startService IPC）
     implementation(libs.localbroadcastmanager)

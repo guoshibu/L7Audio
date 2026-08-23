@@ -134,6 +134,10 @@ public class MusicPlayerManager {
     private MusicPlayerCallback callback;
     // 当前正在播放的音乐项（用于歌词加载等场景）
     private MusicItem currentPlayingItem;
+    // 【性能敏感路径】上次落盘播放位置的时间戳，用于真节流，避免每 500ms 一次 SharedPreferences 磁盘写
+    private long lastPositionSaveTime = 0L;
+    // 落盘节流间隔（毫秒）：断点续播只需秒级精度，异常退出最多丢 5s，可接受
+    private static final long POSITION_SAVE_INTERVAL_MS = 5000L;
 
     // ========== 构造函数 ==========
     /**
@@ -178,8 +182,13 @@ public class MusicPlayerManager {
 
             @Override
             public void onProgressChanged(long position, long duration) {
-                // 保存播放位置，用于下次恢复播放
-                appConfig.setLastPlayedPosition(position);
+                // 【性能优化】真节流：播放位置每 5 秒才落盘一次，
+                // 避免此前每 500ms 一次 SharedPreferences 磁盘写造成的后台无效开销
+                long now = System.currentTimeMillis();
+                if (now - lastPositionSaveTime >= POSITION_SAVE_INTERVAL_MS) {
+                    lastPositionSaveTime = now;
+                    appConfig.setLastPlayedPosition(position);
+                }
 
                 // 转发进度变化事件
                 if (callback != null) {
@@ -200,6 +209,14 @@ public class MusicPlayerManager {
                 }
             }
         });
+    }
+
+    /**
+     * 透传前后台状态给播放控制器，用于后台降低进度更新频率。
+     * 由 L7AudioApp 的 ProcessLifecycleOwner 观察者调用。
+     */
+    public void setForeground(boolean fg) {
+        playbackController.setForeground(fg);
     }
 
     // ========== 播放控制 ==========
@@ -246,6 +263,8 @@ public class MusicPlayerManager {
      * 暂停播放
      */
     public void pause() {
+        // 暂停时立即落盘真实位置，兜住 5s 节流窗口内未保存的进度
+        appConfig.setLastPlayedPosition(playbackController.getCurrentPosition());
         playbackController.pause();
         // 同步更新 MediaSession 播放状态
         notifyMediaSessionPlaybackState(false, playbackController.getCurrentPosition());

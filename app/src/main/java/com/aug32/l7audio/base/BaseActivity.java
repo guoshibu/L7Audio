@@ -1,5 +1,7 @@
 package com.aug32.l7audio.base;
 
+import android.content.Context;
+import android.content.res.Configuration;
 import android.os.Bundle;
 
 import androidx.annotation.Nullable;
@@ -23,6 +25,32 @@ public abstract class BaseActivity extends AppCompatActivity {
 
     /** 应用配置实例，用于读取和管理主题、字体等全局配置 */
     protected AppConfig appConfig;
+
+    /** 字体缩放排查专用 TAG，与 SettingsFragment 保持一致，便于 adb logcat 统一过滤 */
+    private static final String FONT_SCALE_TAG = "FontScale";
+
+    /**
+     * 在 Activity 附加基础 Context 时覆写 Configuration.fontScale。
+     *
+     * <p>【全局字体缩放】通过覆写 fontScale，使全应用所有 sp 单位字体按用户设置的系数统一缩放。
+     * 此时成员 appConfig 尚未创建（在 onCreate 中初始化），因此临时构造 AppConfig 读取持久化的缩放系数。
+     *
+     * @param newBase 系统传入的基础 Context
+     */
+    @Override
+    protected void attachBaseContext(Context newBase) {
+        // 读取用户持久化的字体缩放系数（临时构造，因 appConfig 尚未初始化）
+        float fontScale = new AppConfig(newBase).getFontScale();
+        // 【字体缩放排查】这是全局字体真正生效的入口。recreate() 后会重新走到这里，
+        // 若这里读到的 fontScale 是新值，说明持久化+重建链路正常；界面若仍没变则问题在渲染/缓存层。
+        android.util.Log.d(FONT_SCALE_TAG, "attachBaseContext: 读取 fontScale=" + fontScale
+                + "，应用于 " + getClass().getSimpleName());
+        // 基于原 Configuration 拷贝并覆写 fontScale，生成缩放后的 Context 供整个 Activity 使用
+        Configuration config = new Configuration(newBase.getResources().getConfiguration());
+        config.fontScale = fontScale;
+        Context wrapped = newBase.createConfigurationContext(config);
+        super.attachBaseContext(wrapped);
+    }
 
     /**
      * Activity 创建时的初始化回调。

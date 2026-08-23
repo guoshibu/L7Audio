@@ -706,6 +706,15 @@ adb install app/build/outputs/apk/release/L7音频工具-versionName-versionCode
 
 ## 版本历史
 
+### v1.5.10 (versionCode: 115)
+
+- 🚀 **后台播放性能优化**：ExoPlayer 请求音频硬件 offload（aDSP 解码）+ 硬解优先，并显式设置 AudioAttributes（USAGE_MEDIA/CONTENT_TYPE_MUSIC）修复 offload 被平台拒绝的问题
+- 🚀 **后台空转治理**：进度更新退后台降频至 1s、播放位置落盘节流至 5s，暂停时兜底落盘；引入 ProcessLifecycleOwner 全局前后台感知
+- ✨ **全局字体缩放**：设置页新增“字体大小”滑动条（0.7×–1.5×，步进 0.05），实时预览、松手即时全局生效，并提供重启应用兜底（悬浮窗不受影响）
+- 🔧 **字体尺寸集中化**：6 个布局写死字号统一抽取到 `dimens.xml`（含横屏 `values-land`），并在此基础上再 +3sp
+- 🐛 **修复全新安装扫描后列表不刷新**：扫描/添加完成回调直接刷新列表，不再依赖可能被置空的反应式回调
+- 🐛 **修复 TTS 页退后台可视化动画未停止**导致的持续 CPU 占用；AudioVisualizerView 缓存渐变 Shader 去掉逐帧对象分配
+
 ### v1.5.9 (versionCode: 105)
 
 - ✨ **UI字体增大优化**：全界面字体统一增大 3sp，提升可读性

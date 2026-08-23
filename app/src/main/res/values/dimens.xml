@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 字体尺寸集中管理：所有界面字号统一在此定义，便于全局 fontScale 缩放 -->
+
+    <!-- 播放器界面（竖屏） -->
+    <dimen name="text_player_title">30sp</dimen>       <!-- 歌曲标题 -->
+    <dimen name="text_player_artist">25sp</dimen>      <!-- 艺术家 -->
+    <dimen name="text_player_lyric">23sp</dimen>       <!-- 歌词 -->
+    <dimen name="text_player_time">25sp</dimen>        <!-- 时间/时长 -->
+    <dimen name="text_player_control">27sp</dimen>     <!-- 上一曲/播放/下一曲 -->
+    <dimen name="text_player_secondary">25sp</dimen>   <!-- 循环/音量/各操作按钮 -->
+    <dimen name="text_player_section">25sp</dimen>     <!-- 扫描状态/播放列表标题（横屏为 22sp，此处竖屏 25sp） -->
+
+    <!-- 麦克风放大器界面 -->
+    <dimen name="text_mic_status">28sp</dimen>         <!-- 状态 -->
+    <dimen name="text_mic_label">25sp</dimen>          <!-- 各开关标签/放大级别 -->
+    <dimen name="text_mic_hint">23sp</dimen>           <!-- 弱/强 -->
+    <dimen name="text_mic_action">34sp</dimen>         <!-- 开始放大主按钮 -->
+
+    <!-- TTS 界面 -->
+    <dimen name="text_tts_body">25sp</dimen>           <!-- 输入框/添加/编辑按钮 -->
+
+    <!-- 悬浮窗列表设置界面 -->
+    <dimen name="text_floating_title_main">32sp</dimen>   <!-- L7 Audio 主标题 -->
+    <dimen name="text_floating_section">28sp</dimen>      <!-- 车外喊话/TTS列表标题 -->
+    <dimen name="text_floating_item">26sp</dimen>        <!-- 各按钮/标签 -->
+
+    <!-- 悬浮窗 TTS 列表项（item_floating_tts）——注意：悬浮窗不随全局 fontScale 缩放，独立命名 -->
+    <dimen name="text_floating_tts_play">24sp</dimen>    <!-- 播放按钮 -->
+    <dimen name="text_floating_tts_delete">22sp</dimen>  <!-- 删除按钮 -->
+</resources>

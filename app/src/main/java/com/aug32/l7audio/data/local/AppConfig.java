@@ -32,6 +32,11 @@ public class AppConfig {
     /** 深色主题 */
     public static final int THEME_MODE_DARK = 2;
 
+    // 字体缩放常量（镜像 ThemeConfig，便于 UI 直接引用）
+    public static final float FONT_SCALE_MIN = ThemeConfig.FONT_SCALE_MIN;
+    public static final float FONT_SCALE_MAX = ThemeConfig.FONT_SCALE_MAX;
+    public static final float FONT_SCALE_DEFAULT = ThemeConfig.FONT_SCALE_DEFAULT;
+
     private final SharedPreferences preferences;
 
     // 领域配置实例
@@ -77,6 +82,10 @@ public class AppConfig {
     // 主题
     public int getThemeMode() { return themeConfig.getThemeMode(); }
     public void setThemeMode(int mode) { themeConfig.setThemeMode(mode); }
+
+    // 字体缩放
+    public float getFontScale() { return themeConfig.getFontScale(); }
+    public void setFontScale(float scale) { themeConfig.setFontScale(scale); }
 
     // 开机自启动
     public boolean isAutoStartOnBoot() { return themeConfig.isAutoStartOnBoot(); }

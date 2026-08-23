@@ -58,6 +58,19 @@ public class AudioVisualizerView extends View {
     private int fillColorEnd;
 
     /**
+     * 缓存的竖直渐变 Shader，避免 onDraw 每帧、每根柱子都 new LinearGradient 造成的对象分配与 GC 压力。
+     * <p>该渐变始终按整视图高度 [0, height] 构建（顶部 fillColorStart → 底部 fillColorEnd），
+     * 绘制每根柱子时通过 {@link #gradientMatrix} 的局部矩阵把它映射到柱子的实际竖直范围 [top, height]，
+     * 从而在不逐帧分配对象的前提下保持与原逐柱渐变完全一致的视觉效果。
+     * 仅在尺寸或颜色变化时重建。
+     */
+    private LinearGradient fillGradient;
+    /** 构建缓存渐变时使用的视图高度，用于检测尺寸变化后重建 Shader */
+    private int gradientHeight = 0;
+    /** 复用的局部矩阵，把整高渐变缩放/平移到单根柱子的竖直范围，避免每帧新建 Matrix */
+    private final android.graphics.Matrix gradientMatrix = new android.graphics.Matrix();
+
+    /**
      * 代码中创建视图时使用的构造函数
      *
      * @param context 上下文环境，用于获取资源和主题
@@ -101,6 +114,26 @@ public class AudioVisualizerView extends View {
         skeletonColor = ContextCompat.getColor(getContext(), R.color.text_secondary);
         fillColorStart = ContextCompat.getColor(getContext(), R.color.colorAccent);
         fillColorEnd = ContextCompat.getColor(getContext(), R.color.colorPrimary);
+        // 颜色可能变化（主题切换），使缓存的渐变失效，下次绘制时按新颜色重建
+        fillGradient = null;
+    }
+
+    /**
+     * 按当前视图高度与填充颜色构建并缓存竖直渐变 Shader。
+     * <p>仅在缓存为空或高度发生变化时创建，避免 onDraw 逐帧分配对象。
+     * 渐变覆盖整视图高度 [0, height]，绘制时用局部矩阵映射到单根柱子的竖直范围。
+     *
+     * @param height 当前视图高度（像素）
+     */
+    private void ensureGradient(int height) {
+        if (fillGradient == null || gradientHeight != height) {
+            gradientHeight = height;
+            fillGradient = new LinearGradient(
+                    0, 0, 0, height,
+                    fillColorStart, fillColorEnd,
+                    Shader.TileMode.CLAMP
+            );
+        }
     }
 
     private void setupPaints() {
@@ -194,6 +227,8 @@ public class AudioVisualizerView extends View {
         // 动画运行时，先插值更新高度再绘制
         if (isAnimating) {
             interpolateHeights();
+            // 确保缓存的整高渐变已按当前高度/颜色构建，避免下面逐柱重复 new LinearGradient
+            ensureGradient(height);
         }
 
         for (int i = 0; i < BAR_COUNT; i++) {
@@ -206,13 +241,16 @@ public class AudioVisualizerView extends View {
 
             // 动画运行时，叠加绘制渐变填充柱状条
             if (isAnimating) {
-                // 每个柱状条单独创建垂直渐变，确保颜色过渡跟随高度变化
-                LinearGradient gradient = new LinearGradient(
-                    x, top, x, height,
-                    fillColorStart, fillColorEnd,
-                    Shader.TileMode.CLAMP
-                );
-                fillPaint.setShader(gradient);
+                // 复用缓存的整高渐变（[0, height] 竖直方向 start→end）。
+                // 通过局部矩阵把 [0, height] 线性映射到当前柱子的 [top, height]：
+                // 缩放系数 barHeight/height，再平移 top，使柱顶取 fillColorStart、柱底取 fillColorEnd，
+                // 与原来"每柱单独 new LinearGradient(x, top, x, height,...)"的效果完全一致，且不再逐帧分配对象。
+                // 竖直渐变颜色只随 Y 变化、与 X 无关，故原本各柱不同的 x 起点不影响配色，可安全共用同一 Shader。
+                gradientMatrix.reset();
+                gradientMatrix.setScale(1f, barHeight / (float) height);
+                gradientMatrix.postTranslate(0f, top);
+                fillGradient.setLocalMatrix(gradientMatrix);
+                fillPaint.setShader(fillGradient);
                 canvas.drawRect(x, top, x + barWidth, height, fillPaint);
             }
         }

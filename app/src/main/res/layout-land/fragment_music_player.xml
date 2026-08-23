@@ -44,7 +44,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="未选择歌曲"
-                    android:textSize="23sp"
+                    android:textSize="@dimen/text_player_title"
                     android:textColor="@color/text_primary"
                     android:layout_marginBottom="8dp" />
 
@@ -53,7 +53,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text=""
-                    android:textSize="19sp"
+                    android:textSize="@dimen/text_player_artist"
                     android:textColor="@color/text_secondary"
                     android:layout_marginBottom="8dp" />
                 
@@ -68,7 +68,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="暂无歌词"
-                        android:textSize="17sp"
+                        android:textSize="@dimen/text_player_lyric"
                         android:textColor="@color/text_secondary" />
                 </ScrollView>
             </LinearLayout>
@@ -90,7 +90,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="00:00"
-                android:textSize="17sp"
+                android:textSize="@dimen/text_player_time"
                 android:textColor="@color/text_secondary" />
 
             <TextView
@@ -98,7 +98,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="00:00"
-                android:textSize="17sp"
+                android:textSize="@dimen/text_player_time"
                 android:textColor="@color/text_secondary"
                 android:layout_gravity="end"
                 android:layout_weight="1"
@@ -119,7 +119,7 @@
                 android:layout_height="56dp"
                 android:layout_weight="1"
                 android:text="上一曲"
-                android:textSize="21sp"
+                android:textSize="@dimen/text_player_control"
                 android:backgroundTint="@color/button_background"
                 android:textColor="@color/button_text"
                 android:layout_marginEnd="4dp" />
@@ -130,7 +130,7 @@
                 android:layout_height="56dp"
                 android:layout_weight="1"
                 android:text="播放"
-                android:textSize="21sp"
+                android:textSize="@dimen/text_player_control"
                 android:backgroundTint="@color/button_background"
                 android:textColor="@color/button_text"
                 android:layout_marginStart="4dp"
@@ -142,7 +142,7 @@
                 android:layout_height="56dp"
                 android:layout_weight="1"
                 android:text="下一曲"
-                android:textSize="21sp"
+                android:textSize="@dimen/text_player_control"
                 android:backgroundTint="@color/button_background"
                 android:textColor="@color/button_text"
                 android:layout_marginStart="4dp"
@@ -154,7 +154,7 @@
                 android:layout_height="56dp"
                 android:layout_weight="1"
                 android:text="不循环"
-                android:textSize="17sp"
+                android:textSize="@dimen/text_player_secondary"
                 android:backgroundTint="@color/button_background"
                 android:textColor="@color/button_text"
                 android:layout_marginStart="4dp" />
@@ -172,7 +172,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="音量"
-                android:textSize="17sp"
+                android:textSize="@dimen/text_player_secondary"
                 android:textColor="@color/text_secondary"
                 android:layout_marginBottom="4dp" />
 
@@ -202,7 +202,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="正在扫描音乐..."
-            android:textSize="19sp"
+            android:textSize="@dimen/text_player_section"
             android:textColor="@color/text_secondary"
             android:gravity="center"
             android:padding="8dp"
@@ -221,7 +221,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="播放列表"
-                android:textSize="19sp"
+                android:textSize="@dimen/text_player_section"
                 android:textColor="@color/text_primary" />
 
             <Button
@@ -229,7 +229,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="扫描音乐"
-                android:textSize="17sp"
+                android:textSize="@dimen/text_player_secondary"
                 android:backgroundTint="@color/button_background"
                 android:textColor="@color/button_text"
                 android:layout_marginEnd="8dp" />
@@ -239,7 +239,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="添加音乐"
-                android:textSize="17sp"
+                android:textSize="@dimen/text_player_secondary"
                 android:backgroundTint="@color/button_background"
                 android:textColor="@color/button_text"
                 android:layout_marginEnd="8dp" />
@@ -249,7 +249,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="全选"
-                android:textSize="17sp"
+                android:textSize="@dimen/text_player_secondary"
                 android:backgroundTint="@color/button_background"
                 android:textColor="@color/button_text"
                 android:visibility="gone"
@@ -260,7 +260,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="删除"
-                android:textSize="17sp"
+                android:textSize="@dimen/text_player_secondary"
                 android:backgroundTint="@color/button_background"
                 android:textColor="@color/button_text"
                 android:visibility="gone"
@@ -271,7 +271,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="取消"
-                android:textSize="17sp"
+                android:textSize="@dimen/text_player_secondary"
                 android:backgroundTint="@color/button_background"
                 android:textColor="@color/button_text"
                 android:visibility="gone"

@@ -1,13 +1,43 @@
 # L7Audio CHANGELOG
 
-> 日期：2026-07-28
-> 版本：v1.5.9 (versionCode: 105)
+> 日期：2026-08-23
+> 版本：v1.5.10 (versionCode: 115)
 
 ---
 
-## v1.5.9 字体增大优化 (versionCode: 105)
+## v1.5.10 后台性能优化 + 全局字体缩放 (versionCode: 115)
 
-### ✨ UI字体增大
+> 自 v1.5.9（versionCode 105）以来的累积改动。
+
+### ✨ 新功能
+
+- ✨ 新功能：设置页新增“字体大小”滑动条（0.7×–1.5×，步进 0.05），实时预览、松手即时全局生效，并提供重启应用兜底
+- ✨ 新功能：引入全局字体缩放能力——通过 BaseActivity.attachBaseContext 覆写 Configuration.fontScale，用户可统一放大/缩小全应用字体（悬浮窗不受影响）
+
+### 🐛 修复
+
+- 🐛 修复：全新安装扫描音乐后列表不刷新——扫描/添加完成回调直接刷新列表，不再依赖被文件浏览器覆盖时可能置空的反应式回调
+- 🐛 修复：TTS 页退后台后可视化动画未停止导致的持续 CPU 占用
+
+### 🚀 性能优化
+
+- 🚀 性能：ExoPlayer 请求音频硬件 offload（aDSP 解码）+ 硬解优先，降低后台播放 CPU 占用
+- 🚀 性能：为 ExoPlayer 显式设置 AudioAttributes（USAGE_MEDIA/CONTENT_TYPE_MUSIC），修复因缺少音频属性导致 offload 被平台拒绝（offload=false）的问题
+- 🚀 性能：后台进度更新降频至 1s、播放位置落盘节流至 5s，删除 PlaybackController 中无效的假节流死代码；暂停时兜底落盘防止丢进度
+- 🚀 性能：引入 ProcessLifecycleOwner 全局前后台感知，App 退后台时自动降低播放进度更新频率
+- 🚀 性能：AudioVisualizerView 缓存渐变 Shader，去掉 onDraw 逐帧对象分配
+
+### ✨ UI
+
+- ✨ UI：在 v1.5.9 基础上再次将播放器、麦克风放大器、TTS、悬浮窗列表等界面字体统一 +3sp，进一步提升车机可读性
+
+### 🔧 其他
+
+- 🔧 其他：将 6 个布局中写死的字体大小集中到 dimens.xml（含横屏 values-land），为全局字体缩放做准备（纯重构，视觉不变）
+- 🔧 其他：字体缩放滑动条松手/保存/recreate 全链路及 BaseActivity.attachBaseContext 增加详细日志（TAG=FontScale），便于排查界面未刷新问题
+- 🔧 其他：删除 AudioForegroundService 中不存在的 KeepAliveWorker 过时注释
+
+### 字体尺寸对照（本批 +3sp 后的基准值）
 
 | 文件 | 元素 | 修改 |
 |------|------|------|
@@ -17,6 +47,13 @@
 | [fragment_mic_amplifier.xml](app/src/main/res/layout/fragment_mic_amplifier.xml) | 状态/标签/按钮 | 22sp→25sp, 19sp→22sp, 17sp→20sp, 28sp→31sp |
 | [fragment_tts.xml](app/src/main/res/layout/fragment_tts.xml) | 输入框/按钮 | 19sp→22sp |
 | [item_floating_tts.xml](app/src/main/res/layout/item_floating_tts.xml) | TTS列表项按钮 | 18sp→21sp, 16sp→19sp |
+
+---
+
+## v1.5.9 UI字体增大优化 (versionCode: 105)
+
+- ✨ **UI字体增大优化**：全界面字体统一增大 3sp，提升可读性
+- 🚀 **性能优化**（v1.5.8 累积）：内存泄漏修复、对象复用、线程安全优化、资源管理、缓存优化
 
 ---
 

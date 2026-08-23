@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 播放器界面（横屏）字号，覆盖竖屏默认值 -->
+    <dimen name="text_player_title">26sp</dimen>       <!-- L47 歌曲标题 -->
+    <dimen name="text_player_artist">22sp</dimen>      <!-- L56 艺术家 -->
+    <dimen name="text_player_lyric">20sp</dimen>       <!-- L71 歌词 -->
+    <dimen name="text_player_time">20sp</dimen>        <!-- L93/L101 时间/时长 -->
+    <dimen name="text_player_control">24sp</dimen>     <!-- L122/L133/L145 控制按钮 -->
+    <dimen name="text_player_secondary">20sp</dimen>   <!-- L157/L175/L232/L242/L252/L263/L274 循环/音量/操作按钮 -->
+    <dimen name="text_player_section">22sp</dimen>     <!-- L205/L224 扫描状态/播放列表标题 -->
+</resources>

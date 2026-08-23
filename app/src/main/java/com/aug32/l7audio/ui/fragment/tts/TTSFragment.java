@@ -204,14 +204,34 @@ public class TTSFragment extends BaseFragment {
 
     private void refreshTTSItemsView() {
         if (ttsItemsContainer == null) return;
-        for (AudioVisualizerView visualizer : visualizerViews) {
-            visualizer.stopAnimation();
-        }
+        // 复用统一的停止逻辑，避免重复遍历代码
+        stopAllVisualizers();
         ttsItemsContainer.removeAllViews();
         visualizerViews.clear();
         for (int i = 0; i < ttsItems.size(); i++) {
             addTTSItemToView(ttsItems.get(i), i);
         }
+    }
+
+    /**
+     * 停止所有可视化动画。
+     * <p>由 {@link #refreshTTSItemsView()}（刷新前清理旧视图动画）与
+     * {@link #onPause()}（退后台时停止无效动画）共用同一遍历停止逻辑。
+     */
+    private void stopAllVisualizers() {
+        if (visualizerViews == null) return;
+        // 遍历当前持有的所有 AudioVisualizerView，逐个取消其无限 ValueAnimator
+        for (AudioVisualizerView visualizer : visualizerViews) {
+            visualizer.stopAnimation();
+        }
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        // 【性能优化】App/页面退后台时停止所有可视化动画，
+        // 避免无限 ValueAnimator 在不可见时持续 invalidate 烧 CPU
+        stopAllVisualizers();
     }
 
     private void addTTSItemToView(TTSItem item, int position) {

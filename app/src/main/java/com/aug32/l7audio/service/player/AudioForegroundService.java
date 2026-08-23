@@ -42,7 +42,6 @@ import com.aug32.l7audio.utils.AppLog;
  *   <li>Android 系统对后台服务有严格的限制，前台服务配合通知栏通知可有效降低被系统回收的概率</li>
  *   <li>使用 START_STICKY 模式，服务被意外杀死后系统会自动尝试重建</li>
  *   <li>使用 MediaStyle 通知 + MediaSession，支持媒体按钮和专辑封面，与系统媒体中心联动</li>
- *   <li>与 KeepAliveWorker 配合，形成双重保活机制</li>
  * </ul>
  *
  * @author L7Audio Team

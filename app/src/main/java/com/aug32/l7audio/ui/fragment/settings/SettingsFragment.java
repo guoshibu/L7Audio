@@ -1,11 +1,13 @@
 package com.aug32.l7audio.ui.fragment.settings;
 
 import android.content.Intent;
+import android.util.TypedValue;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
+import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -53,6 +55,8 @@ public class SettingsFragment extends BaseFragment {
 
     /** 日志标签 */
     private static final String TAG = "SettingsFragment";
+    // 字体缩放排查专用 TAG，便于 adb logcat 单独过滤：adb logcat | findstr FontScale
+    private static final String FONT_SCALE_TAG = "FontScale";
 
     // ========== 主题设置 UI ==========
     /** 主题选择单选组 */
@@ -75,6 +79,23 @@ public class SettingsFragment extends BaseFragment {
     private Button btnDebugAudioRoutes;
     /** 音频路由信息显示文本 */
     private TextView tvAudioRoutes;
+
+    // ========== 字体大小设置 UI ==========
+    /** 字体缩放滑动条（0.7×–1.5×，步进 0.05，共 17 档） */
+    private SeekBar seekFontScale;
+    /** 当前字体缩放系数显示文本 */
+    private TextView tvFontScaleValue;
+    /** 字体预览标题文本 */
+    private TextView tvFontPreviewTitle;
+    /** 字体预览正文文本 */
+    private TextView tvFontPreviewBody;
+    /** 重启应用兜底按钮 */
+    private Button btnRestartApp;
+
+    /** 字体预览标题基准字号（sp，缩放系数为 1.0 时的大小） */
+    private static final float FONT_PREVIEW_TITLE_SP = 20f;
+    /** 字体预览正文基准字号（sp，缩放系数为 1.0 时的大小） */
+    private static final float FONT_PREVIEW_BODY_SP = 16f;
 
     // ========== TTS 诊断 UI ==========
     /** TTS 状态显示文本 */
@@ -171,6 +192,13 @@ public class SettingsFragment extends BaseFragment {
         btnDebugAudioRoutes = view.findViewById(R.id.btn_debug_audio_routes);
         tvAudioRoutes = view.findViewById(R.id.tv_audio_routes);
 
+        // 字体大小设置控件
+        seekFontScale = view.findViewById(R.id.seek_font_scale);
+        tvFontScaleValue = view.findViewById(R.id.tv_font_scale_value);
+        tvFontPreviewTitle = view.findViewById(R.id.tv_font_preview_title);
+        tvFontPreviewBody = view.findViewById(R.id.tv_font_preview_body);
+        btnRestartApp = view.findViewById(R.id.btn_restart_app);
+
         tvTTSStatus = view.findViewById(R.id.tv_tts_status);
         btnTestTTS = view.findViewById(R.id.btn_test_tts);
         btnCheckTTSStatus = view.findViewById(R.id.btn_check_tts_status);
@@ -232,6 +260,9 @@ public class SettingsFragment extends BaseFragment {
         autoStartSwitch.setChecked(themeConfig.isAutoStartOnBoot());
         floatingWindowSwitch.setChecked(floatingWindowConfig.isEnabled());
 
+        // 初始化字体大小滑动条与预览
+        initFontScaleViews();
+
         // 加载音频设备设置
         loadAudioDeviceSettings();
     }
@@ -266,6 +297,12 @@ public class SettingsFragment extends BaseFragment {
         btnHome = null;
         btnDebugAudioRoutes = null;
         tvAudioRoutes = null;
+        // 置空字体大小设置 UI
+        seekFontScale = null;
+        tvFontScaleValue = null;
+        tvFontPreviewTitle = null;
+        tvFontPreviewBody = null;
+        btnRestartApp = null;
         // 置空 TTS 诊断 UI
         tvTTSStatus = null;
         btnTestTTS = null;
@@ -362,6 +399,9 @@ public class SettingsFragment extends BaseFragment {
         // 调试音频路由
         btnDebugAudioRoutes.setOnClickListener(v -> displayAudioRoutes());
 
+        // 字体大小设置监听器
+        setupFontScaleListeners();
+
         // TTS 诊断
         btnTestTTS.setOnClickListener(v -> testTTS());
         btnCheckTTSStatus.setOnClickListener(v -> checkTTSStatus());
@@ -385,6 +425,130 @@ public class SettingsFragment extends BaseFragment {
         if (btnRestoreDefaults != null) {
             btnRestoreDefaults.setOnClickListener(v -> restoreDefaults());
         }
+    }
+
+    /**
+     * 初始化字体大小滑动条与预览。
+     *
+     * <p>从持久化配置读取当前缩放系数，映射为滑动条档位（0..16），
+     * 并同步更新数值文本与预览字号。
+     */
+    private void initFontScaleViews() {
+        if (seekFontScale == null) return;
+        float scale = themeConfig.getFontScale();
+        // 缩放系数 → 滑动条档位：progress = round((scale - 0.7) / 0.05)，并夹紧到 [0, 16]
+        int progress = Math.round((scale - AppConfig.FONT_SCALE_MIN) / 0.05f);
+        if (progress < 0) progress = 0;
+        if (progress > seekFontScale.getMax()) progress = seekFontScale.getMax();
+        seekFontScale.setProgress(progress);
+        // 以实际档位反算出的系数刷新文本与预览，保证三者一致
+        float snappedScale = AppConfig.FONT_SCALE_MIN + progress * 0.05f;
+        updateFontScaleValueText(snappedScale);
+        updateFontPreview(snappedScale);
+    }
+
+    /**
+     * 设置字体大小相关监听器：滑动条实时预览 + 松手保存重建，以及重启兜底按钮。
+     */
+    private void setupFontScaleListeners() {
+        if (seekFontScale != null) {
+            seekFontScale.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override
+                public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                    if (!isAdded()) return;
+                    // 档位 → 缩放系数：0.7 + progress * 0.05
+                    float scale = AppConfig.FONT_SCALE_MIN + progress * 0.05f;
+                    // 仅实时更新数值文本与预览，不持久化、不重建 Activity
+                    updateFontScaleValueText(scale);
+                    updateFontPreview(scale);
+                    // 【字体缩放排查】仅在用户手动拖动时打印，避免代码 setProgress 刷屏
+                    if (fromUser) {
+                        AppLog.d(FONT_SCALE_TAG, "onProgressChanged: progress=" + progress
+                                + " -> scale=" + String.format(Locale.US, "%.2f", scale) + " (预览，未持久化)");
+                    }
+                }
+
+                @Override
+                public void onStartTrackingTouch(SeekBar sb) {
+                    // 【字体缩放排查】开始拖动，记录起始档位与当前已持久化的系数
+                    AppLog.d(FONT_SCALE_TAG, "onStartTrackingTouch: startProgress=" + sb.getProgress()
+                            + ", 当前已保存 scale=" + String.format(Locale.US, "%.2f", themeConfig.getFontScale()));
+                }
+
+                @Override
+                public void onStopTrackingTouch(SeekBar sb) {
+                    if (!isAdded()) return;
+                    int progress = sb.getProgress();
+                    float scale = AppConfig.FONT_SCALE_MIN + progress * 0.05f;
+                    // 【字体缩放排查】松手 -> 保存 -> recreate 全链路打点，用于定位“界面没刷新”
+                    AppLog.d(FONT_SCALE_TAG, "onStopTrackingTouch: 松手 progress=" + progress
+                            + " -> 目标 scale=" + String.format(Locale.US, "%.2f", scale));
+                    float before = themeConfig.getFontScale();
+                    // 松手后保存并重建 Activity，单 Activity 架构下即整个 App 生效
+                    themeConfig.setFontScale(scale);
+                    float saved = themeConfig.getFontScale();
+                    AppLog.d(FONT_SCALE_TAG, "已持久化: before=" + String.format(Locale.US, "%.2f", before)
+                            + " -> after(读回)=" + String.format(Locale.US, "%.2f", saved)
+                            + (Math.abs(saved - scale) > 0.001f ? "  ⚠️ 读回值与目标不一致（可能被 clamp）" : ""));
+                    AppLog.d(FONT_SCALE_TAG, "即将调用 requireActivity().recreate() 重建界面 ...");
+                    requireActivity().recreate();
+                    // 注意：recreate() 之后当前 Fragment 实例即将销毁重建，
+                    // 此处之后的日志可能不会执行完整，真正“生效验证”看 BaseActivity.attachBaseContext 的日志
+                    AppLog.d(FONT_SCALE_TAG, "recreate() 已调用（Activity 将走 finish->重建，实际应用见 attachBaseContext 日志）");
+                }
+            });
+        }
+
+        if (btnRestartApp != null) {
+            btnRestartApp.setOnClickListener(v -> restartApp());
+        }
+    }
+
+    /** 更新“当前：x.xx×”数值文本 */
+    private void updateFontScaleValueText(float scale) {
+        if (tvFontScaleValue == null) return;
+        tvFontScaleValue.setText(String.format(Locale.getDefault(), "当前：%.2f×", scale));
+    }
+
+    /**
+     * 按目标缩放系数更新预览字号。
+     *
+     * <p>注意：Fragment 当前的 Context 已经应用了全局 fontScale，若直接用
+     * setTextSize(COMPLEX_UNIT_SP, baseSp * targetScale) 会把全局系数再叠加一次（双重缩放）。
+     * 因此这里改用 PX 单位：px = baseSp * density * targetScale（density 不含 fontScale），
+     * 从而精确呈现“缩放系数 = targetScale”时的真实字号，避免双重应用。
+     *
+     * @param targetScale 目标缩放系数
+     */
+    private void updateFontPreview(float targetScale) {
+        if (tvFontPreviewTitle == null || tvFontPreviewBody == null) return;
+        float density = getResources().getDisplayMetrics().density;
+        float titlePx = FONT_PREVIEW_TITLE_SP * density * targetScale;
+        float bodyPx = FONT_PREVIEW_BODY_SP * density * targetScale;
+        tvFontPreviewTitle.setTextSize(TypedValue.COMPLEX_UNIT_PX, titlePx);
+        tvFontPreviewBody.setTextSize(TypedValue.COMPLEX_UNIT_PX, bodyPx);
+    }
+
+    /**
+     * 彻底重启应用（兜底）。
+     *
+     * <p>当 recreate() 未即时生效时，冷启动整个进程：构建应用启动 Intent，
+     * 以 NEW_TASK|CLEAR_TASK 清栈重启，随后结束当前进程确保干净重建。
+     */
+    private void restartApp() {
+        if (!isAdded()) return;
+        try {
+            android.content.Context ctx = requireContext().getApplicationContext();
+            Intent intent = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
+            if (intent != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                ctx.startActivity(intent);
+            }
+        } catch (Exception e) {
+            AppLog.e(TAG, "Failed to restart app", e);
+        }
+        // 结束进程，触发系统按上面的 Intent 冷启动新进程
+        Runtime.getRuntime().exit(0);
     }
 
     /**

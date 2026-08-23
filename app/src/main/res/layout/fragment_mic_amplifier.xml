@@ -16,7 +16,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="状态: 已停止"
-        android:textSize="25sp"
+        android:textSize="@dimen/text_mic_status"
         android:textColor="?attr/colorOnSurface"
         android:gravity="center"
         app:layout_constraintTop_toTopOf="parent"
@@ -54,7 +54,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="噪声抑制"
-                android:textSize="22sp"
+                android:textSize="@dimen/text_mic_label"
                 android:textColor="?attr/colorOnSurface" />
 
             <android.widget.Switch
@@ -78,7 +78,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="回声抑制"
-                android:textSize="22sp"
+                android:textSize="@dimen/text_mic_label"
                 android:textColor="?attr/colorOnSurface" />
 
             <android.widget.Switch
@@ -101,7 +101,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="啸叫抑制"
-                android:textSize="22sp"
+                android:textSize="@dimen/text_mic_label"
                 android:textColor="?attr/colorOnSurface" />
 
             <android.widget.Switch
@@ -125,7 +125,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="自动增益控制 (AGC)"
-                android:textSize="22sp"
+                android:textSize="@dimen/text_mic_label"
                 android:textColor="?attr/colorOnSurface" />
 
             <android.widget.Switch
@@ -166,7 +166,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="放大级别:"
-                android:textSize="22sp"
+                android:textSize="@dimen/text_mic_label"
                 android:textColor="?attr/colorOnSurface" />
 
             <TextView
@@ -174,7 +174,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="5"
-                android:textSize="22sp"
+                android:textSize="@dimen/text_mic_label"
                 android:textColor="?attr/colorOnSurface"
                 android:layout_marginStart="16dp" />
 
@@ -198,7 +198,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="0.5"
                 android:text="弱"
-                android:textSize="20sp"
+                android:textSize="@dimen/text_mic_hint"
                 android:textColor="?attr/colorOnSurfaceVariant"
                 android:gravity="start" />
 
@@ -208,7 +208,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="0.5"
                 android:text="强"
-                android:textSize="20sp"
+                android:textSize="@dimen/text_mic_hint"
                 android:textColor="?attr/colorOnSurfaceVariant"
                 android:gravity="end" />
 
@@ -225,7 +225,7 @@
         android:layout_marginBottom="60dp"
         android:layout_marginTop="24dp"
         android:text="开始放大"
-        android:textSize="31sp"
+        android:textSize="@dimen/text_mic_action"
         android:backgroundTint="?attr/colorPrimary"
         android:textColor="?attr/colorOnPrimary"
         app:layout_constraintTop_toBottomOf="@+id/ll_amplification"
