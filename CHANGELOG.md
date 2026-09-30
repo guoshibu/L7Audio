@@ -1,26 +1,42 @@
 # L7Audio CHANGELOG
 
-> 日期：2026-08-23
-> 版本：v1.5.10 (versionCode: 115)
+> 日期：2026-09-30
+> 版本：v1.5.11 (versionCode: 131)
 
 ---
 
-## v1.5.10 后台性能优化 + 全局字体缩放 (versionCode: 115)
+## v1.5.11 车载适配 + 音频管线升级 (versionCode: 131)
 
 > 自 v1.5.9（versionCode 105）以来的累积改动。
 
 ### ✨ 新功能
 
+- ✨ 新功能：麦克风放大新增低通滤波器（LowPassFilterProcessor，二阶 Butterworth IIR），与既有高通组成"人声带通"（默认 100~4000Hz），砍掉 4kHz 以上的高频啸叫/嘶声/齿音，让车外喊话更清晰、更不易反馈啸叫；管线顺序为 HPF → LPF → AFC → 增益 → 降噪 → 陷波 → AGC
+- ✨ 新功能：HPF/LPF 截止频率可在设置页配置并运行时即时生效（无需重启喊话）——高通 50~2000Hz、低通 200~8000Hz，另提供低通总开关；改截止频率时处理器会重算系数并 reset() 清空历史状态，避免换系数瞬间爆音（借鉴 Hey 项目滤波器可配思路）
+- ✨ 新功能：麦克风增益范围（上下限）可配——最大放大倍率上限从 20 放宽到 50，新增"最小增益倍数"（下限，0.1~最大值），放大倍数按 [minGain, maxAmp] 双限幅裁剪；配置保存后运行时即时生效
+- ✨ 新功能：设置页调试区新增“探测 usage 路由 (0~100)”——遍历 0~100 的 AudioAttributes.usage 值，逐个建一条静音 AudioTrack 并读取系统实际路由到的设备（bus/扬声器/地址），生成“usage→路由设备”映射表；后台线程执行不阻塞 UI，结果同步显示在文本框并写入日志文件（adb 可拉取）。用于确认车外喊话/音乐播放应使用哪个 usage 值才能命中目标 bus（如亿咖通 vendor usage → bus4 外部喇叭），补齐此前仅能列静态设备清单、无法看到 usage 路由映射的短板
+- ✨ 新功能：关于页新增合规内容——免责声明、隐私说明、权限说明、使用须知（车外喊话/音量放大合规使用边界）、开源许可（media3 Apache 2.0）五张卡片
 - ✨ 新功能：设置页新增“字体大小”滑动条（0.7×–1.5×，步进 0.05），实时预览、松手即时全局生效，并提供重启应用兜底
 - ✨ 新功能：引入全局字体缩放能力——通过 BaseActivity.attachBaseContext 覆写 Configuration.fontScale，用户可统一放大/缩小全应用字体（悬浮窗不受影响）
+- ✨ 新功能：字体缩放滑动条现在联动放大带文字的按钮（按钮高度随字体自适应）
 
 ### 🐛 修复
 
+- 🐛 修复：放大（喊话）进行中在主页切换"仅车内/仅车外"，停止放大后会被打回放大前的方向——根因是喊话启动瞬间用 savedOutputMode 记下"放大前输出模式"用于结束后恢复，而放大中途在主页手动切换只改了当前输出模式与偏好，未更新这个快照，停止时便用旧快照覆盖了用户的新选择。修复：MicOutputController 新增 syncSavedOutputMode(mode)，仅在放大进行中把用户最新选择同步进恢复目标（与 toggle/start/stop 同为 synchronized 保证互斥）；MainActivity.setAudioOutput 切换后调用该方法，使停止放大恢复到用户最新意图
+- 🔧 其他/健壮性：修复主页主动切换车内/车外时未对外通知的一致性欠债——此前只有喊话导致的被动切换（start/stopAnnouncement）会经 notifyOutputModeChanged 同步给注册了 OutputModeListener 的界面，而主页用户主动点"仅车内/仅车外"只刷新自身按钮、未对外广播（目前除主页外无界面显示方向，故无可见故障，但为潜在隐患）。修复：MicOutputController 新增 public broadcastOutputModeChanged(mode) 复用同一通知通道，MainActivity.setAudioOutput 切换后调用，使主动/被动切换共用同一同步通道（主页自身回调再刷一次 updateOutputButtons 幂等无副作用），保证未来新增方向显示的界面也能一致更新
+- 🔧 其他/健壮性：统一音频输出模式的整数编码，消除潜在错位隐患——此前 AudioConfig 的常量语义（OUTPUT_MODE_EXTERNAL=0/OUTPUT_MODE_CAR=1）与全项目实际使用的 AudioOutputManager 语义（OUTPUT_CAR=0/OUTPUT_EXTERNAL=1）正好相反，虽然目前业务代码只用后者一套、值能自洽而未显现故障，但常量命名与存储语义矛盾极易误导后续开发。本次把 AudioConfig 的常量对齐为车内=0/车外=1，getOutputMode() 默认值改用 OUTPUT_MODE_CAR（仍为 0，行为不变），并将 AudioOutputManager 的 currentOutputMode 兜底初值由车外改为车内（构造时仍被持久化值覆盖）；三处默认（持久化默认、输出模式兜底、喊话偏好）自此全部统一为"车内"
+- 🐛 修复：全新安装后首次点击"放大"会把发声路由从车内切到车外（停止后又显示车内，手动点一次"仅车内/仅车外"后恢复正常）——根因是喊话偏好 preferExternal 与主页显示的车内/车外来自两套状态且默认值相反：首次安装用户从未点过车内/车外，PREF_PREFER_EXTERNAL 尚未持久化，MicOutputController.init() 却硬编码默认车外(true)，而主页按钮依据 AudioOutputManager 的真实输出模式（默认车内）渲染，二者初始就矛盾。修复：init() 在偏好从未写入时改为从 AudioOutputManager.getOutputMode()（与主页按钮同源）派生 preferExternal；字段声明默认也从 true 改为 false（车内），确保"界面显示、点放大后的路由、停止后恢复"三者从首次安装起就一致
+- 🐛 修复：侧边抽屉菜单高亮与实际页面错位（在主页却高亮设置/关于，或反之）——根因是 NavigationView 选中态仅在手动点击菜单时更新，而“底部功能按钮切页”“冷启动恢复上次页面”等路径未同步。新增 syncNavCheckedItem 统一同步：主页/麦克风/TTS/音乐均高亮“首页”，设置页高亮“设置”，关于页高亮“关于”，保证菜单高亮始终等于当前页面
+- 🐛 修复：无悬浮窗权限时点开设置页“启用悬浮窗”开关闪退（BadTokenException）——新增三层防御：①入口层 SettingsFragment 启动服务前 canDrawOverlays 校验，无权限则 Toast 提示、弹回开关并跳系统授权页，授权返回后自动开启；②冷启动层 MainActivity 按配置拉起服务前复查权限，无权限跳过启动；③服务底层 FloatingWindowService.onCreate 前置权限自检 + addView try-catch 双重兜底，无权限即自停，绝不崩溃
+- 🐛 修复：无悬浮窗权限时打开悬浮窗开关仍闪退（三层防御后仍复现）——根因是服务层 addView 只捕获 BadTokenException，而 Flyme Auto / QNX（8155）定制 ROM 无权限时抛出的常是 SecurityException / 普通 RuntimeException 而非该子类，直接穿透兜底崩溃。本次放宽为捕获 Exception 统一自停；onDestroy/视图切换的 removeView 统一走新增的 safeRemoveView 防 IllegalArgumentException（view 未 attach/已移除）；并用抑制标志收敛设置页开关无权限弹回时的 setChecked 再入抖动
+- 🐛 修复：字体缩放调整后松手会跳回上一个页面——重建后一次性标记自动返回设置页（不影响其它重建场景）
 - 🐛 修复：全新安装扫描音乐后列表不刷新——扫描/添加完成回调直接刷新列表，不再依赖被文件浏览器覆盖时可能置空的反应式回调
 - 🐛 修复：TTS 页退后台后可视化动画未停止导致的持续 CPU 占用
+- 🐛 修复：从后台返回音乐页时播放列表停留在旧位置、不定位到当前播放曲目——根因是自动滚动仅在 onPlaybackStarted（新曲开始播放）时触发，后台返回时索引未变故不触发。新增 scrollPlaylistToCurrent()：在 updateUIWithCurrentState（onResume/onViewCreated 均会调用）中强制定位到当前播放项，用 post + scrollToPositionWithOffset 等 RecyclerView 布局就绪后直接置顶定位，并绕过 lastScrollToIndex 去重
 
 ### 🚀 性能优化
 
+- 🚀 性能：加大 ExoPlayer 播放缓冲（DefaultLoadControl，maxBuffer 90s、minBuffer 60s，起播缓冲保持 2.5s 不变），降低软解场景下 CPU 被唤醒喂 PCM 的频率——本车机（亿咖通 AAOS + 8155）实测 offload=false、audio HAL 只吃 PCM 无 compress offload 通道，音频只能 CPU 软解；加大缓冲让解码线程一次填满、长时间休眠，唤醒频率下降一个数量级，降低后台播放 CPU 表观占用
 - 🚀 性能：ExoPlayer 请求音频硬件 offload（aDSP 解码）+ 硬解优先，降低后台播放 CPU 占用
 - 🚀 性能：为 ExoPlayer 显式设置 AudioAttributes（USAGE_MEDIA/CONTENT_TYPE_MUSIC），修复因缺少音频属性导致 offload 被平台拒绝（offload=false）的问题
 - 🚀 性能：后台进度更新降频至 1s、播放位置落盘节流至 5s，删除 PlaybackController 中无效的假节流死代码；暂停时兜底落盘防止丢进度
@@ -30,11 +46,17 @@
 ### ✨ UI
 
 - ✨ UI：在 v1.5.9 基础上再次将播放器、麦克风放大器、TTS、悬浮窗列表等界面字体统一 +3sp，进一步提升车机可读性
+- ✨ UI：音乐播放器封面右侧的歌曲信息（标题+歌手）整体垂直居中——将标题歌手包进独立子容器与下方歌词各占一半列高（weight 1）并组内 center_vertical 居中，不再被歌词区顶到顶部
 
 ### 🔧 其他
 
-- 🔧 其他：将 6 个布局中写死的字体大小集中到 dimens.xml（含横屏 values-land），为全局字体缩放做准备（纯重构，视觉不变）
+- 🔧 其他：补齐全局字体缩放的最后一批布局——将主界面（activity_main）、文件浏览页（fragment_file_browser）、歌单项/文件项（item_music_playlist、item_file_browser）、抽屉头（nav_header）共 5 个布局中写死的字体大小集中到 dimens.xml（新增 text_main_*、text_browser_*、text_item_*、text_nav_* 系列，数值沿用原字面量，纯重构、视觉不变），至此除悬浮窗外全部界面均支持全局 fontScale 缩放
+- 🔧 其他：主界面顶栏 ☰/✕、仅车内/仅车外、底部麦克风/TTS/音乐按钮，以及文件浏览页工具栏（←/全选/⌂）、底部取消/确认按钮，高度统一改为 wrap_content + minHeight，字号放大时按钮随之长高、不再裁字（车机常驻横屏，未建 values-land 覆写，横竖屏共用同值，与麦克风/TTS/设置/关于一致）
+- 🔧 其他：歌单/文件列表项仅字号随 fontScale 缩放，图标保持固定 dp，避免大字号下图标膨胀、保持列表紧凑
+- 🔧 其他：将关于页、设置页的字体大小也统一集中到 dimens.xml（新增 text_about_*、text_settings_* 系列，共 84 处 sp 引用化，纯重构、视觉不变）
+- 🔧 其他：关于页超大字号适配——项目链接长 URL 增加按字符断行（breakStrategy），避免大字号下横向溢出被裁；5 张合规卡片正文行距提升至 1.3，超大字号下更易读
 - 🔧 其他：字体缩放滑动条松手/保存/recreate 全链路及 BaseActivity.attachBaseContext 增加详细日志（TAG=FontScale），便于排查界面未刷新问题
+- 🔧 其他：attachBaseContext 的 fontScale 日志改用 AppLog 落盘，便于导出排查
 - 🔧 其他：删除 AudioForegroundService 中不存在的 KeepAliveWorker 过时注释
 
 ### 字体尺寸对照（本批 +3sp 后的基准值）

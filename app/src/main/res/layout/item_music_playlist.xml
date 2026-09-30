@@ -43,7 +43,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="歌曲名称"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_item_title"
                 android:textColor="?attr/colorOnSurface"
                 android:singleLine="true"
                 android:ellipsize="end" />
@@ -53,7 +53,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="艺术家"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_item_subtitle"
                 android:textColor="?attr/colorOnSurfaceVariant"
                 android:layout_marginTop="4dp"
                 android:singleLine="true"

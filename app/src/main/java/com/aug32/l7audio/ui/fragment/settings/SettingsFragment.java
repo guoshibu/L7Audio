@@ -1,6 +1,8 @@
 package com.aug32.l7audio.ui.fragment.settings;
 
 import android.content.Intent;
+import android.net.Uri;
+import android.provider.Settings;
 import android.util.TypedValue;
 import android.view.View;
 import android.widget.Button;
@@ -25,6 +27,7 @@ import com.aug32.l7audio.data.local.config.ThemeConfig;
 import com.aug32.l7audio.data.local.config.tts.TTSConfig;
 import com.aug32.l7audio.domain.audio.micoutput.AudioOutputManager;
 import com.aug32.l7audio.domain.audio.AudioServiceLocator;
+import com.aug32.l7audio.domain.audio.micoutput.MicrophoneManager;
 import com.aug32.l7audio.domain.audio.tts.TTSManager;
 import com.aug32.l7audio.R;
 import com.aug32.l7audio.receiver.boot.BootReceiver;
@@ -57,6 +60,8 @@ public class SettingsFragment extends BaseFragment {
     private static final String TAG = "SettingsFragment";
     // 字体缩放排查专用 TAG，便于 adb logcat 单独过滤：adb logcat | findstr FontScale
     private static final String FONT_SCALE_TAG = "FontScale";
+    // 悬浮窗权限（SYSTEM_ALERT_WINDOW）授权请求码，用于 startActivityForResult 跳转系统授权页后回调识别
+    private static final int REQUEST_OVERLAY_PERMISSION = 200;
 
     // ========== 主题设置 UI ==========
     /** 主题选择单选组 */
@@ -71,13 +76,17 @@ public class SettingsFragment extends BaseFragment {
     private Switch autoStartSwitch;
     /** 悬浮窗开关 */
     private Switch floatingWindowSwitch;
+    // 程序化改写悬浮窗开关状态（如无权限弹回）时置 true，令监听器跳过业务逻辑，避免 setChecked 再入导致的启停抖动
+    private boolean suppressFloatingSwitchCallback = false;
     /** 返回按钮 */
     private Button btnBack;
     /** 主页按钮 */
     private Button btnHome;
     /** 调试音频路由按钮 */
     private Button btnDebugAudioRoutes;
-    /** 音频路由信息显示文本 */
+    /** usage 路由探测按钮（遍历 0~100 的 usage 值，逐个建流并读取实际路由设备） */
+    private Button btnProbeUsageRoutes;
+    /** 音频路由信息显示文本（显示路由/探测结果，两个按钮共用） */
     private TextView tvAudioRoutes;
 
     // ========== 字体大小设置 UI ==========
@@ -126,6 +135,14 @@ public class SettingsFragment extends BaseFragment {
     private EditText editAudioSource;
     /** 最大放大倍数输入框 */
     private EditText editMaxAmplification;
+    /** 最小增益（增益下限）输入框 */
+    private EditText editMinGain;
+    /** 高通滤波器截止频率输入框（Hz） */
+    private EditText editHpfCutoff;
+    /** 低通滤波器截止频率输入框（Hz） */
+    private EditText editLpfCutoff;
+    /** 低通滤波器开关 */
+    private Switch swLpfEnabled;
     /** 放大倍数警告文本 */
     private TextView tvAmplificationWarning;
     /** 枚举麦克风按钮 */
@@ -190,6 +207,7 @@ public class SettingsFragment extends BaseFragment {
         btnBack = view.findViewById(R.id.btn_back);
         btnHome = view.findViewById(R.id.btn_home);
         btnDebugAudioRoutes = view.findViewById(R.id.btn_debug_audio_routes);
+        btnProbeUsageRoutes = view.findViewById(R.id.btn_probe_usage_routes);
         tvAudioRoutes = view.findViewById(R.id.tv_audio_routes);
 
         // 字体大小设置控件
@@ -214,6 +232,10 @@ public class SettingsFragment extends BaseFragment {
         editAudioUsageCar = view.findViewById(R.id.edit_audio_usage_car);
         editAudioSource = view.findViewById(R.id.edit_audio_source);
         editMaxAmplification = view.findViewById(R.id.edit_max_amplification);
+        editMinGain = view.findViewById(R.id.edit_min_gain);
+        editHpfCutoff = view.findViewById(R.id.edit_hpf_cutoff);
+        editLpfCutoff = view.findViewById(R.id.edit_lpf_cutoff);
+        swLpfEnabled = view.findViewById(R.id.sw_lpf_enabled);
         tvAmplificationWarning = view.findViewById(R.id.tv_amplification_warning);
         btnEnumMics = view.findViewById(R.id.btn_enum_mics);
         btnEnumOutputs = view.findViewById(R.id.btn_enum_outputs);
@@ -296,6 +318,7 @@ public class SettingsFragment extends BaseFragment {
         btnBack = null;
         btnHome = null;
         btnDebugAudioRoutes = null;
+        btnProbeUsageRoutes = null;
         tvAudioRoutes = null;
         // 置空字体大小设置 UI
         seekFontScale = null;
@@ -319,6 +342,10 @@ public class SettingsFragment extends BaseFragment {
         editAudioUsageCar = null;
         editAudioSource = null;
         editMaxAmplification = null;
+        editMinGain = null;
+        editHpfCutoff = null;
+        editLpfCutoff = null;
+        swLpfEnabled = null;
         tvAmplificationWarning = null;
         btnEnumMics = null;
         btnEnumOutputs = null;
@@ -374,10 +401,13 @@ public class SettingsFragment extends BaseFragment {
         // 悬浮窗开关
         floatingWindowSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (!isAdded()) return;
-            floatingWindowConfig.setEnabled(isChecked);
+            // 程序化弹回/回填开关时跳过业务逻辑，避免 setChecked 再入引发的启停抖动
+            if (suppressFloatingSwitchCallback) return;
             if (isChecked) {
+                floatingWindowConfig.setEnabled(true);
                 startFloatingWindowService();
             } else {
+                floatingWindowConfig.setEnabled(false);
                 stopFloatingWindowService();
             }
         });
@@ -398,6 +428,9 @@ public class SettingsFragment extends BaseFragment {
 
         // 调试音频路由
         btnDebugAudioRoutes.setOnClickListener(v -> displayAudioRoutes());
+
+        // usage 路由探测（后台线程遍历 0~100 建流并读取实际路由设备）
+        btnProbeUsageRoutes.setOnClickListener(v -> probeUsageRoutes());
 
         // 字体大小设置监听器
         setupFontScaleListeners();
@@ -491,6 +524,9 @@ public class SettingsFragment extends BaseFragment {
                             + " -> after(读回)=" + String.format(Locale.US, "%.2f", saved)
                             + (Math.abs(saved - scale) > 0.001f ? "  ⚠️ 读回值与目标不一致（可能被 clamp）" : ""));
                     AppLog.d(FONT_SCALE_TAG, "即将调用 requireActivity().recreate() 重建界面 ...");
+                    // 【方案A】标记重建后需返回设置页，避免 recreate 后被 loadFunctionPage 恢复到功能页
+                    themeConfig.setPendingReturnToSettings(true);
+                    AppLog.d(FONT_SCALE_TAG, "已设置 pendingReturnToSettings=true，recreate 后将回到设置页");
                     requireActivity().recreate();
                     // 注意：recreate() 之后当前 Fragment 实例即将销毁重建，
                     // 此处之后的日志可能不会执行完整，真正“生效验证”看 BaseActivity.attachBaseContext 的日志
@@ -699,6 +735,145 @@ public class SettingsFragment extends BaseFragment {
         AppLog.d(TAG, "Audio routes info:\n" + routesInfo.toString());
     }
 
+    /**
+     * usage 路由探测器：遍历 0~100 的 AudioAttributes.usage，逐个建一条静音 AudioTrack，
+     * 读取系统实际把该 usage 路由到的设备（bus/扬声器等），生成“usage→路由设备”映射表。
+     *
+     * <p>用途：对标 Hey 项目的做法，直观看出车外喊话/音乐播放应该用哪个 usage 值
+     * 才能路由到目标 bus（如亿咖通的 vendor usage 72/73 → bus4 外部喇叭）。
+     *
+     * <p>线程模型：建 101 条流并逐个 play/read/release 属于重操作，必须放后台线程，
+     * 避免阻塞主线程触发 ANR；探测结果回主线程刷新文本框，并通过 AppLog 落盘方便 adb 拉取。
+     *
+     * <p>安全性：写入的是全 0 静音数据且时长极短，不会真正外放出声；每条流用 try-catch
+     * 单独隔离，单个 usage 建流/路由失败不影响其余 usage 的探测。
+     */
+    private void probeUsageRoutes() {
+        if (!isAdded()) return;
+        // 先给出即时反馈，避免用户以为按钮没响应（探测全程约数百毫秒~数秒）
+        tvAudioRoutes.setText("正在探测 usage 0~100 的路由，请稍候…");
+        AppLog.d(TAG, "开始 usage 路由探测（0~100）");
+
+        // 后台线程执行建流探测，结果回主线程更新 UI
+        new Thread(() -> {
+            String result = buildUsageRouteReport();
+            android.app.Activity activity = getActivity();
+            if (activity == null) return;
+            activity.runOnUiThread(() -> {
+                if (!isAdded() || tvAudioRoutes == null) return;
+                tvAudioRoutes.setText(result);
+            });
+            // 落盘（后台线程写文件即可，无需回主线程）
+            AppLog.d(TAG, "usage 路由探测结果:\n" + result);
+        }, "usage-route-probe").start();
+    }
+
+    /**
+     * 构建 usage 路由探测报告（在后台线程调用）。
+     *
+     * @return 格式化后的“usage→路由设备”报告文本
+     */
+    private String buildUsageRouteReport() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("═══════ usage 路由探测 (0~100) ═══════\n");
+        sb.append("说明：√=可建流并成功播放，×=建流失败/异常\n");
+        sb.append("      路由设备为系统实际选择的输出目标\n\n");
+
+        int okCount = 0;
+        for (int usage = 0; usage <= 100; usage++) {
+            String line = probeSingleUsage(usage);
+            if (line.contains("√")) okCount++;
+            sb.append(line).append("\n");
+        }
+
+        sb.append("\n───────────────────────────\n");
+        sb.append("可建流的 usage 数：").append(okCount).append(" / 101\n");
+        sb.append("设备型号：").append(android.os.Build.MANUFACTURER)
+                .append(" ").append(android.os.Build.MODEL).append("\n");
+        return sb.toString();
+    }
+
+    /**
+     * 探测单个 usage 值的建流与路由情况。
+     *
+     * <p>用极小缓冲、单声道、16bit PCM 建一条 AudioTrack，写入静音数据后短暂 play，
+     * 读取 getRoutedDevice() 拿到系统实际路由的设备，随后立即 stop/release 释放资源。
+     * 全程 try-catch，任何异常都转成一行“× + 异常信息”返回，绝不向上抛出中断整轮探测。
+     *
+     * @param usage 待探测的 AudioAttributes.usage 值
+     * @return 该 usage 的单行探测结果
+     */
+    @SuppressWarnings("deprecation")
+    private String probeSingleUsage(int usage) {
+        android.media.AudioTrack track = null;
+        try {
+            // 构建 usage 对应的 AudioAttributes；非法 usage 会在此抛异常，被下方捕获
+            android.media.AudioAttributes attrs = new android.media.AudioAttributes.Builder()
+                    .setUsage(usage)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build();
+
+            int sampleRate = 44100;
+            int channelMask = android.media.AudioFormat.CHANNEL_OUT_MONO;
+            int encoding = android.media.AudioFormat.ENCODING_PCM_16BIT;
+            // 取系统最小缓冲，尽量减少每次探测的资源与耗时
+            int minBuf = android.media.AudioTrack.getMinBufferSize(sampleRate, channelMask, encoding);
+            if (minBuf <= 0) minBuf = 4096;
+
+            android.media.AudioFormat format = new android.media.AudioFormat.Builder()
+                    .setSampleRate(sampleRate)
+                    .setEncoding(encoding)
+                    .setChannelMask(channelMask)
+                    .build();
+
+            track = new android.media.AudioTrack.Builder()
+                    .setAudioAttributes(attrs)
+                    .setAudioFormat(format)
+                    .setBufferSizeInBytes(minBuf)
+                    .setTransferMode(android.media.AudioTrack.MODE_STREAM)
+                    .build();
+
+            if (track.getState() != android.media.AudioTrack.STATE_INITIALIZED) {
+                return String.format(Locale.getDefault(),
+                        "usage %3d  ×  建流失败(未初始化)", usage);
+            }
+
+            // 写入静音数据并短暂播放，促使系统完成路由选择
+            byte[] silence = new byte[minBuf];
+            track.write(silence, 0, silence.length);
+            track.play();
+            // getRoutedDevice 需在 play 后才返回实际路由；此处不 sleep，避免 101 次累计过久
+            android.media.AudioDeviceInfo routed = track.getRoutedDevice();
+
+            String routeDesc;
+            if (routed != null) {
+                String name = routed.getProductName() != null ? routed.getProductName().toString() : "?";
+                String addr = routed.getAddress();
+                if (addr == null || addr.isEmpty()) addr = "无";
+                routeDesc = getDeviceTypeName(routed.getType()) + " 地址=" + addr + " 名=" + name;
+            } else {
+                routeDesc = "路由未知(null)";
+            }
+
+            return String.format(Locale.getDefault(),
+                    "usage %3d  √  → %s", usage, routeDesc);
+        } catch (Throwable t) {
+            // 用 Throwable 兜底，防止个别 usage 触发的非 Exception 错误中断整轮探测
+            return String.format(Locale.getDefault(),
+                    "usage %3d  ×  %s", usage, t.getClass().getSimpleName());
+        } finally {
+            // 无论成功与否都释放资源，避免泄漏 AudioTrack 句柄
+            if (track != null) {
+                try {
+                    track.stop();
+                } catch (Throwable ignore) {
+                    // stop 在未 play 时可能抛异常，忽略
+                }
+                track.release();
+            }
+        }
+    }
+
     /** 获取音频模式名称 */
     private String getModeName(int mode) {
         switch (mode) {
@@ -761,6 +936,11 @@ public class SettingsFragment extends BaseFragment {
         editAudioUsageCar.setText(String.valueOf(audioConfig.getUsageCar()));
         editAudioSource.setText(String.valueOf(audioConfig.getAudioInputSource()));
         editMaxAmplification.setText(String.valueOf(micOutputConfig.getMaxAmplification()));
+        // 回填滤波器与增益范围配置（借鉴 Hey：截止频率与增益上下限可配）
+        editMinGain.setText(String.valueOf(micOutputConfig.getMinGain()));
+        editHpfCutoff.setText(String.valueOf(micOutputConfig.getHpfCutoff()));
+        editLpfCutoff.setText(String.valueOf(micOutputConfig.getLpfCutoff()));
+        swLpfEnabled.setChecked(micOutputConfig.isLpfEnabled());
         updateAmplificationWarning();
     }
 
@@ -771,7 +951,7 @@ public class SettingsFragment extends BaseFragment {
         btnEnumCarOutputs.setOnClickListener(v -> enumCarOutputDevices());
         btnSaveAudioDevice.setOnClickListener(v -> saveAudioDeviceSettings());
 
-        // 输入过滤器
+        // 输入过滤器：最大放大倍率范围 1~50（上限从 20 放宽到 50）
         android.text.InputFilter inputFilter = (source, start, end, dest, dstart, dend) -> {
             try {
                 String newText = dest.subSequence(0, dstart).toString() +
@@ -779,7 +959,7 @@ public class SettingsFragment extends BaseFragment {
                                 dest.subSequence(dend, dest.length()).toString();
                 if (newText.isEmpty()) return null;
                 int value = Integer.parseInt(newText);
-                if (value >= 1 && value <= 20) return null;
+                if (value >= 1 && value <= 50) return null;
                 return "";
             } catch (NumberFormatException e) {
                 return "";
@@ -1040,19 +1220,58 @@ public class SettingsFragment extends BaseFragment {
 
             String maxAmplificationStr = editMaxAmplification.getText().toString().trim();
             int maxAmplification = !maxAmplificationStr.isEmpty() ? Integer.parseInt(maxAmplificationStr) : 2;
+            // 上限从 20 放宽到 50，与 MicOutputConfig 的 clamp 范围保持一致
             if (maxAmplification < 1) maxAmplification = 1;
-            else if (maxAmplification > 20) maxAmplification = 20;
+            else if (maxAmplification > 50) maxAmplification = 50;
 
+            // 最小增益（增益下限），范围 0.1~最大放大倍率
+            String minGainStr = editMinGain.getText().toString().trim();
+            float minGain = !minGainStr.isEmpty() ? Float.parseFloat(minGainStr) : 1.0f;
+            if (minGain < 0.1f) minGain = 0.1f;
+            else if (minGain > maxAmplification) minGain = maxAmplification;
+
+            // 高通截止频率（Hz），范围 50~2000
+            String hpfCutoffStr = editHpfCutoff.getText().toString().trim();
+            int hpfCutoff = !hpfCutoffStr.isEmpty() ? Integer.parseInt(hpfCutoffStr) : 100;
+            if (hpfCutoff < 50) hpfCutoff = 50;
+            else if (hpfCutoff > 2000) hpfCutoff = 2000;
+
+            // 低通截止频率（Hz），范围 200~8000
+            String lpfCutoffStr = editLpfCutoff.getText().toString().trim();
+            int lpfCutoff = !lpfCutoffStr.isEmpty() ? Integer.parseInt(lpfCutoffStr) : 4000;
+            if (lpfCutoff < 200) lpfCutoff = 200;
+            else if (lpfCutoff > 8000) lpfCutoff = 8000;
+
+            boolean lpfEnabled = swLpfEnabled.isChecked();
+
+            // 先持久化到 SharedPreferences
             audioConfig.setUsageExternal(audioOutputUsageExternal);
             audioConfig.setUsageCar(audioOutputUsageCar);
             audioConfig.setAudioInputSource(audioInputSource);
             micOutputConfig.setMaxAmplification(maxAmplification);
+            micOutputConfig.setMinGain(minGain);
+            micOutputConfig.setHpfCutoff(hpfCutoff);
+            micOutputConfig.setLpfCutoff(lpfCutoff);
+            micOutputConfig.setLpfEnabled(lpfEnabled);
+
+            // 运行时即时生效：若麦克风管理器已创建，直接更新滤波器系数与增益范围，
+            // 无需重启应用。滤波器 setter 内部会 reset() 清空历史状态，避免换系数爆音。
+            applyMicRuntimeSettings(hpfCutoff, lpfCutoff, lpfEnabled);
+
+            // 回填校验后的值，让用户看到实际生效的数值（可能被 clamp 修正）
+            editMaxAmplification.setText(String.valueOf(maxAmplification));
+            editMinGain.setText(String.valueOf(minGain));
+            editHpfCutoff.setText(String.valueOf(hpfCutoff));
+            editLpfCutoff.setText(String.valueOf(lpfCutoff));
 
             String message = "音频设备设置已保存<br>" +
                     "车外输出: <font color='#FF0000'>" + audioOutputUsageExternal + "</font><br>" +
                     "车内输出: <font color='#FF0000'>" + audioOutputUsageCar + "</font><br>" +
                     "麦克风源: <font color='#FF0000'>" + audioInputSource + "</font><br>" +
-                    "最大放大: <font color='#FF0000'>" + maxAmplification + "</font>";
+                    "最大放大: <font color='#FF0000'>" + maxAmplification + "</font><br>" +
+                    "最小增益: <font color='#FF0000'>" + minGain + "</font><br>" +
+                    "高通截止: <font color='#FF0000'>" + hpfCutoff + "Hz</font><br>" +
+                    "低通截止: <font color='#FF0000'>" + lpfCutoff + "Hz（" + (lpfEnabled ? "开启" : "关闭") + "）</font>";
             tvAudioDeviceStatus.setText(HtmlCompat.fromHtml(message, HtmlCompat.FROM_HTML_MODE_LEGACY));
 
             try {
@@ -1063,6 +1282,38 @@ public class SettingsFragment extends BaseFragment {
 
         } catch (NumberFormatException e) {
             tvAudioDeviceStatus.setText("输入值无效，请输入有效的数字");
+        }
+    }
+
+    /**
+     * 将滤波器与增益范围配置运行时应用到麦克风管线。
+     *
+     * <p>通过 {@link AudioServiceLocator} 获取全局唯一的麦克风管理器（若已由
+     * MainActivity 注册则复用录制实例，否则懒加载创建同一单例），因此运行时
+     * 更新一定作用在真正的处理管线上，不会出现"改了配置却没生效"的双实例问题。
+     * 滤波器截止频率/开关的 setter 会更新录制线程可见的 volatile 系数，并
+     * reset() 清空历史状态；增益范围通过 refreshAmplificationFactor() 以当前
+     * 放大级别重新裁剪。所有 setter 均为幂等，重复调用安全。
+     *
+     * @param hpfCutoff  高通截止频率（Hz）
+     * @param lpfCutoff  低通截止频率（Hz）
+     * @param lpfEnabled 低通滤波器开关
+     */
+    private void applyMicRuntimeSettings(int hpfCutoff, int lpfCutoff, boolean lpfEnabled) {
+        try {
+            MicrophoneManager micManager =
+                    AudioServiceLocator.getInstance().getMicrophoneManager();
+            if (micManager == null) {
+                // context 尚未初始化，管理器无法创建；下次录制会从配置读取新值
+                return;
+            }
+            micManager.setHpfCutoff(hpfCutoff);
+            micManager.setLpfCutoff(lpfCutoff);
+            micManager.setLowPassEnabled(lpfEnabled);
+            micManager.refreshAmplificationFactor();
+        } catch (Exception e) {
+            // 运行时更新失败不影响配置持久化，下次录制仍会读取新值
+            AppLog.e(TAG, "Failed to apply mic runtime settings", e);
         }
     }
 
@@ -1104,10 +1355,63 @@ public class SettingsFragment extends BaseFragment {
         Toast.makeText(requireContext(), "已恢复默认设置，请重启应用以完全生效", Toast.LENGTH_LONG).show();
     }
 
-    /** 启动悬浮窗服务 */
+    /**
+     * 启动悬浮窗服务。
+     *
+     * <p>【三层防御·第一层：入口校验】悬浮窗服务在 onCreate → showFloatingBall → WindowManager.addView
+     * 时需要 SYSTEM_ALERT_WINDOW 权限；若未授权，addView 会抛 BadTokenException 导致进程崩溃。
+     * 因此在启动服务前先检查 canDrawOverlays：
+     * <ul>
+     *   <li>未授权：Toast 提示 + 跳转系统授权页 + 把开关弹回 false，绝不启动服务，从源头避免崩溃；</li>
+     *   <li>已授权：正常以前台服务方式启动。</li>
+     * </ul>
+     */
     private void startFloatingWindowService() {
+        // 未授予悬浮窗权限时不启动服务，改为引导用户去系统授权页
+        if (!Settings.canDrawOverlays(requireContext())) {
+            AppLog.w(TAG, "悬浮窗权限未授予，引导用户前往系统授权页，暂不启动服务");
+            Toast.makeText(requireContext(), "请先授予悬浮窗权限", Toast.LENGTH_LONG).show();
+            // 把开关弹回关闭态，避免用户误以为已开启；同时同步配置为 false
+            floatingWindowConfig.setEnabled(false);
+            if (floatingWindowSwitch != null) {
+                // 用抑制标志包裹程序化弹回，避免再次触发监听器造成的启停抖动
+                suppressFloatingSwitchCallback = true;
+                floatingWindowSwitch.setChecked(false);
+                suppressFloatingSwitchCallback = false;
+            }
+            // 跳转系统"显示在其他应用上层"授权页
+            Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + requireContext().getPackageName()));
+            startActivityForResult(intent, REQUEST_OVERLAY_PERMISSION);
+            return;
+        }
         Intent serviceIntent = new Intent(requireContext(), FloatingWindowService.class);
         ServiceCompat.startForegroundService(requireContext(), serviceIntent);
+    }
+
+    /**
+     * 悬浮窗授权页返回回调。
+     *
+     * <p>用户从系统授权页返回后，若此时已授予悬浮窗权限，则自动打开开关并启动服务，
+     * 免去用户手动再点一次开关；若仍未授权则保持关闭态。
+     */
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_OVERLAY_PERMISSION && isAdded()) {
+            // 系统授权页不返回明确 resultCode，需回来后主动复查权限状态
+            if (Settings.canDrawOverlays(requireContext())) {
+                AppLog.d(TAG, "用户已授予悬浮窗权限，自动开启开关并启动服务");
+                floatingWindowConfig.setEnabled(true);
+                if (floatingWindowSwitch != null) {
+                    floatingWindowSwitch.setChecked(true);
+                }
+                Intent serviceIntent = new Intent(requireContext(), FloatingWindowService.class);
+                ServiceCompat.startForegroundService(requireContext(), serviceIntent);
+            } else {
+                AppLog.w(TAG, "用户返回后仍未授予悬浮窗权限，保持关闭态");
+            }
+        }
     }
 
     /** 停止悬浮窗服务 */

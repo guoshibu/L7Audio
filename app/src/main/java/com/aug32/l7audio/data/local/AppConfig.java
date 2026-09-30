@@ -87,6 +87,10 @@ public class AppConfig {
     public float getFontScale() { return themeConfig.getFontScale(); }
     public void setFontScale(float scale) { themeConfig.setFontScale(scale); }
 
+    // 【方案A】字体缩放重建后返回设置页的一次性标记（委托 ThemeConfig）
+    public boolean isPendingReturnToSettings() { return themeConfig.isPendingReturnToSettings(); }
+    public void setPendingReturnToSettings(boolean pending) { themeConfig.setPendingReturnToSettings(pending); }
+
     // 开机自启动
     public boolean isAutoStartOnBoot() { return themeConfig.isAutoStartOnBoot(); }
     public void setAutoStartOnBoot(boolean autoStart) { themeConfig.setAutoStartOnBoot(autoStart); }
@@ -126,6 +130,15 @@ public class AppConfig {
     public void setAgcEnabled(boolean enabled) { micOutputConfig.setAgcEnabled(enabled); }
     public int getMaxAmplification() { return micOutputConfig.getMaxAmplification(); }
     public void setMaxAmplification(int maxAmplification) { micOutputConfig.setMaxAmplification(maxAmplification); }
+    // 滤波器截止频率与增益下限（借鉴 Hey：可配带通与增益范围）
+    public int getMicHpfCutoff() { return micOutputConfig.getHpfCutoff(); }
+    public void setMicHpfCutoff(int cutoff) { micOutputConfig.setHpfCutoff(cutoff); }
+    public int getMicLpfCutoff() { return micOutputConfig.getLpfCutoff(); }
+    public void setMicLpfCutoff(int cutoff) { micOutputConfig.setLpfCutoff(cutoff); }
+    public boolean isMicLpfEnabled() { return micOutputConfig.isLpfEnabled(); }
+    public void setMicLpfEnabled(boolean enabled) { micOutputConfig.setLpfEnabled(enabled); }
+    public float getMicMinGain() { return micOutputConfig.getMinGain(); }
+    public void setMicMinGain(float minGain) { micOutputConfig.setMinGain(minGain); }
 
     // TTS
     public String getTTSItems() { return ttsConfig.getTTSItems(); }

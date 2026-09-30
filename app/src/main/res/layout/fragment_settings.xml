@@ -20,12 +20,14 @@
         android:gravity="center_vertical"
         android:background="@color/menu_background">
 
+        <!-- 按钮高度改为 wrap_content + minHeight，使字体放大时按钮随之增高（配合全局 fontScale） -->
         <Button
             android:id="@+id/btn_back"
             android:layout_width="wrap_content"
-            android:layout_height="64dp"
+            android:layout_height="wrap_content"
             android:text="←"
-            android:textSize="24sp"
+            android:textSize="@dimen/text_settings_toolbar"
+            android:gravity="center"
             android:minWidth="64dp"
             android:minHeight="64dp"
             android:layout_marginEnd="8dp"
@@ -38,15 +40,16 @@
             android:layout_weight="1"
             android:text="设置"
             android:textColor="@color/text_primary"
-            android:textSize="24sp"
+            android:textSize="@dimen/text_settings_toolbar"
             android:textStyle="bold" />
 
         <Button
             android:id="@+id/btn_home"
             android:layout_width="wrap_content"
-            android:layout_height="64dp"
+            android:layout_height="wrap_content"
             android:text="⌂"
-            android:textSize="24sp"
+            android:textSize="@dimen/text_settings_toolbar"
+            android:gravity="center"
             android:minWidth="64dp"
             android:minHeight="64dp"
             android:backgroundTint="@color/button_background"
@@ -84,7 +87,7 @@
                     android:layout_height="wrap_content"
                     android:text="@string/settings_title"
                     android:textColor="?attr/colorOnSurface"
-                    android:textSize="20sp"
+                    android:textSize="@dimen/text_settings_section"
                     android:textStyle="bold" />
 
                 <RadioGroup
@@ -100,7 +103,7 @@
                         android:layout_height="wrap_content"
                         android:text="跟随系统"
                         android:textColor="?attr/colorOnSurface"
-                        android:textSize="16sp" />
+                        android:textSize="@dimen/text_settings_body" />
 
                     <RadioButton
                         android:id="@+id/theme_light"
@@ -108,7 +111,7 @@
                         android:layout_height="wrap_content"
                         android:text="浅色主题"
                         android:textColor="?attr/colorOnSurface"
-                        android:textSize="16sp" />
+                        android:textSize="@dimen/text_settings_body" />
 
                     <RadioButton
                         android:id="@+id/theme_dark"
@@ -116,7 +119,7 @@
                         android:layout_height="wrap_content"
                         android:text="深色主题"
                         android:textColor="?attr/colorOnSurface"
-                        android:textSize="16sp" />
+                        android:textSize="@dimen/text_settings_body" />
 
                 </RadioGroup>
 
@@ -146,7 +149,7 @@
                     android:layout_weight="1"
                     android:text="@string/settings_auto_start"
                     android:textColor="?attr/colorOnSurface"
-                    android:textSize="16sp" />
+                    android:textSize="@dimen/text_settings_body" />
 
                 <Switch
                     android:id="@+id/auto_start_switch"
@@ -178,7 +181,7 @@
                     android:layout_height="wrap_content"
                     android:text="悬浮窗"
                     android:textColor="?attr/colorOnSurface"
-                    android:textSize="20sp"
+                    android:textSize="@dimen/text_settings_section"
                     android:textStyle="bold" />
 
                 <LinearLayout
@@ -194,7 +197,7 @@
                         android:layout_weight="1"
                         android:text="启用悬浮窗"
                         android:textColor="?attr/colorOnSurface"
-                        android:textSize="16sp" />
+                        android:textSize="@dimen/text_settings_body" />
 
                     <Switch
                         android:id="@+id/floating_window_switch"
@@ -228,7 +231,7 @@
                     android:layout_height="wrap_content"
                     android:text="音频设备设置"
                     android:textColor="?attr/colorOnSurface"
-                    android:textSize="20sp"
+                    android:textSize="@dimen/text_settings_section"
                     android:textStyle="bold" />
 
                 <LinearLayout
@@ -239,13 +242,13 @@
                     android:minHeight="78dp"
                     android:layout_marginTop="16dp">
                     <TextView
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:textColor="?attr/colorOnSurface"
                         android:layout_width="169dp"
                         android:layout_height="wrap_content"
                         android:text="车外输出设备"/>
                     <EditText
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:textColor="?attr/colorOnSurface"
                         android:gravity="center"
                         android:id="@+id/edit_audio_usage_external"
@@ -258,11 +261,13 @@
                         android:paddingStart="16dp"
                         android:paddingEnd="16dp"/>
                     <Button
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:textColor="?attr/colorOnSurface"
                         android:id="@+id/btn_enum_outputs"
                         android:layout_width="wrap_content"
-                        android:layout_height="56dp"
+                        android:layout_height="wrap_content"
+                        android:minHeight="56dp"
+                        android:gravity="center"
                         android:minWidth="120dp"
                         android:text="枚举设备"
                         android:paddingStart="16dp"
@@ -279,13 +284,13 @@
                     android:minHeight="78dp"
                     android:layout_marginTop="12dp">
                     <TextView
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:textColor="?attr/colorOnSurface"
                         android:layout_width="169dp"
                         android:layout_height="wrap_content"
                         android:text="车内输出设备"/>
                     <EditText
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:textColor="?attr/colorOnSurface"
                         android:gravity="center"
                         android:id="@+id/edit_audio_usage_car"
@@ -298,11 +303,13 @@
                         android:paddingStart="16dp"
                         android:paddingEnd="16dp"/>
                     <Button
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:textColor="?attr/colorOnSurface"
                         android:id="@+id/btn_enum_car_outputs"
                         android:layout_width="wrap_content"
-                        android:layout_height="56dp"
+                        android:layout_height="wrap_content"
+                        android:minHeight="56dp"
+                        android:gravity="center"
                         android:minWidth="120dp"
                         android:text="枚举设备"
                         android:paddingStart="16dp"
@@ -319,13 +326,13 @@
                     android:minHeight="78dp"
                     android:layout_marginTop="12dp">
                     <TextView
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:textColor="?attr/colorOnSurface"
                         android:layout_width="169dp"
                         android:layout_height="wrap_content"
                         android:text="麦克风源"/>
                     <EditText
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:textColor="?attr/colorOnSurface"
                         android:gravity="center"
                         android:id="@+id/edit_audio_source"
@@ -338,11 +345,13 @@
                         android:paddingStart="16dp"
                         android:paddingEnd="16dp"/>
                     <Button
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:textColor="?attr/colorOnSurface"
                         android:id="@+id/btn_enum_mics"
                         android:layout_width="wrap_content"
-                        android:layout_height="56dp"
+                        android:layout_height="wrap_content"
+                        android:minHeight="56dp"
+                        android:gravity="center"
                         android:minWidth="120dp"
                         android:text="枚举设备"
                         android:paddingStart="16dp"
@@ -360,14 +369,14 @@
                     android:layout_marginTop="12dp">
                     
                     <TextView
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:textColor="?attr/colorOnSurface"
                         android:layout_width="169dp"
                         android:layout_height="wrap_content"
                         android:text="最大放大倍数"/>
                     
                     <EditText
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:textColor="?attr/colorOnSurface"
                         android:gravity="center"
                         android:id="@+id/edit_max_amplification"
@@ -384,9 +393,9 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="12dp"
-                        android:text="填写数字1-20"
+                        android:text="填写数字1-50"
                         android:textColor="?android:attr/textColorSecondary"
-                        android:textSize="12sp"/>
+                        android:textSize="@dimen/text_settings_hint"/>
 
                 </LinearLayout>
 
@@ -397,16 +406,143 @@
                     android:layout_marginTop="6dp"
                     android:text="⚠ 警告：超过10倍放大可能导致声音失真或损坏扬声器，请谨慎设置"
                     android:textColor="#FF0000"
-                    android:textSize="12sp"
+                    android:textSize="@dimen/text_settings_hint"
                     android:visibility="gone"/>
+
+                <!-- 最小增益（增益下限）：与最大放大倍率组成增益范围 [minGain, maxAmp] -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="12dp">
+
+                    <TextView
+                        android:textSize="@dimen/text_settings_body"
+                        android:textColor="?attr/colorOnSurface"
+                        android:layout_width="169dp"
+                        android:layout_height="wrap_content"
+                        android:text="最小增益倍数"/>
+
+                    <EditText
+                        android:textSize="@dimen/text_settings_body"
+                        android:textColor="?attr/colorOnSurface"
+                        android:gravity="center"
+                        android:id="@+id/edit_min_gain"
+                        android:background="?attr/colorSurface"
+                        android:layout_width="143dp"
+                        android:layout_height="48dp"
+                        android:hint="1.0"
+                        android:inputType="numberDecimal"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:text="0.1~最大值"
+                        android:textColor="?android:attr/textColorSecondary"
+                        android:textSize="@dimen/text_settings_hint"/>
+
+                </LinearLayout>
+
+                <!-- 高通截止频率：砍低频胎噪，范围 50~2000Hz -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="12dp">
+
+                    <TextView
+                        android:textSize="@dimen/text_settings_body"
+                        android:textColor="?attr/colorOnSurface"
+                        android:layout_width="169dp"
+                        android:layout_height="wrap_content"
+                        android:text="高通截止(Hz)"/>
+
+                    <EditText
+                        android:textSize="@dimen/text_settings_body"
+                        android:textColor="?attr/colorOnSurface"
+                        android:gravity="center"
+                        android:id="@+id/edit_hpf_cutoff"
+                        android:background="?attr/colorSurface"
+                        android:layout_width="143dp"
+                        android:layout_height="48dp"
+                        android:hint="100"
+                        android:maxLength="4"
+                        android:inputType="number"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:text="50~2000"
+                        android:textColor="?android:attr/textColorSecondary"
+                        android:textSize="@dimen/text_settings_hint"/>
+
+                </LinearLayout>
+
+                <!-- 低通截止频率 + 开关：砍高频啸叫/嘶声，与高通组成人声带通，范围 200~8000Hz -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="12dp">
+
+                    <TextView
+                        android:textSize="@dimen/text_settings_body"
+                        android:textColor="?attr/colorOnSurface"
+                        android:layout_width="169dp"
+                        android:layout_height="wrap_content"
+                        android:text="低通截止(Hz)"/>
+
+                    <EditText
+                        android:textSize="@dimen/text_settings_body"
+                        android:textColor="?attr/colorOnSurface"
+                        android:gravity="center"
+                        android:id="@+id/edit_lpf_cutoff"
+                        android:background="?attr/colorSurface"
+                        android:layout_width="143dp"
+                        android:layout_height="48dp"
+                        android:hint="4000"
+                        android:maxLength="4"
+                        android:inputType="number"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"/>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:text="200~8000"
+                        android:textColor="?android:attr/textColorSecondary"
+                        android:textSize="@dimen/text_settings_hint"/>
+
+                </LinearLayout>
+
+                <Switch
+                    android:id="@+id/sw_lpf_enabled"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="启用低通滤波器（砍高频啸叫）"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="@dimen/text_settings_body"/>
 
                 <Button
                     android:id="@+id/btn_save_audio_device"
                     android:layout_width="match_parent"
-                    android:layout_height="56dp"
+                    android:layout_height="wrap_content"
+                    android:minHeight="56dp"
+                    android:gravity="center"
                     android:layout_marginTop="16dp"
                     android:text="保存音频设备设置（车内发声）"
-                    android:textSize="16sp" 
+                    android:textSize="@dimen/text_settings_body" 
                     android:backgroundTint="@color/button_background"
                     android:textColor="@color/button_text"/>
 
@@ -425,7 +561,7 @@
                         android:layout_height="wrap_content"
                         android:text="点击保存按钮应用设置"
                         android:textColor="?attr/colorOnSurface"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_settings_status"
                         android:scrollbars="vertical"
                         android:maxLines="50"
                         android:minHeight="60dp"
@@ -458,7 +594,7 @@
                     android:layout_height="wrap_content"
                     android:text="车外喊话设置"
                     android:textColor="?attr/colorOnSurface"
-                    android:textSize="20sp"
+                    android:textSize="@dimen/text_settings_section"
                     android:textStyle="bold" />
 
                 <LinearLayout
@@ -469,13 +605,13 @@
                     android:minHeight="78dp"
                     android:layout_marginTop="16dp">
                     <TextView
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:textColor="?attr/colorOnSurface"
                         android:layout_width="169dp"
                         android:layout_height="wrap_content"
                         android:text="防抖间隔(ms)"/>
                     <EditText
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:textColor="?attr/colorOnSurface"
                         android:gravity="center"
                         android:id="@+id/edit_debounce_interval"
@@ -493,7 +629,7 @@
                         android:layout_marginStart="12dp"
                         android:text="500-2000"
                         android:textColor="?android:attr/textColorSecondary"
-                        android:textSize="12sp"/>
+                        android:textSize="@dimen/text_settings_hint"/>
                 </LinearLayout>
 
                 <TextView
@@ -501,7 +637,7 @@
                     android:layout_height="wrap_content"
                     android:text="防止快速连续触发导致麦克风频繁启停啸叫和硬件损伤，建议800ms以上"
                     android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="12sp"
+                    android:textSize="@dimen/text_settings_hint"
                     android:layout_marginTop="4dp"
                     android:layout_marginBottom="8dp"/>
 
@@ -513,7 +649,7 @@
                     android:minHeight="78dp"
                     android:layout_marginTop="12dp">
                     <TextView
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:textColor="?attr/colorOnSurface"
                         android:layout_width="169dp"
                         android:layout_height="wrap_content"
@@ -529,7 +665,7 @@
                         android:layout_marginStart="12dp"
                         android:text="无声音自动关闭"
                         android:textColor="?android:attr/textColorSecondary"
-                        android:textSize="12sp"/>
+                        android:textSize="@dimen/text_settings_hint"/>
                 </LinearLayout>
 
                 <LinearLayout
@@ -540,13 +676,13 @@
                     android:minHeight="78dp"
                     android:layout_marginTop="12dp">
                     <TextView
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:textColor="?attr/colorOnSurface"
                         android:layout_width="169dp"
                         android:layout_height="wrap_content"
                         android:text="静音超时(秒)"/>
                     <EditText
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:textColor="?attr/colorOnSurface"
                         android:gravity="center"
                         android:id="@+id/edit_silence_timeout"
@@ -564,7 +700,7 @@
                         android:layout_marginStart="12dp"
                         android:text="5-300"
                         android:textColor="?android:attr/textColorSecondary"
-                        android:textSize="12sp"/>
+                        android:textSize="@dimen/text_settings_hint"/>
                 </LinearLayout>
 
                 <LinearLayout
@@ -575,13 +711,13 @@
                     android:minHeight="78dp"
                     android:layout_marginTop="12dp">
                     <TextView
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:textColor="?attr/colorOnSurface"
                         android:layout_width="169dp"
                         android:layout_height="wrap_content"
                         android:text="静音阈值"/>
                     <EditText
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:textColor="?attr/colorOnSurface"
                         android:gravity="center"
                         android:id="@+id/edit_silence_threshold"
@@ -599,16 +735,18 @@
                         android:layout_marginStart="12dp"
                         android:text="0.03-0.3"
                         android:textColor="?android:attr/textColorSecondary"
-                        android:textSize="12sp"/>
+                        android:textSize="@dimen/text_settings_hint"/>
                 </LinearLayout>
 
                 <Button
                     android:id="@+id/btn_save_announcement"
                     android:layout_width="match_parent"
-                    android:layout_height="56dp"
+                    android:layout_height="wrap_content"
+                    android:minHeight="56dp"
+                    android:gravity="center"
                     android:layout_marginTop="16dp"
                     android:text="保存车外喊话设置"
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_settings_body"
                     android:backgroundTint="@color/button_background"
                     android:textColor="@color/button_text"/>
 
@@ -618,7 +756,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="14sp"
+                    android:textSize="@dimen/text_settings_status"
                     android:lineSpacingMultiplier="1.4"
                     android:text=""/>
 
@@ -633,7 +771,7 @@
                     android:layout_height="wrap_content"
                     android:text="第三方调用"
                     android:textColor="?attr/colorOnSurface"
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_settings_body"
                     android:textStyle="bold"
                     android:layout_marginTop="16dp"/>
 
@@ -642,21 +780,21 @@
                     android:layout_height="wrap_content"
                     android:text="方法一（推荐）- Intent：com.aug32.l7audio.ACTION_TOGGLE_MIC"
                     android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="12sp"
+                    android:textSize="@dimen/text_settings_hint"
                     android:layout_marginTop="8dp"/>
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="EVCC→自动化→添加按钮启动app→包名填→com.aug32.l7audio/.ui.activity.MicToggleActivity）"
                     android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="12sp"
+                    android:textSize="@dimen/text_settings_hint"
                     android:layout_marginTop="8dp"/>
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="就可以物理按键触发车外喊话开关（开→关/关→开）"
                     android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="12sp"
+                    android:textSize="@dimen/text_settings_hint"
                     android:layout_marginTop="8dp"/>
 
                 <TextView
@@ -664,7 +802,7 @@
                     android:layout_height="wrap_content"
                     android:text="通过 startActivity 调用，更可靠，保证完整初始化。"
                     android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="12sp"
+                    android:textSize="@dimen/text_settings_hint"
                     android:layout_marginTop="2dp"/>
 
                 <TextView
@@ -672,7 +810,7 @@
                     android:layout_height="wrap_content"
                     android:text="方法二 - 广播：com.aug32.l7audio.OUTSIDE_MIC_TOGGLE"
                     android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="12sp"
+                    android:textSize="@dimen/text_settings_hint"
                     android:layout_marginTop="8dp"/>
 
                 <TextView
@@ -680,7 +818,7 @@
                     android:layout_height="wrap_content"
                     android:text="发送广播触发车外喊话开关（开→关/关→开），支持实体按键控制。"
                     android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="12sp"
+                    android:textSize="@dimen/text_settings_hint"
                     android:layout_marginTop="2dp"/>
 
             </LinearLayout>
@@ -707,7 +845,7 @@
                     android:layout_height="wrap_content"
                     android:text="TTS 诊断"
                     android:textColor="?attr/colorOnSurface"
-                    android:textSize="20sp"
+                    android:textSize="@dimen/text_settings_section"
                     android:textStyle="bold" />
 
                 <TextView
@@ -716,7 +854,7 @@
                     android:layout_height="wrap_content"
                     android:text="点击按钮测试TTS状态"
                     android:textColor="?attr/colorOnSurface"
-                    android:textSize="14sp"
+                    android:textSize="@dimen/text_settings_status"
                     android:layout_marginTop="8dp"
                     android:scrollbars="vertical"
                     android:maxLines="10" />
@@ -730,10 +868,12 @@
                     <Button
                         android:id="@+id/btn_test_tts"
                         android:layout_width="0dp"
-                        android:layout_height="56dp"
+                        android:layout_height="wrap_content"
+                        android:minHeight="56dp"
+                        android:gravity="center"
                         android:layout_weight="1"
                         android:text="测试TTS发声（车外）"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:layout_marginEnd="8dp"
                         android:backgroundTint="@color/button_background"
                         android:textColor="@color/button_text" />
@@ -741,10 +881,12 @@
                     <Button
                         android:id="@+id/btn_check_tts_status"
                         android:layout_width="0dp"
-                        android:layout_height="56dp"
+                        android:layout_height="wrap_content"
+                        android:minHeight="56dp"
+                        android:gravity="center"
                         android:layout_weight="1"
                         android:text="检查TTS状态"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_settings_body"
                         android:backgroundTint="@color/button_background"
                         android:textColor="@color/button_text" />
 
@@ -774,7 +916,7 @@
                     android:layout_height="wrap_content"
                     android:text="字体大小"
                     android:textColor="?attr/colorOnSurface"
-                    android:textSize="20sp"
+                    android:textSize="@dimen/text_settings_section"
                     android:textStyle="bold" />
 
                 <TextView
@@ -784,7 +926,7 @@
                     android:layout_marginTop="8dp"
                     android:text="当前：1.00×"
                     android:textColor="?attr/colorOnSurface"
-                    android:textSize="16sp" />
+                    android:textSize="@dimen/text_settings_body" />
 
                 <SeekBar
                     android:id="@+id/seek_font_scale"
@@ -799,7 +941,7 @@
                     android:layout_marginTop="4dp"
                     android:text="拖动调整全局字体大小（0.7×–1.5×），松开后自动应用"
                     android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="12sp" />
+                    android:textSize="@dimen/text_settings_hint" />
 
                 <LinearLayout
                     android:id="@+id/font_preview_container"
@@ -816,7 +958,7 @@
                         android:layout_height="wrap_content"
                         android:text="示例标题 Aa 中文"
                         android:textColor="?attr/colorOnSurface"
-                        android:textSize="20sp"
+                        android:textSize="@dimen/text_settings_section"
                         android:textStyle="bold" />
 
                     <TextView
@@ -826,17 +968,19 @@
                         android:layout_marginTop="6dp"
                         android:text="示例正文：这是一段列表项文字 123"
                         android:textColor="?attr/colorOnSurface"
-                        android:textSize="16sp" />
+                        android:textSize="@dimen/text_settings_body" />
 
                 </LinearLayout>
 
                 <Button
                     android:id="@+id/btn_restart_app"
                     android:layout_width="match_parent"
-                    android:layout_height="56dp"
+                    android:layout_height="wrap_content"
+                    android:minHeight="56dp"
+                    android:gravity="center"
                     android:layout_marginTop="16dp"
                     android:text="重启应用（若未即时生效）"
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_settings_body"
                     android:backgroundTint="@color/button_background"
                     android:textColor="@color/button_text" />
 
@@ -864,16 +1008,32 @@
                     android:layout_height="wrap_content"
                     android:text="调试设置"
                     android:textColor="?attr/colorOnSurface"
-                    android:textSize="20sp"
+                    android:textSize="@dimen/text_settings_section"
                     android:textStyle="bold" />
 
                 <Button
                     android:id="@+id/btn_debug_audio_routes"
                     android:layout_width="match_parent"
-                    android:layout_height="56dp"
+                    android:layout_height="wrap_content"
+                    android:minHeight="56dp"
+                    android:gravity="center"
                     android:layout_marginTop="16dp"
                     android:text="显示音频路由"
-                    android:textSize="16sp" 
+                    android:textSize="@dimen/text_settings_body" 
+                    android:backgroundTint="@color/button_background"
+                    android:textColor="@color/button_text"/>
+
+                <!-- usage 路由探测：遍历 0~100 的 AudioAttributes.usage，逐个建静音流并读取实际路由设备，
+                     生成“usage→路由设备”映射表，用于确认车外喊话/播放该用哪个 usage 值 -->
+                <Button
+                    android:id="@+id/btn_probe_usage_routes"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="56dp"
+                    android:gravity="center"
+                    android:layout_marginTop="16dp"
+                    android:text="探测 usage 路由 (0~100)"
+                    android:textSize="@dimen/text_settings_body"
                     android:backgroundTint="@color/button_background"
                     android:textColor="@color/button_text"/>
 
@@ -885,7 +1045,7 @@
                     android:layout_marginTop="16dp"
                     android:text="点击按钮显示音频路由信息"
                     android:textColor="?attr/colorOnSurface"
-                    android:textSize="14sp"
+                    android:textSize="@dimen/text_settings_status"
                     android:scrollbars="vertical"
                     android:scrollbarStyle="insideInset"
                     android:overScrollMode="always"
@@ -919,16 +1079,18 @@
                     android:layout_height="wrap_content"
                     android:text="关于"
                     android:textColor="?attr/colorOnSurface"
-                    android:textSize="20sp"
+                    android:textSize="@dimen/text_settings_section"
                     android:textStyle="bold" />
 
                 <Button
                     android:id="@+id/btn_about"
                     android:layout_width="match_parent"
-                    android:layout_height="56dp"
+                    android:layout_height="wrap_content"
+                    android:minHeight="56dp"
+                    android:gravity="center"
                     android:layout_marginTop="16dp"
                     android:text="关于应用"
-                    android:textSize="16sp" 
+                    android:textSize="@dimen/text_settings_body" 
                     android:backgroundTint="@color/button_background"
                     android:textColor="@color/button_text"/>
 
@@ -956,16 +1118,18 @@
                     android:layout_height="wrap_content"
                     android:text="恢复默认设置"
                     android:textColor="?attr/colorOnSurface"
-                    android:textSize="20sp"
+                    android:textSize="@dimen/text_settings_section"
                     android:textStyle="bold" />
 
                 <Button
                     android:id="@+id/btn_restore_defaults"
                     android:layout_width="match_parent"
-                    android:layout_height="56dp"
+                    android:layout_height="wrap_content"
+                    android:minHeight="56dp"
+                    android:gravity="center"
                     android:layout_marginTop="16dp"
                     android:text="恢复默认设置"
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_settings_body"
                     android:backgroundTint="#F44336"
                     android:textColor="#FFFFFF"/>
 

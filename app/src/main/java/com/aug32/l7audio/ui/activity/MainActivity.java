@@ -491,10 +491,37 @@ public class MainActivity extends BaseActivity {
         }
     }
 
+    /**
+     * 同步侧边抽屉菜单的选中高亮，使其始终与当前实际展示的页面一致。
+     *
+     * <p>背景：NavigationView 的勾选态由组件内部维护，仅在用户手动点击菜单项时自动更新。
+     * 而本应用还存在“底部功能按钮切页”“冷启动恢复上次页面”等不经过菜单点击的切页路径，
+     * 这些路径若不主动同步，就会导致菜单高亮与实际页面错位（如在主页却高亮设置）。
+     * 因此在所有改变“当前展示页”的方法中统一调用本方法，保证单一真相来源。
+     *
+     * @param menuId 目标菜单项 id（R.id.nav_home / nav_settings / nav_about）
+     */
+    private void syncNavCheckedItem(int menuId) {
+        if (navigationView != null) {
+            navigationView.setCheckedItem(menuId);
+        }
+    }
+
     // ==================== 悬浮窗 ====================
 
-    /** 启动悬浮窗服务 */
+    /**
+     * 启动悬浮窗服务
+     *
+     * <p>【三层防御·第二层：冷启动校验】开机自启 / 冷启动时按配置拉起悬浮窗服务。
+     * 若用户曾开启悬浮窗但事后在系统里撤销了悬浮窗权限，此处若直接启动，
+     * 服务 addView 会抛 BadTokenException 崩溃。因此启动前复查 canDrawOverlays，
+     * 无权限则跳过启动，避免冷启动即崩溃（此场景不打扰用户，仅记日志）。
+     */
     private void startFloatingWindowService() {
+        if (!Settings.canDrawOverlays(this)) {
+            AppLog.w(TAG, "悬浮窗权限未授予，跳过启动悬浮窗服务，避免 addView 崩溃");
+            return;
+        }
         Intent serviceIntent = new Intent(this, FloatingWindowService.class);
         ServiceCompat.startForegroundService(this, serviceIntent);
     }
@@ -519,6 +546,8 @@ public class MainActivity extends BaseActivity {
         if (fragmentContainer != null) {
             fragmentContainer.setVisibility(View.GONE);
         }
+        // 回到主界面（含底部麦克风/TTS/音乐功能页），抽屉统一高亮“首页”
+        syncNavCheckedItem(R.id.nav_home);
     }
 
     /**
@@ -538,6 +567,8 @@ public class MainActivity extends BaseActivity {
         transaction.replace(R.id.fragment_container, new SettingsFragment());
         // 使用 commitAllowingStateLoss 防止在 Activity 状态保存后调用 commit 导致崩溃
         transaction.commitAllowingStateLoss();
+        // 同步抽屉高亮到“设置”，避免与实际页面错位
+        syncNavCheckedItem(R.id.nav_settings);
     }
 
     /**
@@ -557,6 +588,8 @@ public class MainActivity extends BaseActivity {
         transaction.replace(R.id.fragment_container, new AboutFragment());
         // 使用 commitAllowingStateLoss 防止在 Activity 状态保存后调用 commit 导致崩溃
         transaction.commitAllowingStateLoss();
+        // 同步抽屉高亮到“关于”，避免与实际页面错位
+        syncNavCheckedItem(R.id.nav_about);
     }
 
     /**
@@ -573,6 +606,8 @@ public class MainActivity extends BaseActivity {
         transaction.replace(R.id.function_content, new MicOutputFragment());
         transaction.commitAllowingStateLoss();
         saveCurrentFunctionState(0);
+        // 功能页显示在主界面容器内，抽屉高亮保持“首页”
+        syncNavCheckedItem(R.id.nav_home);
     }
 
     /** 显示 TTS Fragment */
@@ -586,6 +621,8 @@ public class MainActivity extends BaseActivity {
         transaction.replace(R.id.function_content, new TTSFragment());
         transaction.commitAllowingStateLoss();
         saveCurrentFunctionState(1);
+        // 功能页显示在主界面容器内，抽屉高亮保持“首页”
+        syncNavCheckedItem(R.id.nav_home);
     }
 
     /** 显示音乐播放器 Fragment */
@@ -596,6 +633,8 @@ public class MainActivity extends BaseActivity {
         transaction.replace(R.id.function_content, new MusicPlayerFragment());
         transaction.commitAllowingStateLoss();
         saveCurrentFunctionState(2);
+        // 功能页显示在主界面容器内，抽屉高亮保持“首页”
+        syncNavCheckedItem(R.id.nav_home);
     }
 
     /** 加载功能页面：优先处理悬浮窗跳转，否则恢复上次保存的状态 */
@@ -627,6 +666,14 @@ public class MainActivity extends BaseActivity {
         // 更新底部导航按钮选中效果
         updateFunctionButtons();
         AppLog.d(TAG, "loadFunctionPage: 恢复上次页面，function=" + savedFunction);
+
+        // 【方案A】若上次因字体缩放触发重建，重建后自动回到设置页（一次性消费）
+        if (appConfig.isPendingReturnToSettings()) {
+            appConfig.setPendingReturnToSettings(false);
+            AppLog.d(TAG, "loadFunctionPage: 检测到 pendingReturnToSettings，重建后返回设置页");
+            // post 到下一帧，确保上面的功能页 replace 事务先提交，再叠加设置页
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(this::showSettingsFragment);
+        }
     }
 
     /** 保存当前功能状态 */
@@ -715,6 +762,10 @@ public class MainActivity extends BaseActivity {
             MicOutputController.getInstance().setPreferExternalMode(
                     outputMode == AudioOutputManager.OUTPUT_EXTERNAL);
 
+            // 修复缺陷：若正在放大，用户此刻手动切换的输出方向也应成为"停止放大后要恢复的目标"，
+            // 否则停止放大时会用放大启动瞬间的旧快照覆盖掉用户的新选择。仅放大进行中生效。
+            MicOutputController.getInstance().syncSavedOutputMode(outputMode);
+
             // 更新音乐播放器的音频输出属性（无需停止播放）
             if (musicPlayerManager != null) {
                 musicPlayerManager.updateAudioOutputUsage(audioOutputManager.getAudioUsage());
@@ -727,6 +778,11 @@ public class MainActivity extends BaseActivity {
 
             updateOutputButtons(outputMode);
             enableFunctionButtons();
+
+            // 修复缺陷：主动切换也走对外通知，与喊话被动切换共用同一同步通道，
+            // 保证注册了 OutputModeListener 的其它界面能一致更新。主页自身的监听回调再刷一次
+            // updateOutputButtons 是幂等的，无副作用。
+            MicOutputController.getInstance().broadcastOutputModeChanged(outputMode);
 
             String outputText = outputMode == AudioOutputManager.OUTPUT_CAR ? "仅车内播放" : "仅车外播放";
             Toast.makeText(this, "音频输出已设置为：" + outputText, Toast.LENGTH_SHORT).show();

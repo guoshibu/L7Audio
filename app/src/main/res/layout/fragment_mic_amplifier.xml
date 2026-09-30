@@ -217,10 +217,13 @@
     </LinearLayout>
 
     <!-- 开始/停止按钮 -->
+    <!-- 按钮高度改为 wrap_content + minHeight，使字体放大时按钮随之增高（配合全局 fontScale） -->
     <Button
         android:id="@+id/btn_start_stop"
         android:layout_width="match_parent"
-        android:layout_height="120dp"
+        android:layout_height="wrap_content"
+        android:minHeight="120dp"
+        android:gravity="center"
         android:layout_marginHorizontal="30dp"
         android:layout_marginBottom="60dp"
         android:layout_marginTop="24dp"

@@ -499,6 +499,9 @@ public class MusicPlayerFragment extends Fragment {
         // 更新列表高亮
         playlistAdapter.setCurrentPlayingIndex(musicPlayerManager.getCurrentIndex());
 
+        // 进入/返回页面时把列表定位到当前播放曲目（后台返回后索引未变，需强制定位）
+        scrollPlaylistToCurrent();
+
         // 加载歌词
         loadLyricsForCurrentSong();
     }
@@ -517,6 +520,28 @@ public class MusicPlayerFragment extends Fragment {
         if (index < firstVisible || index > lastVisible) {
             rvPlaylist.smoothScrollToPosition(index);
         }
+    }
+
+    /**
+     * 进入/返回音乐页时把列表定位到当前播放曲目。
+     *
+     * <p>为什么单独一个方法：{@link #scrollPlaylistTo(int)} 带有 lastScrollToIndex 去重，
+     * 从后台返回时播放索引未变，会被去重短路而不滚动；此处刷新 lastScrollToIndex 后强制定位。
+     * <p>为什么用 post + scrollToPositionWithOffset：onResume/onViewCreated 时 RecyclerView 可能尚未完成布局，
+     * 立即滚动会失败；post 到消息队列等布局就绪后再滚，并用 offset=0 直接置顶定位（非平滑动画），
+     * 保证返回页面即刻看到当前曲目而非停留在旧位置。
+     */
+    private void scrollPlaylistToCurrent() {
+        if (rvPlaylist == null || musicPlayerManager == null) return;
+        final int index = musicPlayerManager.getCurrentIndex();
+        if (index < 0) return;
+        lastScrollToIndex = index;
+        rvPlaylist.post(() -> {
+            if (rvPlaylist == null) return;
+            LinearLayoutManager layoutManager = (LinearLayoutManager) rvPlaylist.getLayoutManager();
+            if (layoutManager == null || index >= playlistAdapter.getItemCount()) return;
+            layoutManager.scrollToPositionWithOffset(index, 0);
+        });
     }
 
     private void updateCurrentSongInfo() {

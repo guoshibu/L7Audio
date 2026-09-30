@@ -60,8 +60,9 @@ public class MicOutputController {
     private int savedOutputMode = -1;
     /** 上次 toggle 触发时间（用于防抖） */
     private long lastToggleTime = 0;
-    /** 用户偏好：车外模式（持久化，静音检测停止后恢复时使用） */
-    private boolean preferExternal = true;
+    /** 用户偏好：车外模式（持久化，静音检测停止后恢复时使用）。
+     *  默认 false（车内）：与主页默认显示保持一致，init() 会按真实输出模式或持久化值覆盖此值。 */
+    private boolean preferExternal = false;
 
     // ========== 静音检测 ==========
     /** 静音检测线程 */
@@ -155,7 +156,22 @@ public class MicOutputController {
         this.micOutputConfig = new MicOutputConfig(prefs);
         this.appConfig = new AppConfig(appCtx);
         this.appContext = appCtx;
-        this.preferExternal = prefs.getBoolean(PREF_PREFER_EXTERNAL, true);
+        // 修复首次安装状态不一致：喊话偏好（preferExternal）应与主页显示的车内/车外一致。
+        // 首次安装时用户从未点过"仅车内/仅车外"，PREF_PREFER_EXTERNAL 尚未持久化；
+        // 若此时硬编码默认车外，会导致"界面显示车内、点放大却切到车外"的错位。
+        // 因此当偏好从未被写入时，从真实输出模式（AudioOutputManager，与主页按钮同源）派生偏好。
+        if (prefs.contains(PREF_PREFER_EXTERNAL)) {
+            // 用户此前已显式设置过偏好，直接读取持久化值
+            this.preferExternal = prefs.getBoolean(PREF_PREFER_EXTERNAL, false);
+        } else {
+            // 首次安装/从未设置：以真实输出模式为准，避免与 UI 显示相互矛盾
+            AudioOutputManager outputManager =
+                    AudioServiceLocator.getInstance().getAudioOutputManager();
+            int mode = (outputManager != null)
+                    ? outputManager.getOutputMode()
+                    : AudioOutputManager.OUTPUT_CAR;
+            this.preferExternal = (mode == AudioOutputManager.OUTPUT_EXTERNAL);
+        }
         AppLog.d(TAG, "车外喊话控制器初始化完成，preferExternal=" + preferExternal);
     }
 
@@ -183,6 +199,29 @@ public class MicOutputController {
             prefs.edit().putBoolean(PREF_PREFER_EXTERNAL, prefer).apply();
         }
         AppLog.i(TAG, "preferExternal 设置为 " + prefer);
+    }
+
+    /**
+     * 放大进行中时，同步"喊话结束后要恢复的输出模式"（savedOutputMode）
+     * <p>
+     * 场景：喊话（放大）启动瞬间会用 savedOutputMode 记下"放大前的输出模式"，
+     * 用于结束后恢复。若用户在放大进行中又在主页手动切换了车内/车外，
+     * 而 savedOutputMode 仍停留在启动时的旧快照，停止放大时就会用旧值把
+     * 用户的新选择覆盖掉。此方法让主页切换时把最新选择同步进恢复目标。
+     * </p>
+     * <p>
+     * 仅在正在放大（isAnnouncing）时生效；未放大时不做任何事，
+     * 避免干扰下一次放大的正常快照流程。与 toggle/startAnnouncement/stopAnnouncement
+     * 同为 synchronized，保证对 savedOutputMode 的读写互斥。
+     * </p>
+     *
+     * @param mode 用户新选择的输出模式，{@link AudioOutputManager#OUTPUT_CAR} 或 {@link AudioOutputManager#OUTPUT_EXTERNAL}
+     */
+    public synchronized void syncSavedOutputMode(int mode) {
+        if (isAnnouncing) {
+            savedOutputMode = mode;
+            AppLog.i(TAG, "放大进行中，恢复目标 savedOutputMode 同步为 " + mode);
+        }
     }
 
     /**
@@ -512,6 +551,21 @@ public class MicOutputController {
      */
     public void removeOutputModeListener(OutputModeListener listener) {
         outputModeListeners.remove(listener);
+    }
+
+    /**
+     * 对外广播"输出模式已变化"（供主页用户主动切换车内/车外时调用）
+     * <p>
+     * 修复缺陷：此前只有喊话导致的<b>被动</b>切换（start/stopAnnouncement）会 notify，
+     * 而主页用户<b>主动</b>点"仅车内/仅车外"只刷新自身按钮、未对外通知，
+     * 导致其它注册了 {@link OutputModeListener} 的界面无法同步（目前无可见影响，属一致性欠债）。
+     * 本方法让主动切换与被动切换共用同一条同步通道，保证未来新增方向显示的界面也能一致更新。
+     * </p>
+     *
+     * @param mode 当前输出模式，{@link AudioOutputManager#OUTPUT_CAR} 或 {@link AudioOutputManager#OUTPUT_EXTERNAL}
+     */
+    public void broadcastOutputModeChanged(int mode) {
+        notifyOutputModeChanged(mode);
     }
 
     /**

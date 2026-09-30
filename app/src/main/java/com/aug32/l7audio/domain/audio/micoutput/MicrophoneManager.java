@@ -19,6 +19,7 @@ import com.aug32.l7audio.domain.audio.micoutput.processor.AdaptiveFeedbackCancel
 import com.aug32.l7audio.domain.audio.micoutput.processor.AutomaticGainControlProcessor;
 import com.aug32.l7audio.domain.audio.micoutput.processor.GainLimiterProcessor;
 import com.aug32.l7audio.domain.audio.micoutput.processor.HighPassFilterProcessor;
+import com.aug32.l7audio.domain.audio.micoutput.processor.LowPassFilterProcessor;
 import com.aug32.l7audio.domain.audio.micoutput.processor.SpectralAndNotchProcessor;
 import com.aug32.l7audio.BuildConfig;
 import com.aug32.l7audio.utils.AppLog;
@@ -94,10 +95,12 @@ public class MicrophoneManager {
     private AutomaticGainControl automaticGainControl;
 
     // ========== 音频处理管线 ==========
-    /** 音频处理管线，按序执行 HPF → AFC → 增益 → 谱减法降噪 → 啸叫陷波 → AGC */
+    /** 音频处理管线，按序执行 HPF → LPF → AFC → 增益 → 谱减法降噪 → 啸叫陷波 → AGC */
     private final AudioPipeline pipeline;
     /** 高通滤波器 */
     private final HighPassFilterProcessor hpfProcessor;
+    /** 低通滤波器（与高通组成人声带通，砍高频啸叫/嘶声） */
+    private final LowPassFilterProcessor lpfProcessor;
     /** NLMS 自适应反馈消除 */
     private final AdaptiveFeedbackCancellationProcessor afcProcessor;
     /** 增益限幅处理器 */
@@ -127,8 +130,12 @@ public class MicrophoneManager {
         this.appConfig = new AppConfig(context);
         this.amplificationLevel = appConfig.getMicAmplificationLevel();
 
-        // 初始化处理管线：HPF → AFC → 增益 → 谱减法降噪 → 啸叫陷波 → AGC
-        this.hpfProcessor = new HighPassFilterProcessor();
+        // 初始化处理管线：HPF → LPF → AFC → 增益 → 谱减法降噪 → 啸叫陷波 → AGC
+        // 高通截止频率从配置注入（默认 100Hz），砍低频胎噪
+        this.hpfProcessor = new HighPassFilterProcessor(appConfig.getMicHpfCutoff());
+        // 低通紧跟高通，与高通组成人声带通（约 100~4000Hz），砍高频啸叫/嘶声
+        this.lpfProcessor = new LowPassFilterProcessor(appConfig.getMicLpfCutoff());
+        this.lpfProcessor.setEnabled(appConfig.isMicLpfEnabled());
         this.afcProcessor = new AdaptiveFeedbackCancellationProcessor();
         this.afcProcessor.setEnabled(appConfig.isEchoCancellationEnabled());
         this.gainProcessor = new GainLimiterProcessor();
@@ -141,13 +148,19 @@ public class MicrophoneManager {
 
         this.pipeline = new AudioPipeline();
         pipeline.addProcessor(hpfProcessor);
+        pipeline.addProcessor(lpfProcessor);
         pipeline.addProcessor(afcProcessor);
         pipeline.addProcessor(gainProcessor);
         pipeline.addProcessor(noiseReductionProcessor);
         pipeline.addProcessor(howlingNotchProcessor);
         pipeline.addProcessor(agcProcessor);
 
+        // 根据配置的放大级别与增益范围，计算并设置初始增益倍数
+        applyAmplificationFactor(amplificationLevel);
+
         AppLog.i(TAG, "麦克风管理器初始化，SR=" + SAMPLE_RATE + "Hz");
+        AppLog.i(TAG, "HPF 截止=" + appConfig.getMicHpfCutoff() + "Hz, LPF 截止="
+                + appConfig.getMicLpfCutoff() + "Hz (开启=" + lpfProcessor.isEnabled() + ")");
         AppLog.i(TAG, "AFC (NLMS): " + afcProcessor.isEnabled());
         AppLog.i(TAG, "谱减法降噪: " + noiseReductionProcessor.isEnabled());
         AppLog.i(TAG, "啸叫陷波: " + howlingNotchProcessor.isEnabled());
@@ -868,10 +881,70 @@ public class MicrophoneManager {
         else if (level > 10) level = 10;
         this.amplificationLevel = level;
         appConfig.setMicAmplificationLevel(level);
+        applyAmplificationFactor(level);
+    }
+
+    /**
+     * 根据放大级别、最大放大倍率与最小增益，计算增益倍数并应用到增益处理器。
+     *
+     * <p>增益倍数 = 最大放大倍率 × 级别 / 10，随后用配置的增益上下限
+     * [minGain, maxAmp] 裁剪（级别为 0 时静音，不参与裁剪）。
+     * 抽取为独立方法，供构造函数初始化与运行时调节共用，避免逻辑重复。
+     *
+     * @param level 放大级别（0~10）
+     */
+    private void applyAmplificationFactor(int level) {
         int maxAmp = appConfig.getMaxAmplification();
+        float minGain = appConfig.getMicMinGain();
         float factor = level == 0 ? 0.0f : maxAmp * level / 10.0f;
+        // 级别非 0 时用增益上下限裁剪，保证放大倍数落在用户配置的 [minGain, maxAmp] 区间
+        if (factor > 0) {
+            if (factor < minGain) factor = minGain;
+            if (factor > maxAmp) factor = maxAmp;
+        }
         gainProcessor.setAmplificationFactor(factor);
-        AppLog.d(TAG, "放大级别设置为: " + level + " (factor=" + String.format(java.util.Locale.US, "%.2f", factor) + ")");
+        AppLog.d(TAG, "放大级别=" + level + " maxAmp=" + maxAmp
+                + " minGain=" + String.format(java.util.Locale.US, "%.2f", minGain)
+                + " -> factor=" + String.format(java.util.Locale.US, "%.2f", factor));
+    }
+
+    /**
+     * 运行时修改高通截止频率并即时生效（无需重启喊话）。
+     *
+     * @param cutoffHz 截止频率（Hz），由处理器 clamp 到合法范围
+     */
+    public void setHpfCutoff(int cutoffHz) {
+        hpfProcessor.setCutoffFrequency(cutoffHz);
+        AppLog.d(TAG, "HPF 截止频率运行时更新为 " + cutoffHz + "Hz");
+    }
+
+    /**
+     * 运行时修改低通截止频率并即时生效（无需重启喊话）。
+     *
+     * @param cutoffHz 截止频率（Hz），由处理器 clamp 到合法范围
+     */
+    public void setLpfCutoff(int cutoffHz) {
+        lpfProcessor.setCutoffFrequency(cutoffHz);
+        AppLog.d(TAG, "LPF 截止频率运行时更新为 " + cutoffHz + "Hz");
+    }
+
+    /**
+     * 运行时开关低通滤波器并即时生效。
+     *
+     * @param enabled true 开启，false 关闭
+     */
+    public void setLowPassEnabled(boolean enabled) {
+        lpfProcessor.setEnabled(enabled);
+        AppLog.d(TAG, "LPF 运行时开关设为 " + enabled);
+    }
+
+    /**
+     * 运行时重算并应用增益倍数（增益上下限或最大放大倍率改变后调用）。
+     *
+     * <p>沿用当前放大级别，按最新的 minGain/maxAmp 配置重新裁剪增益。
+     */
+    public void refreshAmplificationFactor() {
+        applyAmplificationFactor(amplificationLevel);
     }
 
     /**

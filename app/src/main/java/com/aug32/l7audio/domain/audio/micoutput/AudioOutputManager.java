@@ -28,8 +28,9 @@ public class AudioOutputManager {
     private final Context context;
     // 应用配置
     private final AppConfig appConfig;
-    // 当前音频输出模式（volatile 保证多线程可见性）
-    private volatile int currentOutputMode = OUTPUT_EXTERNAL;
+    // 当前音频输出模式（volatile 保证多线程可见性）。默认车内，与持久化默认值一致；
+    // 构造时会立即被 appConfig.getAudioOutputMode() 覆盖，此初值仅作兜底。
+    private volatile int currentOutputMode = OUTPUT_CAR;
 
     /**
      * 构造函数

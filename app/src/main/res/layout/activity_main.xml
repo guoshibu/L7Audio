@@ -30,13 +30,16 @@
                 android:gravity="center_vertical"
                 android:background="?attr/colorSurfaceVariant">
 
+                <!-- 顶栏方形按钮：高度改 wrap_content + minHeight/minWidth，字号放大时按钮跟着长高不裁字（横屏边界：车机横屏顶栏空间充裕，minHeight 64dp 兜底保证触控面积） -->
                 <Button
                     android:id="@+id/btn_menu"
-                    android:layout_width="64dp"
-                    android:layout_height="64dp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="@dimen/min_width_main_toolbar_btn"
+                    android:minHeight="@dimen/min_height_main_toolbar_btn"
                     android:layout_margin="4dp"
                     android:text="☰"
-                    android:textSize="24sp"
+                    android:textSize="@dimen/text_main_toolbar_icon"
                     android:backgroundTint="?attr/colorPrimary"
                     android:textColor="?attr/colorOnPrimary"
                     android:elevation="4dp"
@@ -54,18 +57,21 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="L7 Audio"
-                    android:textSize="20sp"
+                    android:textSize="@dimen/text_main_title"
                     android:textColor="?attr/colorOnSurface"
                     android:textStyle="bold"
                     android:gravity="center" />
 
+                <!-- 顶栏方形按钮：同 btn_menu，wrap_content + minHeight/minWidth 兜底，字号放大不裁字 -->
                 <Button
                     android:id="@+id/btn_exit"
-                    android:layout_width="64dp"
-                    android:layout_height="64dp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="@dimen/min_width_main_toolbar_btn"
+                    android:minHeight="@dimen/min_height_main_toolbar_btn"
                     android:layout_margin="4dp"
                     android:text="✕"
-                    android:textSize="24sp"
+                    android:textSize="@dimen/text_main_toolbar_icon"
                     android:backgroundTint="?attr/colorPrimary"
                     android:textColor="?attr/colorOnPrimary"
                     android:elevation="4dp"
@@ -96,14 +102,16 @@
                     android:padding="4dp"
                     android:gravity="center">
 
+                    <!-- 输出切换按钮：高度改 wrap_content + minHeight，字号放大随之长高（横屏边界：两颗按钮 weight=1 均分宽度，横屏下宽度充足，仅高度需随字号联动） -->
                     <Button
                         android:id="@+id/btn_output_car"
                         android:layout_width="0dp"
-                        android:layout_height="60dp"
+                        android:layout_height="wrap_content"
+                        android:minHeight="@dimen/min_height_main_output_btn"
                         android:layout_weight="1"
                         android:layout_margin="4dp"
                         android:text="仅车内"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_main_output_btn"
                         android:backgroundTint="?attr/colorPrimary"
                         android:textColor="?attr/colorOnPrimary"
                         android:elevation="4dp"
@@ -114,11 +122,12 @@
                     <Button
                         android:id="@+id/btn_output_external"
                         android:layout_width="0dp"
-                        android:layout_height="60dp"
+                        android:layout_height="wrap_content"
+                        android:minHeight="@dimen/min_height_main_output_btn"
                         android:layout_weight="1"
                         android:layout_margin="4dp"
                         android:text="仅车外"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_main_output_btn"
                         android:backgroundTint="?attr/colorPrimary"
                         android:textColor="?attr/colorOnPrimary"
                         android:elevation="4dp"
@@ -151,6 +160,7 @@
                 android:gravity="center"
                 android:background="?attr/colorSurfaceVariant">
 
+                <!-- 底部功能按钮：已是 wrap_content 高度，textSize 与 minHeight 均 dimens 化，随字号联动 -->
                 <Button
                     android:id="@+id/btn_mic_amplifier"
                     android:layout_width="0dp"
@@ -158,13 +168,13 @@
                     android:layout_weight="1"
                     android:layout_margin="4dp"
                     android:text="🎤 麦克风"
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_main_bottom_btn"
                     android:backgroundTint="?attr/colorPrimary"
                     android:textColor="?attr/colorOnPrimary"
                     android:elevation="4dp"
                     android:insetTop="0dp"
                     android:insetBottom="0dp"
-                    android:minHeight="80dp"
+                    android:minHeight="@dimen/min_height_main_bottom_btn"
                     app:cornerRadius="12dp" />
 
                 <Button
@@ -174,13 +184,13 @@
                     android:layout_weight="1"
                     android:layout_margin="4dp"
                     android:text="📢 TTS"
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_main_bottom_btn"
                     android:backgroundTint="?attr/colorPrimary"
                     android:textColor="?attr/colorOnPrimary"
                     android:elevation="4dp"
                     android:insetTop="0dp"
                     android:insetBottom="0dp"
-                    android:minHeight="80dp"
+                    android:minHeight="@dimen/min_height_main_bottom_btn"
                     app:cornerRadius="12dp" />
 
                 <Button
@@ -190,13 +200,13 @@
                     android:layout_weight="1"
                     android:layout_margin="4dp"
                     android:text="🎵 音乐"
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_main_bottom_btn"
                     android:backgroundTint="?attr/colorPrimary"
                     android:textColor="?attr/colorOnPrimary"
                     android:elevation="4dp"
                     android:insetTop="0dp"
                     android:insetBottom="0dp"
-                    android:minHeight="80dp"
+                    android:minHeight="@dimen/min_height_main_bottom_btn"
                     app:cornerRadius="12dp" />
             </LinearLayout>
 
