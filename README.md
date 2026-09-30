@@ -890,6 +890,45 @@ adb install app/build/outputs/apk/release/L7音频工具-versionName-versionCode
 
 ## 版本历史
 
+### v1.5.11 (versionCode: 131)
+
+> 自 v1.5.6 以来的累积改动,涵盖 v1.5.7→v1.5.10 全部内容。
+
+### 🚀 性能
+- 加大 ExoPlayer 播放缓冲(DefaultLoadControl,maxBuffer 90s、minBuffer 60s),降低 CPU 软解场景下线程唤醒频率
+- ExoPlayer 请求音频硬件 offload + 硬解优先 + AudioAttributes(USAGE_MEDIA/CONTENT_TYPE_MUSIC)
+- 后台进度更新降频至 1s、播放位置落盘节流至 5s,暂停时兜底落盘
+- 引入 ProcessLifecycleOwner 全局前后台感知,App 退后台时自动降频
+- AudioVisualizerView 缓存渐变 Shader,去掉 onDraw 逐帧对象分配
+
+### ✨ 新功能
+- 新增低通滤波器 LowPassFilterProcessor(二阶 Butterworth IIR),与高通组成人声带通(默认 100~4000Hz),管线顺序 HPF → LPF → AFC → Gain → SpectralNR → HowlingNotch → AGC
+- HPF/LPF 截止频率运行时可配(高通 50~2000Hz、低通 200~8000Hz),改系数后立即 reset 防爆音
+- 麦克风增益上下限可配(0.1~50 双限幅裁剪)
+- 全局字体缩放(0.7×–1.5×),BaseActivity.attachBaseContext 覆写 fontScale
+- 设置页"探测 usage 路由",遍历 usage 值看系统实际路由到哪条 bus
+- 关于页合规内容(免责声明/隐私/权限/使用须知/开源许可)
+- ExoPlayer DefaultRenderersFactory 关闭软解扩展,优先高通硬解码器
+
+### 🐛 修复
+- 放大进行中切换车内外,停止后被打回放大前方向
+- 主页主动切换车内外未对外通知一致性问题
+- 全新安装首次点"放大"路由从车内切到车外(preferExternal 默认值与界面矛盾)
+- 侧边抽屉菜单高亮与实际页面错位
+- 无悬浮窗权限时闪退:新增 SettingsFragment + MainActivity + FloatingWindowService 三层防御
+- 无权限时只 catch BadTokenException 的漏网,放宽为 Exception + safeRemoveView
+- 字体缩放后松手跳回上一个页面
+- 全新安装扫描音乐后列表不刷新
+- TTS 页退后台后可视化动画未停导致持续 CPU 占用
+- 从后台返回音乐页播放列表不定位到当前曲目
+
+### 🔧 其他
+- 统一音频输出模式整数编码,AudioConfig 常量对齐 AudioOutputManager
+- 全局字体缩放涉及的布局集中到 dimens.xml
+- 主界面顶栏/底部按钮、文件浏览页工具栏高度统一改为 wrap_content + minHeight
+- 关于页/设置页字体大小也集中化,超字号 URL 按字符断行
+- AudioForegroundService 删除过时注释
+
 ### v1.5.6 (versionCode: 88)
 
 - 🐛 **修复 AlbumArtCache 并发 put 竞态**：`get()` check-then-put 加 `synchronized` 双重检查锁，消除 `sizeOf inconsistent` Crash

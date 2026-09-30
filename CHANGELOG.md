@@ -1,11 +1,11 @@
 # L7Audio CHANGELOG
 
-> 日期：2026-08-28
-> 版本：v1.5.10 (versionCode: 131)
+> 日期：2026-09-30
+> 版本：v1.5.11 (versionCode: 131)
 
 ---
 
-## v1.5.10 车载适配 + 音频管线升级 (versionCode: 131)
+## v1.5.11 车载适配 + 音频管线升级 (versionCode: 131)
 
 > 自 v1.5.9（versionCode 105）以来的累积改动。
 
