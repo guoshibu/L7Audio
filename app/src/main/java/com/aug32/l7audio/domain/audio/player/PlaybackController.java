@@ -141,8 +141,26 @@ public class PlaybackController {
                             .setUsage(androidx.media3.common.C.USAGE_MEDIA)
                             .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC)
                             .build();
+            // 【性能敏感路径】加大播放缓冲，降低软解场景下 CPU 被唤醒喂 PCM 的频率。
+            // 本车机（亿咖通 AAOS + 8155）实测 offload=false：audio HAL 只吃 PCM、无 compress offload 输出流，
+            // 音频只能 CPU 软解。解码总量省不掉，但默认缓冲偏小会导致 AudioTrack 每十几~几十毫秒被喂一次数据，
+            // 解码线程频繁唤醒/休眠，上下文切换开销抬高后台 CPU 表观占用。
+            // 加大 maxBuffer 让解码线程一次填满、长时间休眠，唤醒频率下降一个数量级，平均 CPU 随之降低。
+            // 起播缓冲（bufferForPlaybackMs）保持 2.5s 不动，不影响起播速度；本地文件无需回退 buffer。
+            androidx.media3.exoplayer.LoadControl loadControl =
+                    new androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                            .setBufferDurationsMs(
+                                    /* minBufferMs= */ 60_000,
+                                    /* maxBufferMs= */ 90_000,
+                                    /* bufferForPlaybackMs= */ 2_500,
+                                    /* bufferForPlaybackAfterRebufferMs= */ 5_000)
+                            // 本地文件按时间(ms)阈值判断缓冲是否充足，让上面的时长阈值真正生效
+                            .setPrioritizeTimeOverSizeThresholds(true)
+                            .build();
+
             exoPlayer = new ExoPlayer.Builder(context, renderersFactory)
                     .setAudioAttributes(audioAttributes, /* handleAudioFocus= */ false)
+                    .setLoadControl(loadControl)
                     .build();
 
             // 【性能敏感路径】请求音频硬件 offload：让骁龙 8155 的 aDSP 直接解码播放，

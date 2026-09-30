@@ -113,10 +113,13 @@
             android:gravity="center"
             android:layout_marginTop="16dp">
 
+            <!-- 按钮高度改为 wrap_content + minHeight，使字体放大时按钮随之增高（配合全局 fontScale） -->
             <Button
                 android:id="@+id/btn_prev"
                 android:layout_width="0dp"
-                android:layout_height="56dp"
+                android:layout_height="wrap_content"
+                android:minHeight="56dp"
+                android:gravity="center"
                 android:layout_weight="1"
                 android:text="上一曲"
                 android:textSize="@dimen/text_player_control"
@@ -127,7 +130,9 @@
             <Button
                 android:id="@+id/btn_play_pause"
                 android:layout_width="0dp"
-                android:layout_height="56dp"
+                android:layout_height="wrap_content"
+                android:minHeight="56dp"
+                android:gravity="center"
                 android:layout_weight="1"
                 android:text="播放"
                 android:textSize="@dimen/text_player_control"
@@ -139,7 +144,9 @@
             <Button
                 android:id="@+id/btn_next"
                 android:layout_width="0dp"
-                android:layout_height="56dp"
+                android:layout_height="wrap_content"
+                android:minHeight="56dp"
+                android:gravity="center"
                 android:layout_weight="1"
                 android:text="下一曲"
                 android:textSize="@dimen/text_player_control"
@@ -151,7 +158,9 @@
             <Button
                 android:id="@+id/btn_repeat"
                 android:layout_width="0dp"
-                android:layout_height="56dp"
+                android:layout_height="wrap_content"
+                android:minHeight="56dp"
+                android:gravity="center"
                 android:layout_weight="1"
                 android:text="不循环"
                 android:textSize="@dimen/text_player_secondary"

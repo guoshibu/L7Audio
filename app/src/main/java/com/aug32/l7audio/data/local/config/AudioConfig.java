@@ -18,10 +18,15 @@ public class AudioConfig {
     private static final String PREF_EXTERNAL_VOLUME = "external_volume";
     private static final String PREF_CURRENT_FUNCTION = "current_function";
 
-    /** 输出模式：车外输出 */
-    public static final int OUTPUT_MODE_EXTERNAL = 0;
-    /** 输出模式：车内输出 */
-    public static final int OUTPUT_MODE_CAR = 1;
+    /**
+     * 输出模式常量：整数编码必须与 {@link com.aug32.l7audio.domain.audio.micoutput.AudioOutputManager}
+     * 保持一致（车内=0、车外=1）。全项目输出模式的写入/读取/比较都以 AudioOutputManager 的语义为准，
+     * 这里的常量仅作为同源标签与 getInt 默认值，切勿再定义与之相反的编码，避免历史上"命名相反"造成的错位。
+     */
+    /** 输出模式：车内输出（与 AudioOutputManager.OUTPUT_CAR 一致） */
+    public static final int OUTPUT_MODE_CAR = 0;
+    /** 输出模式：车外输出（与 AudioOutputManager.OUTPUT_EXTERNAL 一致） */
+    public static final int OUTPUT_MODE_EXTERNAL = 1;
 
     private final SharedPreferences preferences;
 
@@ -35,7 +40,8 @@ public class AudioConfig {
     }
 
     public int getOutputMode() {
-        return preferences.getInt(PREF_AUDIO_OUTPUT_MODE, OUTPUT_MODE_EXTERNAL);
+        // 无持久化值时默认车内（0），与主页默认显示、MicOutputController 默认偏好保持一致
+        return preferences.getInt(PREF_AUDIO_OUTPUT_MODE, OUTPUT_MODE_CAR);
     }
 
     public void setOutputMode(int mode) {

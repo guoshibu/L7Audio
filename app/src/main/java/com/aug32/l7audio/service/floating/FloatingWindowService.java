@@ -12,6 +12,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
@@ -162,6 +163,14 @@ public class FloatingWindowService extends Service {
     public void onCreate() {
         super.onCreate();
         AppLog.d(TAG, "Floating window service created");
+        // 【三层防御·第三层：服务底层兜底 - 前置闸门】
+        // 即便入口/冷启动两层校验被绕过（例如权限在服务启动瞬间被撤销、或第三方直接拉起本服务），
+        // 这里在做任何悬浮窗操作前再复查一次权限；无权限直接自停，从根上杜绝 addView 崩溃。
+        if (!Settings.canDrawOverlays(this)) {
+            AppLog.w(TAG, "悬浮窗权限未授予，服务自停，避免 addView 崩溃");
+            stopSelf();
+            return;
+        }
         appConfig = new AppConfig(this);
         audioServiceLocator = AudioServiceLocator.getInstance();
         audioServiceLocator.init(this);
@@ -228,12 +237,12 @@ public class FloatingWindowService extends Service {
     public void onDestroy() {
         super.onDestroy();
         AppLog.d(TAG, "Floating window service destroyed");
-        if (floatingBallView != null) {
-            windowManager.removeView(floatingBallView);
-        }
-        if (floatingListView != null) {
-            windowManager.removeView(floatingListView);
-        }
+        // 统一走 safeRemoveView 兜底：view 未成功 attach 或已被移除时，
+        // removeView 会抛 IllegalArgumentException，销毁路径一旦抛出即崩溃。
+        safeRemoveView(floatingBallView);
+        floatingBallView = null;
+        safeRemoveView(floatingListView);
+        floatingListView = null;
         if (handler != null && autoHideRunnable != null) {
             handler.removeCallbacks(autoHideRunnable);
         }
@@ -254,6 +263,27 @@ public class FloatingWindowService extends Service {
         ttsPausedMusic = false;
         if (audioFocusManager != null) {
             audioFocusManager.abandonTransientFocus();
+        }
+    }
+
+    /**
+     * 安全移除悬浮窗视图。
+     * <p>
+     * 为什么需要：当 addView 曾失败（view 从未真正 attach）或 view 已被移除时，
+     * WindowManager.removeView 会抛 IllegalArgumentException("View not attached to window manager")。
+     * 服务销毁/视图切换是必经路径，一旦抛出就会崩溃，这里统一兜底。
+     *
+     * @param view 待移除的悬浮窗视图，可为 null
+     */
+    private void safeRemoveView(View view) {
+        if (view == null || windowManager == null) {
+            return;
+        }
+        try {
+            windowManager.removeView(view);
+        } catch (Exception e) {
+            // view 未 attach / 已移除等情况，忽略即可，不影响后续清理
+            AppLog.w(TAG, "移除悬浮窗视图失败（可能未成功添加或已移除），忽略：" + e);
         }
     }
 
@@ -389,7 +419,19 @@ public class FloatingWindowService extends Service {
         // 根据主题设置悬浮球的颜色
         applyThemeToFloatingBall();
 
-        windowManager.addView(floatingBallView, params);
+        // 【三层防御·第三层：服务底层兜底 - 最后一道 try-catch】
+        // 兜底 onCreate 权限自检与此处 addView 之间的极端时序（如权限被瞬间撤销），
+        // 以及部分定制 ROM（Flyme Auto / QNX）在无权限时抛出的并非 BadTokenException，
+        // 而是 SecurityException / 普通 RuntimeException 的情况。
+        // 这里统一捕获 Exception：无论何种异常，都自停并回收视图，绝不让进程崩溃。
+        try {
+            windowManager.addView(floatingBallView, params);
+        } catch (Exception e) {
+            AppLog.e(TAG, "添加悬浮球失败（疑似无悬浮窗权限或视图令牌异常），服务自停", e);
+            floatingBallView = null;
+            stopSelf();
+            return;
+        }
 
         Button btnBall = floatingBallView.findViewById(R.id.btn_floating_ball);
         btnBall.setOnClickListener(new View.OnClickListener() {
@@ -543,7 +585,7 @@ public class FloatingWindowService extends Service {
             // 为什么先加列表再移悬浮球：避免出现短暂的空白期，
             // 让用户感觉是平滑切换，而不是先消失再出现
             if (floatingBallView != null) {
-                windowManager.removeView(floatingBallView);
+                safeRemoveView(floatingBallView);
                 floatingBallView = null;
                 AppLog.d(TAG, "floatingBallView removed");
             }
@@ -572,17 +614,12 @@ public class FloatingWindowService extends Service {
     /** 隐藏悬浮窗列表并恢复显示悬浮球 */
     private void hideListView() {
         AppLog.d(TAG, "hideListView called");
-        try {
-            if (floatingListView != null) {
-                windowManager.removeView(floatingListView);
-                floatingListView = null;
-                AppLog.d(TAG, "floatingListView removed");
-            }
-        } catch (Exception e) {
-            AppLog.e(TAG, "Error removing floatingListView", e);
+        if (floatingListView != null) {
+            safeRemoveView(floatingListView);
             floatingListView = null;
+            AppLog.d(TAG, "floatingListView removed");
         }
-        
+
         isListViewVisible = false;
         
         if (handler != null && autoHideRunnable != null) {

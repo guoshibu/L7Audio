@@ -38,25 +38,35 @@
                 android:layout_weight="1"
                 android:orientation="vertical"
                 android:gravity="center_vertical">
-                
-                <TextView
-                    android:id="@+id/tv_song_title"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="未选择歌曲"
-                    android:textSize="@dimen/text_player_title"
-                    android:textColor="?attr/colorOnSurface"
-                    android:layout_marginBottom="8dp" />
 
-                <TextView
-                    android:id="@+id/tv_song_artist"
+                <!-- 标题+歌手整体垂直居中：与下方歌词各占一半列高（weight 1），
+                     组内 gravity=center_vertical 让标题歌手在其区域内居中，
+                     从而相对封面呈现居中效果 -->
+                <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text=""
-                    android:textSize="@dimen/text_player_artist"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:layout_marginBottom="8dp" />
-                
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:id="@+id/tv_song_title"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="未选择歌曲"
+                        android:textSize="@dimen/text_player_title"
+                        android:textColor="?attr/colorOnSurface"
+                        android:layout_marginBottom="8dp" />
+
+                    <TextView
+                        android:id="@+id/tv_song_artist"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text=""
+                        android:textSize="@dimen/text_player_artist"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+                </LinearLayout>
+
                 <!-- 歌词显示（可滚动，按行高亮） -->
                 <ScrollView
                     android:id="@+id/sv_lyrics"
@@ -125,10 +135,13 @@
             android:gravity="center"
             android:layout_marginTop="16dp">
 
+            <!-- 按钮高度改为 wrap_content + minHeight，使字体放大时按钮随之增高（配合全局 fontScale） -->
             <Button
                 android:id="@+id/btn_prev"
                 android:layout_width="0dp"
-                android:layout_height="64dp"
+                android:layout_height="wrap_content"
+                android:minHeight="64dp"
+                android:gravity="center"
                 android:layout_weight="1"
                 android:text="上一曲"
                 android:textSize="@dimen/text_player_control"
@@ -139,7 +152,9 @@
             <Button
                 android:id="@+id/btn_play_pause"
                 android:layout_width="0dp"
-                android:layout_height="64dp"
+                android:layout_height="wrap_content"
+                android:minHeight="64dp"
+                android:gravity="center"
                 android:layout_weight="1"
                 android:text="播放"
                 android:textSize="@dimen/text_player_control"
@@ -151,7 +166,9 @@
             <Button
                 android:id="@+id/btn_next"
                 android:layout_width="0dp"
-                android:layout_height="64dp"
+                android:layout_height="wrap_content"
+                android:minHeight="64dp"
+                android:gravity="center"
                 android:layout_weight="1"
                 android:text="下一曲"
                 android:textSize="@dimen/text_player_control"
@@ -163,7 +180,9 @@
             <Button
                 android:id="@+id/btn_repeat"
                 android:layout_width="0dp"
-                android:layout_height="64dp"
+                android:layout_height="wrap_content"
+                android:minHeight="64dp"
+                android:gravity="center"
                 android:layout_weight="1"
                 android:text="不循环"
                 android:textSize="@dimen/text_player_secondary"
@@ -239,7 +258,9 @@
             <Button
                 android:id="@+id/btn_scan_music"
                 android:layout_width="wrap_content"
-                android:layout_height="60dp"
+                android:layout_height="wrap_content"
+                android:minHeight="60dp"
+                android:gravity="center"
                 android:text="扫描音乐"
                 android:textSize="@dimen/text_player_secondary"
                 android:backgroundTint="?attr/colorPrimary"
@@ -250,7 +271,9 @@
             <Button
                 android:id="@+id/btn_select_file"
                 android:layout_width="wrap_content"
-                android:layout_height="60dp"
+                android:layout_height="wrap_content"
+                android:minHeight="60dp"
+                android:gravity="center"
                 android:text="添加音乐"
                 android:textSize="@dimen/text_player_secondary"
                 android:backgroundTint="?attr/colorPrimary"
@@ -261,7 +284,9 @@
             <Button
                 android:id="@+id/btn_select_all"
                 android:layout_width="wrap_content"
-                android:layout_height="60dp"
+                android:layout_height="wrap_content"
+                android:minHeight="60dp"
+                android:gravity="center"
                 android:text="全选"
                 android:textSize="@dimen/text_player_secondary"
                 android:backgroundTint="?attr/colorPrimary"
@@ -273,7 +298,9 @@
             <Button
                 android:id="@+id/btn_delete"
                 android:layout_width="wrap_content"
-                android:layout_height="60dp"
+                android:layout_height="wrap_content"
+                android:minHeight="60dp"
+                android:gravity="center"
                 android:text="删除"
                 android:textSize="@dimen/text_player_secondary"
                 android:backgroundTint="?attr/colorPrimary"
@@ -285,7 +312,9 @@
             <Button
                 android:id="@+id/btn_cancel"
                 android:layout_width="wrap_content"
-                android:layout_height="60dp"
+                android:layout_height="wrap_content"
+                android:minHeight="60dp"
+                android:gravity="center"
                 android:text="取消"
                 android:textSize="@dimen/text_player_secondary"
                 android:backgroundTint="?attr/colorPrimary"

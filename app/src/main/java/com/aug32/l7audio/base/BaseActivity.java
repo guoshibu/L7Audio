@@ -8,6 +8,7 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.aug32.l7audio.data.local.AppConfig;
+import com.aug32.l7audio.utils.AppLog;
 
 /**
  * Activity 基类，提供应用内所有 Activity 的通用基础能力。
@@ -43,7 +44,9 @@ public abstract class BaseActivity extends AppCompatActivity {
         float fontScale = new AppConfig(newBase).getFontScale();
         // 【字体缩放排查】这是全局字体真正生效的入口。recreate() 后会重新走到这里，
         // 若这里读到的 fontScale 是新值，说明持久化+重建链路正常；界面若仍没变则问题在渲染/缓存层。
-        android.util.Log.d(FONT_SCALE_TAG, "attachBaseContext: 读取 fontScale=" + fontScale
+        // 改用 AppLog 落盘：AppLog.d 为纯静态方法，内部对未初始化状态有保护（isInitialized/logFile 判空），
+        // 在 attachBaseContext 这种极早期阶段调用不会 NPE，日志可写入导出文件便于排查。
+        AppLog.d(FONT_SCALE_TAG, "attachBaseContext: 读取 fontScale=" + fontScale
                 + "，应用于 " + getClass().getSimpleName());
         // 基于原 Configuration 拷贝并覆写 fontScale，生成缩放后的 Context 供整个 Activity 使用
         Configuration config = new Configuration(newBase.getResources().getConfiguration());

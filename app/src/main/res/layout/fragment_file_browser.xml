@@ -19,14 +19,15 @@
         android:gravity="center_vertical"
         android:background="@color/menu_background">
 
+        <!-- 工具栏按钮：高度改 wrap_content + minHeight，字号放大随之长高不裁字（横屏边界：保留 minWidth 保证方形符号按钮触控面积） -->
         <Button
             android:id="@+id/btn_back"
             android:layout_width="wrap_content"
-            android:layout_height="64dp"
+            android:layout_height="wrap_content"
             android:text="←"
-            android:textSize="24sp"
+            android:textSize="@dimen/text_browser_toolbar_icon"
             android:minWidth="64dp"
-            android:minHeight="64dp"
+            android:minHeight="@dimen/min_height_browser_toolbar_btn"
             android:layout_marginEnd="8dp"
             android:backgroundTint="@color/button_background"
             android:textColor="@color/button_text" />
@@ -38,17 +39,17 @@
             android:layout_weight="1"
             android:text="选择文件"
             android:textColor="@color/text_primary"
-            android:textSize="24sp"
+            android:textSize="@dimen/text_browser_title"
             android:textStyle="bold" />
 
         <Button
             android:id="@+id/btn_select_all"
             android:layout_width="wrap_content"
-            android:layout_height="64dp"
+            android:layout_height="wrap_content"
             android:text="全选"
-            android:textSize="16sp"
+            android:textSize="@dimen/text_browser_btn"
             android:minWidth="80dp"
-            android:minHeight="64dp"
+            android:minHeight="@dimen/min_height_browser_toolbar_btn"
             android:layout_marginEnd="8dp"
             android:backgroundTint="@color/button_background"
             android:textColor="@color/button_text"
@@ -57,11 +58,11 @@
         <Button
             android:id="@+id/btn_home"
             android:layout_width="wrap_content"
-            android:layout_height="64dp"
+            android:layout_height="wrap_content"
             android:text="⌂"
-            android:textSize="24sp"
+            android:textSize="@dimen/text_browser_toolbar_icon"
             android:minWidth="64dp"
-            android:minHeight="64dp"
+            android:minHeight="@dimen/min_height_browser_toolbar_btn"
             android:backgroundTint="@color/button_background"
             android:textColor="@color/button_text" />
     </LinearLayout>
@@ -75,7 +76,7 @@
         android:paddingEnd="16dp"
         android:paddingTop="8dp"
         android:paddingBottom="8dp"
-        android:textSize="14sp"
+        android:textSize="@dimen/text_browser_path"
         android:textColor="?attr/colorOnSurfaceVariant"
         android:background="?attr/colorSurfaceVariant"
         android:singleLine="true"
@@ -97,24 +98,27 @@
         android:padding="16dp"
         android:background="@color/menu_background">
 
+        <!-- 底部按钮：高度改 wrap_content + minHeight，字号放大随之长高（横屏边界：两颗按钮 weight=1 均分底栏宽度，仅高度需联动） -->
         <Button
             android:id="@+id/btn_cancel"
             android:layout_width="0dp"
-            android:layout_height="56dp"
+            android:layout_height="wrap_content"
+            android:minHeight="@dimen/min_height_browser_bottom_btn"
             android:layout_weight="1"
             android:layout_marginEnd="8dp"
             android:text="取消"
-            android:textSize="16sp"
+            android:textSize="@dimen/text_browser_btn"
             android:backgroundTint="@color/button_background"
             android:textColor="@color/button_text" />
 
         <Button
             android:id="@+id/btn_confirm"
             android:layout_width="0dp"
-            android:layout_height="56dp"
+            android:layout_height="wrap_content"
+            android:minHeight="@dimen/min_height_browser_bottom_btn"
             android:layout_weight="1"
             android:text="确认"
-            android:textSize="16sp"
+            android:textSize="@dimen/text_browser_btn"
             android:backgroundTint="@color/button_background_selected"
             android:textColor="@color/button_text" />
     </LinearLayout>

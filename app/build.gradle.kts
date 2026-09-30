@@ -18,7 +18,7 @@ android {
         applicationId = "com.aug32.l7audio"
         minSdk = 30
         targetSdk = 30
-        versionCode = 115
+        versionCode = 131
 
         versionName = "1.5.10"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

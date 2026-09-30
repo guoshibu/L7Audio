@@ -13,6 +13,7 @@ public class ThemeConfig {
     private static final String PREF_THEME_MODE = "theme_mode";
     private static final String PREF_AUTO_START_ON_BOOT = "auto_start_on_boot";
     private static final String PREF_FONT_SCALE = "font_scale";
+    private static final String PREF_PENDING_RETURN_SETTINGS = "pending_return_to_settings";
 
     /** 跟随系统主题 */
     public static final int THEME_MODE_SYSTEM = 0;
@@ -70,5 +71,13 @@ public class ThemeConfig {
         // 写入前同样夹紧，保证持久化的值始终合法
         float v = Math.max(FONT_SCALE_MIN, Math.min(FONT_SCALE_MAX, scale));
         preferences.edit().putFloat(PREF_FONT_SCALE, v).apply();
+    }
+
+    /** 标记：字体缩放触发 recreate 后应返回设置页（一次性，消费后即清除） */
+    public boolean isPendingReturnToSettings() {
+        return preferences.getBoolean(PREF_PENDING_RETURN_SETTINGS, false);
+    }
+    public void setPendingReturnToSettings(boolean pending) {
+        preferences.edit().putBoolean(PREF_PENDING_RETURN_SETTINGS, pending).apply();
     }
 }

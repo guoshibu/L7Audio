@@ -28,4 +28,50 @@
     <!-- 悬浮窗 TTS 列表项（item_floating_tts）——注意：悬浮窗不随全局 fontScale 缩放，独立命名 -->
     <dimen name="text_floating_tts_play">24sp</dimen>    <!-- 播放按钮 -->
     <dimen name="text_floating_tts_delete">22sp</dimen>  <!-- 删除按钮 -->
+
+    <!-- 关于界面 -->
+    <dimen name="text_about_toolbar">24sp</dimen>      <!-- 工具栏返回/首页按钮/标题 -->
+    <dimen name="text_about_app_name">24sp</dimen>     <!-- App 名称 -->
+    <dimen name="text_about_section">18sp</dimen>      <!-- 卡片标题（项目地址/免责声明等） -->
+    <dimen name="text_about_body">16sp</dimen>         <!-- 版本号/项目链接 -->
+    <dimen name="text_about_caption">14sp</dimen>      <!-- 群号/版权/合规正文 -->
+
+    <!-- 设置界面 -->
+    <dimen name="text_settings_toolbar">24sp</dimen>   <!-- 工具栏返回/首页按钮/标题 -->
+    <dimen name="text_settings_section">20sp</dimen>   <!-- 各卡片标题 -->
+    <dimen name="text_settings_body">16sp</dimen>      <!-- 标签/输入框/按钮/单选按钮/预览正文 -->
+    <dimen name="text_settings_status">14sp</dimen>    <!-- 状态提示类 -->
+    <dimen name="text_settings_hint">12sp</dimen>      <!-- 小号提示/警告/说明 -->
+
+    <!-- ========== 以下为主界面/文件浏览/列表项 dimens 化（v1.5.11 补齐） ========== -->
+    <!-- 数值沿用各布局原有字面量，仅集中管理以支持全局 fontScale 缩放，视觉零变化。 -->
+    <!-- 车机常驻横屏，与麦克风/TTS/设置/关于一致，不建 values-land 覆写，横竖屏共用本值。 -->
+
+    <!-- 主界面（activity_main） -->
+    <dimen name="text_main_toolbar_icon">24sp</dimen>  <!-- 顶栏 ☰ 菜单 / ✕ 退出符号 -->
+    <dimen name="text_main_title">20sp</dimen>         <!-- 标题 L7 Audio -->
+    <dimen name="text_main_output_btn">16sp</dimen>    <!-- 仅车内 / 仅车外 -->
+    <dimen name="text_main_bottom_btn">16sp</dimen>    <!-- 底部 麦克风 / TTS / 音乐 -->
+    <!-- 主界面按钮最小高度：按钮高度改 wrap_content + minHeight，字号放大时靠 sp 文字撑高，不裁字 -->
+    <dimen name="min_height_main_toolbar_btn">64dp</dimen>  <!-- 顶栏方形按钮最小高度 -->
+    <dimen name="min_width_main_toolbar_btn">64dp</dimen>   <!-- 顶栏方形按钮最小宽度 -->
+    <dimen name="min_height_main_output_btn">60dp</dimen>   <!-- 输出切换按钮最小高度 -->
+    <dimen name="min_height_main_bottom_btn">80dp</dimen>   <!-- 底部功能按钮最小高度 -->
+
+    <!-- 文件浏览（fragment_file_browser） -->
+    <dimen name="text_browser_toolbar_icon">24sp</dimen>  <!-- 返回 ← / 首页 ⌂ 符号 -->
+    <dimen name="text_browser_title">24sp</dimen>         <!-- 标题 选择文件 -->
+    <dimen name="text_browser_btn">16sp</dimen>           <!-- 全选/取消/确认按钮 -->
+    <dimen name="text_browser_path">14sp</dimen>          <!-- 当前路径 -->
+    <!-- 文件浏览按钮最小高度：改 wrap_content + minHeight，随字号联动 -->
+    <dimen name="min_height_browser_toolbar_btn">64dp</dimen>  <!-- 工具栏按钮最小高度 -->
+    <dimen name="min_height_browser_bottom_btn">56dp</dimen>   <!-- 底部取消/确认按钮最小高度 -->
+
+    <!-- 列表项（item_music_playlist / item_file_browser）——图标固定 dp 不缩放，仅字号随缩放 -->
+    <dimen name="text_item_title">16sp</dimen>     <!-- 歌曲名/文件名 -->
+    <dimen name="text_item_subtitle">14sp</dimen>  <!-- 艺术家/大小·子项数 -->
+
+    <!-- 抽屉头（nav_header） -->
+    <dimen name="text_nav_title">20sp</dimen>    <!-- 应用名 -->
+    <dimen name="text_nav_version">14sp</dimen>  <!-- 版本号 -->
 </resources>
