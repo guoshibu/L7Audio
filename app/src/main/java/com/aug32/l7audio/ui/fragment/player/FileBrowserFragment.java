@@ -25,6 +25,7 @@ import com.aug32.l7audio.R;
 import com.aug32.l7audio.ui.adapter.FileBrowserAdapter;
 import com.aug32.l7audio.ui.model.FileItem;
 import com.aug32.l7audio.utils.AppExecutors;
+import com.aug32.l7audio.utils.AppLog;
 
 /**
  * 文件浏览器 Fragment
@@ -307,7 +308,7 @@ public class FileBrowserFragment extends BaseFragment {
         if (item.isDirectory) {
             // 目录 → 进入
             loadDirectory(item.path);
-        } else if (mode == MODE_FILE && isAudioFile(new File(item.path))) {
+        } else if (mode == MODE_FILE && item.isAudio) {
             // 文件模式下单击音频文件 → 进入多选模式并选中当前项
             adapter.setSelectionMode(true);
             adapter.toggleSelection(position);
@@ -430,13 +431,20 @@ public class FileBrowserFragment extends BaseFragment {
             }
 
             final List<FileItem> result = items;
-            if (isAdded() && getActivity() != null) {
-                getActivity().runOnUiThread(() -> {
-                    adapter.setItems(result);
-                    updateTitle();
-                    updateConfirmButton();
-                });
-            }
+            final String requestedPath = PATH_STORAGE_ROOT;
+            android.app.Activity activity = getActivity();
+            if (activity == null) return;
+            activity.runOnUiThread(() -> {
+                // 修复（P2-20/P2-21）：异步结果回填前校验视图与路径。
+                // adapter 可能已被 onDestroyView 置空（直接 setItems 会 NPE）；
+                // getView() 为 null 说明视图已销毁（pop 返回栈/onDestroyView 时序窗口），不应再触碰任何 View；
+                // 且用户可能已进入具体目录，此时不应再用存储设备列表覆盖
+                if (!isAdded() || getView() == null || adapter == null) return;
+                if (!requestedPath.equals(currentPath)) return;
+                adapter.setItems(result);
+                updateTitle();
+                updateConfirmButton();
+            });
         });
     }
 
@@ -519,13 +527,25 @@ public class FileBrowserFragment extends BaseFragment {
             }
 
             final List<FileItem> result = items;
-            if (isAdded() && getActivity() != null) {
-                getActivity().runOnUiThread(() -> {
-                    adapter.setItems(result);
-                    updateTitle();
-                    updateConfirmButton();
-                });
-            }
+            final String requestedPath = path;
+            android.app.Activity activity = getActivity();
+            if (activity == null) return;
+            activity.runOnUiThread(() -> {
+                // 修复（P2-20/P2-21）：异步结果回填前做四重校验。
+                // ①adapter 可能已被 onDestroyView 置空 → 直接 setItems 会 NPE；
+                // ②isAdded 为 false 说明 Fragment 已脱离宿主，不应再触碰视图；
+                // ③getView() 为 null 说明处于 pop 返回栈的视图销毁窗口（Fragment 仍 attached 但视图已回收）；
+                // ④快速连续进入不同目录时，先发出的后台任务可能后返回，
+                //   若不做路径校验会把旧目录列表覆盖到当前目录上（展示错乱）
+                if (!isAdded() || getView() == null || adapter == null) return;
+                if (!requestedPath.equals(currentPath)) {
+                    AppLog.d("FileBrowserFragment", "丢弃过期目录结果: " + requestedPath);
+                    return;
+                }
+                adapter.setItems(result);
+                updateTitle();
+                updateConfirmButton();
+            });
         });
     }
 
@@ -538,8 +558,8 @@ public class FileBrowserFragment extends BaseFragment {
         Collections.sort(list, new Comparator<FileItem>() {
             @Override
             public int compare(FileItem o1, FileItem o2) {
-                return o1.name.toLowerCase(Locale.getDefault())
-                        .compareTo(o2.name.toLowerCase(Locale.getDefault()));
+                return o1.name.toLowerCase(Locale.ROOT)
+                        .compareTo(o2.name.toLowerCase(Locale.ROOT));
             }
         });
     }
@@ -573,23 +593,6 @@ public class FileBrowserFragment extends BaseFragment {
     }
 
     /**
-     * 判断是否为音频文件
-     *
-     * @param file 文件
-     * @return true 表示是支持的音频格式
-     */
-    private boolean isAudioFile(File file) {
-        if (file == null || !file.isFile()) return false;
-        String name = file.getName().toLowerCase(Locale.getDefault());
-        for (String ext : com.aug32.l7audio.utils.FileUtils.AUDIO_EXTENSIONS) {
-            if (name.endsWith(ext)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
      * 获取可选的项目总数
      *
      * <p>只统计当前模式下允许选中的项目：
@@ -609,8 +612,10 @@ public class FileBrowserFragment extends BaseFragment {
                 count++;
             } else if (mode == MODE_DIRECTORY && item.isDirectory) {
                 count++;
-            } else if (mode == MODE_FILE && !item.isDirectory
-                    && isAudioFile(new File(item.path))) {
+            } else if (mode == MODE_FILE && item.isAudio) {
+                // 性能修复：直接读 FileItem 预计算的 isAudio 标志，
+                // 原来每项 new File().isAudioFile() 都是一次主线程磁盘 stat，
+                // updateTitle 每次点击/选中都调本方法，U 盘大目录交互明显卡顿
                 count++;
             }
         }

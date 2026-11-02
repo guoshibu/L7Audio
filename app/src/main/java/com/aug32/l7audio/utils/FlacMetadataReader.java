@@ -38,6 +38,13 @@ import java.io.IOException;
 public class FlacMetadataReader {
 
     /**
+     * 元数据块大小上限（4MB）。
+     * 正常 STREAMINFO / VORBIS_COMMENT 块远小于此值；超过即视为文件损坏或被构造，
+     * 防止按损坏头部声明的大小一次性分配超大字节数组
+     */
+    private static final int MAX_METADATA_BLOCK_SIZE = 4 * 1024 * 1024;
+
+    /**
      * 从 FLAC 文件中读取元数据
      *
      * @param filePath FLAC 文件绝对路径
@@ -86,7 +93,10 @@ public class FlacMetadataReader {
                 // 后 3 字节：块大小（大端序）
                 int blockSize = readInt24BE(blockHeader, 1);
 
-                if (blockSize <= 0 || offset + 4 + blockSize > fileSize) {
+                // 防御（内存）：blockSize 除文件大小外增加 4MB 常量上限。
+                // 损坏/被构造的头部可声明与文件等大的元数据块，避免一次性分配超大数组
+                if (blockSize <= 0 || blockSize > MAX_METADATA_BLOCK_SIZE
+                        || offset + 4 + blockSize > fileSize) {
                     break;
                 }
 

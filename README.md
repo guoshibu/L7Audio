@@ -71,11 +71,11 @@ L7Audio 是一款运行于 Android 系统的音频处理应用，专为吉利银
 ### 🎤 麦克风放大器（车外喊话）
 
 - **实时麦克风采集**：低延迟音频采集与播放
-- **多级放大增益**：可调节放大级别（钳制 1~50），适应不同喊话距离
+- **多级放大增益**：放大级别 0~10（0 为静音），增益倍数 = 最大放大倍率 × 级别 / 10，再按配置的 [minGain, maxAmp] 裁剪；最大放大倍率可配置 1~50
 - **智能降噪处理**（管线模式 Pipeline Pattern）：
   - HPF @100Hz：二阶 Butterworth IIR 滤除 DC 和低频胎噪（截止频率可配置）
   - LPF @4000Hz：二阶 Butterworth IIR 砍掉高频啸叫/嘶声/齿音（截止频率可配置）
-  - AFC NLMS：256 阶自适应滤波消除声反馈，HW AEC 启用时仍串联消残余
+  - AFC NLMS：512 阶自适应滤波消除声反馈，HW AEC 启用时仍串联消残余
   - Gain：可调增益放大倍数
   - SpectralNR：256 FFT 谱减法自学习噪声轮廓
   - HowlingNotch：FFT 峰值检测 + IIR 窄带陷波，最多 3 频点
@@ -234,7 +234,7 @@ adb shell am broadcast -a com.aug32.l7audio.OUTSIDE_MIC_TOGGLE -p com.aug32.l7au
 | **AndroidX Media**          | 1.7.0  | MediaStyle 通知样式（NotificationCompat.MediaStyle） |
 | **Gson**                    | 2.10.1 | JSON 序列化 / 反序列化（TTS 列表、配置持久化）                  |
 | **Lifecycle**               | 2.8.7  | ViewModel / LiveData，TTS 页面数据驱动                |
-| **LocalBroadcastManager**   | 1.1.0  | 本地广播（通知更新、模块间通信）                              |
+| **JUnit**                   | 4.13.2 | JVM 单元测试（仅 `app/src/test`，不打包进 APK）          |
 | **Appcompat / Material**    | -      | UI 组件与主题                                       |
 | **RecyclerView / CardView** | -      | 列表展示                                           |
 
@@ -275,7 +275,7 @@ adb shell am broadcast -a com.aug32.l7audio.OUTSIDE_MIC_TOGGLE -p com.aug32.l7au
 - **关注点分离**：播放控制（PlaybackController）与播放列表（PlaylistManager）职责分离
 - **线程安全**：PlaylistManager 所有操作使用 `synchronized` 保证多线程安全
 - **进程级前后台感知**：通过 `ProcessLifecycleOwner` 监听全局前后台状态，优化后台资源占用
-- **本地广播通信**：模块间通过 `LocalBroadcastManager` 发送广播通知数据变更，避免频繁 IPC
+- **应用内广播**：通知栏更新通过 `ContextCompat.registerReceiver(RECEIVER_NOT_EXPORTED)` + 应用内 `sendBroadcast` 通信，避免跨进程 IPC（`LocalBroadcastManager` 已废弃并移除）
 
 ***
 
@@ -329,8 +329,7 @@ L7Audio/
 │   │   │   │   │       ├── tts/TTSConfig.java
 │   │   │   │   │       └── floating/FloatingWindowConfig.java
 │   │   │   │   ├── model/
-│   │   │   │   │   ├── TTSItem.java         # TTS 数据模型
-│   │   │   │   │   └── FileItem.java        # 文件浏览器数据模型
+│   │   │   │   │   └── TTSItem.java         # TTS 数据模型
 │   │   │   │   └── repository/
 │   │   │   │       └── TTSRepository.java   # TTS 数据仓库
 │   │   │   ├── ui/                          # UI 层
@@ -368,6 +367,10 @@ L7Audio/
 │   │   │       ├── WavMetadataReader.java   # WAV 元数据解析
 │   │   │       ├── FlacMetadataReader.java  # FLAC 元数据解析
 │   │   │       └── M4aMetadataReader.java   # M4A/AAC 元数据解析
+│   │   ├── test/                            # JVM 单元测试（不打包进 APK）
+│   │   │   └── java/com/aug32/l7audio/
+│   │   │       ├── domain/audio/micoutput/processor/AudioProcessorSafetyTest.java  # 处理器静音/极性/透传回归
+│   │   │       └── ui/model/FileItemTest.java                                      # 音频后缀与 Locale.ROOT 回归
 │   │   ├── res/                             # 资源文件
 │   │   │   ├── layout/                      # 布局（竖屏）
 │   │   │   ├── layout-land/                 # 布局（横屏）
@@ -382,7 +385,7 @@ L7Audio/
 ├── CHANGELOG.md                             # 改动记录
 ├── 开发需求文档.md                           # 开发需求文档
 ├── README.md                                # 本文件
-├── README2.md                               # 增强版文档（本文件）
+├── README2.md                               # 增强版文档
 ├── settings.gradle.kts                      # 项目设置
 ├── gradle.properties                        # Gradle 属性
 ├── gradlew / gradlew.bat                    # Gradle 包装器
@@ -472,7 +475,7 @@ L7Audio/
 **焦点类型**：
 
 - **永久焦点**（`AUDIOFOCUS_GAIN`）：音乐播放使用
-- **瞬时焦点**（`AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK`）：TTS / 车外喊话使用，支持闪避
+- **瞬时独占焦点**（`AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE`）：TTS / 车外喊话使用，会暂停本应用音乐；由引用计数管理，TTS 与喊话同时持有，全部释放后才真正让出焦点
 
 **特点**：
 
@@ -571,7 +574,7 @@ L7Audio/
 
 - 单一职责：每个处理器只做一种音频处理，可独立测试和替换
 - 处理顺序：`HPF → LPF → AFC NLMS → Gain → SpectralNR → HowlingNotch → AGC`
-- 线程安全：在录制线程中单线程调用，无需加锁
+- 线程安全：在录制线程中单线程串行执行；HPF/LPF 因支持 UI 线程运行时改截止频率，额外用 synchronized 与录制线程互斥
 
 ### 12. HighPassFilterProcessor — 高通滤波器
 
@@ -607,8 +610,8 @@ L7Audio/
 
 **核心参数**：
 
-- **滤波器阶数**：256 阶
-- **MU 步长**：0.3（收敛速度与稳定性平衡）
+- **滤波器阶数**：512 阶（由 1024 降为 512，兼顾回声消除效果与 8155 CPU）
+- **MU 步长**：0.05（收敛速度与稳定性平衡）
 - **DT_THRESHOLD**：1.5（双讲检测阈值，防止发散）
 - **LEAKAGE**：0.001（防止系数漂移）
 
@@ -641,7 +644,7 @@ L7Audio/
   - **beta**：频谱下限，保留底噪自然度
   - **学习机制**：静音期建立初始噪声谱，后持续自学习更新
 - **HowlingNotchFilter（啸叫陷波）**：FFT 频谱峰值检测啸叫频率点，使用 IIR 窄带陷波滤波器抑制
-  - **FFT 长度**：256 点
+  - **FFT 长度**：512 点（峰值检测用 512 点 FFT，陷波由 IIR 执行）
   - **陷波 Q 值**：30（窄带，不伤人声）
   - **抑制深度**：-12dB
   - **最多同时抑制**：3 个啸叫频点
@@ -654,10 +657,11 @@ L7Audio/
 
 **核心参数**：
 
-- **目标 RMS**：0.3
+- **目标 RMS**：0.2（约 -14dBFS，减少安静时段底噪放大）
 - **MAX_GAIN**：2.0（限制最大增益，防止 AGC+AFC 正反馈发散）
-- **GAIN_CHANGE_LIMIT**：0.02（每帧最大增益变化 ±2%，确保 AFC 能跟踪）
-- **限幅**：tanh 软限幅替代 clamp 硬限幅
+- **MIN_GAIN**：0.5（避免过度衰减）
+- **GAIN_CHANGE_LIMIT**：0.05（每帧最大增益变化 ±5%，确保 AFC 能跟踪）
+- **限幅**：输出归一化后钳位到 [-1, 1] 再转 short，防止整数回绕
 
 **设计特点**：
 
@@ -807,16 +811,43 @@ L7Audio/
 - `childCount` — 目录子项数（后台线程预计算）
 - `isSelected` — 是否选中
 
+### 31. TTSManager — TTS 语音播报管理
+
+**文件**：`domain/audio/tts/TTSManager.java`
+
+**职责**：封装 `TextToSpeech` 引擎的初始化、语言选择、播报与进度回调分发。
+
+**核心功能**：
+
+- 异步初始化引擎，优先中文（`setLanguage` 判定用 `>= LANG_AVAILABLE`，兼容车载引擎返回的 1/2）
+- 播报使用当前输出模式对应的 `AudioAttributes.Usage`（车内 / 车外）
+- 多槽位进度监听：`CopyOnWriteArrayList` + `addIfAbsent`，TTS 页面与悬浮窗各自持有监听器实例，互不覆盖
+- `stop()` / `shutdown()` 在确实中断播报时主动补发 `onError`，避免监听方等不到结束事件、瞬态音频焦点悬挂
+- `isInitialized` / `isSpeaking` 为 `volatile`，引擎绑定线程与业务线程可见
+
+### 32. AudioForegroundService — 音频前台服务
+
+**文件**：`service/player/AudioForegroundService.java`
+
+**职责**：以前台服务形式维持播放进程优先级，并提供通知栏控制。
+
+**核心功能**：
+
+- MediaStyle 通知（播放/暂停、上一曲、下一曲、停止），`START_STICKY` 被系统回收后自动重建
+- 媒体按键接收与分发（MediaSession / MediaButtonReceiver）
+- 通知刷新走应用内广播：`ContextCompat.registerReceiver(RECEIVER_NOT_EXPORTED)` 注册，`notifyUpdate()` 用应用内 `sendBroadcast` 投递，配合防抖 + trailingUpdate 保证最终一致
+- 专辑封面异步加载：IO 线程解码，加载前校验请求路径仍是当前歌曲，避免切歌串图
+
 ***
 
 ## 快速开始
 
 ### 环境要求
 
-- JDK 11+
-- Android Studio Hedgehog 或更高版本
-- Android SDK 30+
-- Gradle 8.x（随项目包装器自动下载）
+- JDK 21（Gradle toolchain 已固定为 21）
+- Android Studio 最新稳定版（需支持 AGP 9）
+- Android SDK 30+（compileSdk 36）
+- Gradle 9.1.0（随项目包装器自动下载）
 
 ### 导入项目
 
@@ -847,6 +878,9 @@ L7Audio/
 
 # 同时构建 Debug 和 Release
 .\gradlew.bat assemble --no-daemon
+
+# 运行 JVM 单元测试（音频处理器 / 文件后缀判断，无需真机）
+.\gradlew.bat :app:testDebugUnitTest --no-daemon
 
 # 清理构建产物
 .\gradlew.bat clean
@@ -889,6 +923,42 @@ adb install app/build/outputs/apk/release/L7音频工具-versionName-versionCode
 ***
 
 ## 版本历史
+
+### v1.5.12 (versionCode 144→149)
+
+> 自 v1.5.11（131）以来的累积改动，涵盖 132→149：以代码审查驱动（修复 5 个 P0 真实故障、6 个 P1 竞态问题、5 项 P2 整洁与兼容问题），叠加 10-24 真车日志驱动的喊话/路由修复，以及源码路径回正与无调用死代码注释。
+
+### 🐛 修复
+- 开机自启动开关关不掉:`BootReceiver.enable()` 强制把配置写回 true,改为按开关值写配置并同步组件状态
+- 第二次车外喊话无降噪/AGC:硬件 `NoiseSuppressor`/`AutomaticGainControl` 释放后恢复软件处理器;硬件 AGC 补 `agcProcessor.isEnabled()` 校验,不再无视用户开关
+- 喊话启停阻塞主线程:`MicrophoneManager.stop()` 改为锁外 join;`MicOutputController.toggle()` 改单线程串行执行器;输出模式切换整体移到 IO 线程
+- Activity 重建(主题/字体切换)替换 TTSManager 导致悬浮窗监听失效:TTSManager 改为进程级复用,`shutdown()` 播报中补发 `onTTSError`
+- TTS 与喊话共用瞬态焦点互踩:`AudioFocusManager` 瞬态独占焦点改引用计数,全部释放后才让出;`LOSS` 时同步清零
+- 静音超时/录制异常自动关闭补 `isAnnouncing` 校验,`stopAnnouncement` 加锁;启动失败回滚后补 `notifyOutputModeChanged`
+- AGC/谱减 `enabled` 改 `volatile`;通知栏异步封面加载校验请求路径,切歌不再串图
+- `PlaylistManager.removeItems` 的 `setLastPlayedIndex` 移出锁外;AFC 输出补 `[-32768,32767]` 限幅,消除收敛前回绕爆音
+- 正常说话被静音检测误判为静音(5 秒后自动关闭喊话):录制循环维护峰值 RMS,静音检测改读峰值;默认阈值 0.05→0.003,合法区间 0.001~0.3,历史默认值做一次性迁移
+- 音乐"车内/车外"切换无效:`PlaybackController.updateAudioUsage()` 判断线程,非主线程经主线程 Handler 转发,避免 ExoPlayer 线程校验抛异常被静默吞掉
+- 车外喊话在应用界面之外失败且完全静默:两个前台服务补 `microphone` 类型与权限,启动失败降级为 `mediaPlayback` 并 Toast 提示
+- 悬浮窗用过一次车外喊话后不再自动收起:喊话结束/自动关闭时重新武装自动收起计时器
+- 喊话设置保存失败提示打到错误卡片:改写到"车外喊话设置"状态位
+
+### 🚀 性能
+- 音频设备初始化/释放全部离开主线程(悬浮窗按钮、麦克风页、广播、Intent 四个入口)
+- `AudioOutputManager.getAudioUsage()` 去锁,消除建流热点路径上的锁内 SharedPreferences 读取
+- 清理重复配置落盘(5 处)、TTS 监听重试脚手架、仅打日志的 try-catch 与死代码(`hasAnyFocus`/`getPostProcessRms`/`rebuildExistingPaths`)
+- 音乐页列表刷新去重:前台(RESUMED)时交给反应式回调刷新,避免同一次添加重复跑 O(N) 拷贝 + DiffUtil
+
+### 🔧 其他
+- P2 整洁:配置读侧 clamp、`Locale.ROOT` 统一 + 音频格式判断合并(删除两份重复实现)
+- 20 条 deprecation 清零:`LocalBroadcastManager` → `ContextCompat.registerReceiver`、`getColor`、`stopForeground`、`startActivityForResult` 等
+- 新增 JVM 单元测试骨架:JUnit 4.13.2 + `testOptions.unitTests.isReturnDefaultValues`,`AudioProcessorSafetyTest` / `FileItemTest` 共 10 个用例
+- 移除无引用的 `localbroadcastmanager` 依赖
+- 🔧 关于页版本号追加 versionCode 显示(`PackageInfo.getLongVersionCode()`)
+- 🔧 设置页静音阈值说明修正:范围提示改为"推荐 0.003~0.01",输入框 `maxLength` 5→6,补充 RMS 说明
+- 🔧 两个文件移回原路径,消除"源码目录与包名不一致"(撤销 10-24 被撤回重构的路径残留),并删除空目录 `ui/view/`
+- 🔧 注释掉无调用方的 `AudioVisualizerView.updateTheme()`(主题切换走 Activity 重建)
+- 🔧 versionCode 131 → 149
 
 ### v1.5.11 (versionCode: 131)
 
@@ -1058,7 +1128,7 @@ adb install app/build/outputs/apk/release/L7音频工具-versionName-versionCode
 
 **A**：请确保：
 
-1. 应用已升级到最新版本（v1.5.6 versionCode: 88+）
+1. 应用已升级到最新版本（v1.5.12 versionCode: 144）
 2. TTS 列表不为空（编辑对话框需要至少一个 TTS 项才能打开）
 3. 如仍有问题，请检查日志中是否有 `open_floating_editor` 相关错误
 

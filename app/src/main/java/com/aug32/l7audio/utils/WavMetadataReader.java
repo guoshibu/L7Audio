@@ -47,6 +47,13 @@ import java.io.IOException;
 public class WavMetadataReader {
 
     /**
+     * 元数据块大小上限（4MB）。
+     * 正常 RIFF INFO / id3 元数据块远小于此值；超过即视为文件损坏或被构造，
+     * 防止按损坏头部声明的大小一次性分配超大字节数组
+     */
+    private static final int MAX_METADATA_CHUNK_SIZE = 4 * 1024 * 1024;
+
+    /**
      * 音频元数据结果
      */
     public static class AudioMetadata {
@@ -111,7 +118,11 @@ public class WavMetadataReader {
 
                 String chunkId = bytesToString(chunkHeader, 0, 4);
                 int chunkSize = readIntLE(chunkHeader, 4);
-                if (chunkSize <= 0 || chunkSize > fileSize) {
+                // 防御（内存）：chunkSize 合法性双重校验。
+                // 原来仅以文件大小为上界——头部损坏/被构造的文件可声明与文件等大的块，
+                // 后续 new byte[chunkSize] 一次性分配等大数组造成内存压力；
+                // 正常 INFO/id3 元数据块远小于 4MB，超限直接跳出
+                if (chunkSize <= 0 || chunkSize > MAX_METADATA_CHUNK_SIZE || chunkSize > fileSize) {
                     break;
                 }
 

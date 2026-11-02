@@ -128,7 +128,8 @@ public class SpectralAndNotchProcessor {
 
         private int noiseUpdateCount = 0;
         private int frameCount = 0;
-        private boolean enabled = true;
+        // UI 线程写、录制线程读，必须 volatile 保证开关立刻可见
+        private volatile boolean enabled = true;
 
         public SpectralNoiseReduction() {
             sineWindow = new float[FFT_SIZE];
@@ -252,7 +253,7 @@ public class SpectralAndNotchProcessor {
             float currentEnergy = 0.0f;
             float noiseEnergy = 0.0f;
             float sumMag = 0.0f;
-            float productMag = 1.0f;
+            float logSumMag = 0.0f;
             int validBins = 0;
 
             for (int i = 0; i <= HALF_FFT; i++) {
@@ -260,7 +261,9 @@ public class SpectralAndNotchProcessor {
                 noiseEnergy += noiseProfile[i] * noiseProfile[i];
                 if (mag[i] > 0.0001f) {
                     sumMag += mag[i];
-                    productMag *= mag[i];
+                    // 几何均值改用 log 域累加：129 个频点连乘极易下溢为 0，
+                    // 导致 Math.pow(productMag, 1/n) 失真；改为 exp(Σlog(x)/n) 保证数值稳定
+                    logSumMag += (float) Math.log(mag[i]);
                     validBins++;
                 }
             }
@@ -270,7 +273,7 @@ public class SpectralAndNotchProcessor {
             // 谱平坦度检测：语音信号有明显峰值，谱平坦度低；噪声信号平坦，谱平坦度高
             float spectralFlatness = 0.0f;
             if (validBins > 0 && sumMag > 0) {
-                float geometricMean = (float) Math.pow(productMag, 1.0f / validBins);
+                float geometricMean = (float) Math.exp(logSumMag / validBins);
                 float arithmeticMean = sumMag / validBins;
                 spectralFlatness = geometricMean / arithmeticMean;
             }

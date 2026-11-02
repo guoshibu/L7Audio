@@ -56,12 +56,20 @@ public class GainLimiterProcessor implements AudioProcessor {
      * @return tanh(x) 的近似值
      */
     private static float fastTanh(float x) {
-        if (x > 4.0f) return 1.0f;
-        if (x < -4.0f) return -1.0f;
+        // 输入侧 clamp 到多项式有效域 ±4：高增益场景下输入可达数十，
+        // 超出后多项式严重发散，先截断再进入多项式计算，避免无效运算与数值异常
+        if (x > 4.0f) x = 4.0f;
+        if (x < -4.0f) x = -4.0f;
         float x2 = x * x;
         float x3 = x2 * x;
         float x5 = x2 * x3;
-        return x - x3 / 3.0f + x5 / 5.0f;
+        float y = x - x3 / 3.0f + x5 / 5.0f;
+        // 多项式近似仅在 |x| ≲ 1.1 内收敛，超出后输出会超过 1（如 x=2 时约 5.73），
+        // 直接 (short) 强转会整数回绕产生刺耳爆音。用户把放大级别调高（factor>1）时
+        // 输入必然超过 1.1，必须在强转前钳位到 [-1,1] 保证安全
+        if (y > 1.0f) return 1.0f;
+        if (y < -1.0f) return -1.0f;
+        return y;
     }
 
     @Override

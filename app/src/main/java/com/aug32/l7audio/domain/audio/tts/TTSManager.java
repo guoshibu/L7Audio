@@ -7,6 +7,7 @@ import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 
 import java.util.Locale;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import com.aug32.l7audio.domain.audio.micoutput.AudioOutputManager;
 import com.aug32.l7audio.utils.AppLog;
@@ -61,12 +62,22 @@ public class TTSManager implements TextToSpeech.OnInitListener {
 
     /** TTS引擎实例 */
     private TextToSpeech textToSpeech;
-    /** TTS引擎是否已初始化 */
-    private boolean isInitialized = false;
-    /** 进度监听器 */
-    private TTSProgressListener progressListener;
-    /** 是否正在播报 */
-    private boolean isSpeaking = false;
+    /** TTS引擎是否已初始化（onInit 在引擎绑定线程写，业务线程读，需跨线程可见） */
+    private volatile boolean isInitialized = false;
+    /**
+     * 进度监听器集合（多槽位）。
+     * <p>
+     * 修复（监听器互踩）：原实现为单槽位 setProgressListener，TTSFragment 与
+     * FloatingWindowService 互相覆盖——Fragment 打开时覆盖 Service 的监听器，
+     * 销毁时又一并置 null。后果：悬浮窗 TTS 播完收不到 onTTSDone 回调，
+     * 瞬态焦点永不释放 → 音乐永久暂停。
+     * 改为注册表模式后，各方独立注册/注销，互不影响。
+     * CopyOnWriteArrayList：读远多于写（每次播报回调遍历，注册/注销极少），
+     * 且回调线程与注册线程不同，写时复制保证遍历安全。
+     */
+    private final CopyOnWriteArrayList<TTSProgressListener> progressListeners = new CopyOnWriteArrayList<>();
+    /** 是否正在播报（utterance 回调在引擎 Binder 线程写，业务线程读，需跨线程可见） */
+    private volatile boolean isSpeaking = false;
 
     /**
      * 构造函数
@@ -100,10 +111,16 @@ public class TTSManager implements TextToSpeech.OnInitListener {
 
             boolean languageSet = false;
 
+            // 修复（语言误判）：判定用 >= LANG_AVAILABLE 而非 ==。
+            // setLanguage 返回值：LANG_AVAILABLE(0)=完全可用、LANG_COUNTRY_AVAILABLE(1)=
+            // 国家变体可用、LANG_COUNTRY_VAR_AVAILABLE(2)=地区变体可用，三者均为成功；
+            // 负值（LANG_MISSING_DATA=-1 / LANG_NOT_SUPPORTED=-2）才是失败。
+            // 原实现 == LANG_AVAILABLE 会拒绝返回 1/2 的引擎（如部分车载中文引擎），
+            // 逐级回退后错误地落到英文
             if (!languageSet) {
                 int result = textToSpeech.setLanguage(Locale.SIMPLIFIED_CHINESE);
-                if (result == TextToSpeech.LANG_AVAILABLE) {
-                    AppLog.d(TAG, "Simplified Chinese language set successfully");
+                if (result >= TextToSpeech.LANG_AVAILABLE) {
+                    AppLog.d(TAG, "Simplified Chinese language set successfully (level=" + result + ")");
                     languageSet = true;
                 } else {
                     AppLog.w(TAG, "Simplified Chinese not available, result: " + result);
@@ -112,8 +129,8 @@ public class TTSManager implements TextToSpeech.OnInitListener {
 
             if (!languageSet) {
                 int result = textToSpeech.setLanguage(Locale.CHINA);
-                if (result == TextToSpeech.LANG_AVAILABLE) {
-                    AppLog.d(TAG, "Chinese (China) language set successfully");
+                if (result >= TextToSpeech.LANG_AVAILABLE) {
+                    AppLog.d(TAG, "Chinese (China) language set successfully (level=" + result + ")");
                     languageSet = true;
                 } else {
                     AppLog.w(TAG, "Chinese (China) not available, result: " + result);
@@ -122,8 +139,8 @@ public class TTSManager implements TextToSpeech.OnInitListener {
 
             if (!languageSet) {
                 int result = textToSpeech.setLanguage(Locale.TRADITIONAL_CHINESE);
-                if (result == TextToSpeech.LANG_AVAILABLE) {
-                    AppLog.d(TAG, "Traditional Chinese language set successfully");
+                if (result >= TextToSpeech.LANG_AVAILABLE) {
+                    AppLog.d(TAG, "Traditional Chinese language set successfully (level=" + result + ")");
                     languageSet = true;
                 } else {
                     AppLog.w(TAG, "Traditional Chinese not available, result: " + result);
@@ -132,8 +149,8 @@ public class TTSManager implements TextToSpeech.OnInitListener {
 
             if (!languageSet) {
                 int result = textToSpeech.setLanguage(Locale.ENGLISH);
-                if (result == TextToSpeech.LANG_AVAILABLE) {
-                    AppLog.d(TAG, "English language set successfully as fallback");
+                if (result >= TextToSpeech.LANG_AVAILABLE) {
+                    AppLog.d(TAG, "English language set successfully as fallback (level=" + result + ")");
                     languageSet = true;
                 } else {
                     AppLog.w(TAG, "English not available, result: " + result);
@@ -161,36 +178,29 @@ public class TTSManager implements TextToSpeech.OnInitListener {
                     public void onStart(String utteranceId) {
                         AppLog.d(TAG, "TTS started: " + utteranceId);
                         isSpeaking = true;
-                        if (progressListener != null) {
-                            progressListener.onTTSStart();
-                        }
+                        notifyTTSStart();
                     }
 
                     @Override
                     public void onDone(String utteranceId) {
                         AppLog.d(TAG, "TTS done: " + utteranceId);
                         isSpeaking = false;
-                        if (progressListener != null) {
-                            progressListener.onTTSDone();
-                        }
+                        notifyTTSDone();
                     }
 
+                    // onError(String) 仍是抽象方法（必须实现），但其自身被标记为废弃；
+                    // 实现委托给新版本重载，避免逻辑重复，并在本地抑制废弃警告
                     @Override
+                    @SuppressWarnings("deprecation")
                     public void onError(String utteranceId) {
-                        AppLog.e(TAG, "TTS error: " + utteranceId);
-                        isSpeaking = false;
-                        if (progressListener != null) {
-                            progressListener.onTTSError();
-                        }
+                        onError(utteranceId, TextToSpeech.ERROR);
                     }
 
                     @Override
                     public void onError(String utteranceId, int errorCode) {
                         AppLog.e(TAG, "TTS error: " + utteranceId + ", code: " + errorCode);
                         isSpeaking = false;
-                        if (progressListener != null) {
-                            progressListener.onTTSError();
-                        }
+                        notifyTTSError();
                     }
                 });
 
@@ -267,15 +277,14 @@ public class TTSManager implements TextToSpeech.OnInitListener {
             String utteranceId = "utterance_" + System.currentTimeMillis();
             params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId);
 
-            if (!textToSpeech.isSpeaking()) {
-                int result = textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId);
-                boolean success = (result == TextToSpeech.SUCCESS);
-                AppLog.d(TAG, "Speak text: " + text + ", result: " + success + ", AudioUsage: " + audioUsage);
-                return success;
-            } else {
-                AppLog.w(TAG, "TTS is already speaking");
-                return false;
-            }
+            // 修复（竞态）：不再用 textToSpeech.isSpeaking() 做播报前置判断。
+            // stop() 是异步生效的，刚 stop 完引擎内部状态可能仍报 speaking，
+            // 原实现此时直接返回 false → 用户看到"播放失败"提示但引擎实际正常。
+            // QUEUE_FLUSH 本身就是"清空队列、打断当前、立即播报"的语义，直接播即可
+            int result = textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId);
+            boolean success = (result == TextToSpeech.SUCCESS);
+            AppLog.d(TAG, "Speak text: " + text + ", result: " + success + ", AudioUsage: " + audioUsage);
+            return success;
         } catch (Exception e) {
             AppLog.e(TAG, "Failed to speak text", e);
             return false;
@@ -289,8 +298,17 @@ public class TTSManager implements TextToSpeech.OnInitListener {
      */
     public synchronized void stop() {
         if (textToSpeech != null && isInitialized) {
+            boolean wasSpeaking = isSpeaking;
             textToSpeech.stop();
             isSpeaking = false;
+            // 修复（stop 无回调）：部分 TTS 引擎对被 stop() 中断的 utterance
+            // 不会补发 onDone/onError，监听方（悬浮窗）苦等 onTTSDone 释放瞬态
+            // 焦点将永远等不到 → 音乐永久暂停。这里主动补发一次错误回调
+            // （语义=播报被取消）；各监听方对已释放状态均幂等，引擎若再补发
+            // 一次原生回调也不会产生副作用
+            if (wasSpeaking) {
+                notifyTTSError();
+            }
             AppLog.d(TAG, "TTS stopped");
         }
     }
@@ -302,6 +320,7 @@ public class TTSManager implements TextToSpeech.OnInitListener {
      * 调用后不应再使用该 TTSManager 实例。
      */
     public synchronized void shutdown() {
+        boolean wasSpeaking = isSpeaking;
         if (textToSpeech != null) {
             textToSpeech.stop();
             textToSpeech.shutdown();
@@ -309,6 +328,12 @@ public class TTSManager implements TextToSpeech.OnInitListener {
         }
         isInitialized = false;
         isSpeaking = false;
+        // 播报过程中销毁引擎必须补发一次错误回调（与 stop() 同理）：
+        // 引擎不会对被 shutdown 的 utterance 回调 onDone/onError，监听方（悬浮窗）
+        // 永远等不到结束事件 → 瞬态焦点不释放、音乐永久暂停
+        if (wasSpeaking) {
+            notifyTTSError();
+        }
         AppLog.d(TAG, "TTSManager shut down");
     }
 
@@ -322,12 +347,59 @@ public class TTSManager implements TextToSpeech.OnInitListener {
     }
 
     /**
-     * 设置 TTS 进度监听器
+     * 注册 TTS 进度监听器
      *
-     * @param listener 进度监听器，传 null 可清除监听器
+     * <p>多槽位注册表：各使用方（TTS 页面、悬浮窗服务）独立注册/注销，互不覆盖。
+     * 同一实例重复注册会被忽略。
+     *
+     * @param listener 进度监听器，非 null
      */
-    public void setProgressListener(TTSProgressListener listener) {
-        this.progressListener = listener;
+    public void addProgressListener(TTSProgressListener listener) {
+        if (listener != null) {
+            progressListeners.addIfAbsent(listener);
+        }
+    }
+
+    /**
+     * 注销 TTS 进度监听器
+     *
+     * @param listener 之前注册的监听器实例
+     */
+    public void removeProgressListener(TTSProgressListener listener) {
+        if (listener != null) {
+            progressListeners.remove(listener);
+        }
+    }
+
+    // 以下三个分发方法统一遍历监听器集合；单个监听器抛异常不影响其余监听器
+    private void notifyTTSStart() {
+        for (TTSProgressListener l : progressListeners) {
+            try {
+                l.onTTSStart();
+            } catch (Exception e) {
+                AppLog.e(TAG, "TTSProgressListener.onTTSStart error", e);
+            }
+        }
+    }
+
+    private void notifyTTSDone() {
+        for (TTSProgressListener l : progressListeners) {
+            try {
+                l.onTTSDone();
+            } catch (Exception e) {
+                AppLog.e(TAG, "TTSProgressListener.onTTSDone error", e);
+            }
+        }
+    }
+
+    private void notifyTTSError() {
+        for (TTSProgressListener l : progressListeners) {
+            try {
+                l.onTTSError();
+            } catch (Exception e) {
+                AppLog.e(TAG, "TTSProgressListener.onTTSError error", e);
+            }
+        }
     }
 
     /**

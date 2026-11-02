@@ -30,7 +30,16 @@ public class AudioPipeline {
 
     /** 处理器列表（按注册顺序执行） */
     private final List<AudioProcessor> processors = new ArrayList<>();
-    
+
+    /**
+     * 处理器名称缓存：注册时一次性求值 getClass().getSimpleName()，
+     * process() 每帧直接查表。
+     * 性能修复：原实现每帧对每个处理器做反射类名查询 + 字符串分配，
+     * 48kHz 实时管线每秒数千帧纯属浪费；IdentityHashMap 避免触发 equals/hashCode
+     */
+    private final java.util.IdentityHashMap<AudioProcessor, String> processorNames =
+            new java.util.IdentityHashMap<>();
+
     /** 处理器异常计数器：key 为处理器类名，value 为连续异常次数 */
     private final Map<String, Integer> errorCounters = new HashMap<>();
     
@@ -52,6 +61,8 @@ public class AudioPipeline {
     public void addProcessor(AudioProcessor processor) {
         if (processor != null) {
             processors.add(processor);
+            // 注册时缓存处理器名，process() 每帧免反射
+            processorNames.put(processor, processor.getClass().getSimpleName());
         }
     }
 
@@ -71,7 +82,12 @@ public class AudioPipeline {
                 continue;
             }
             
-            String processorName = processor.getClass().getSimpleName();
+            // 性能修复：从注册时缓存的名称表取处理器名，
+            // 原来每帧每处理器 getClass().getSimpleName()（反射 + 字符串分配）
+            String processorName = processorNames.get(processor);
+            if (processorName == null) {
+                processorName = processor.getClass().getSimpleName();
+            }
             
             try {
                 processor.process(samples);

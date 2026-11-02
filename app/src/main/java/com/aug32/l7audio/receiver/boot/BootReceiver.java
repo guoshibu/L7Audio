@@ -1,8 +1,10 @@
 package com.aug32.l7audio.receiver.boot;
 
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 
 import com.aug32.l7audio.data.local.AppConfig;
 import com.aug32.l7audio.service.player.AudioForegroundService;
@@ -85,15 +87,24 @@ public class BootReceiver extends BroadcastReceiver {
     }
 
     /**
-     * 启用开机自启动功能
-     * 修改配置文件中的开机自启动开关为开启状态
+     * 运行时动态启用/禁用 BootReceiver 组件
+     *
+     * <p>通过 PackageManager.setComponentEnabledSetting() 控制组件状态，
+     * 与 SharedPreferences 配置开关配合使用，可彻底阻止系统投递广播。</p>
+     *
+     * <p>注意：禁用后即使系统开机完成也不会收到广播，
+     * 需重新调用本方法或用户手动在系统设置中启用。</p>
      *
      * @param context 上下文
+     * @param enabled true 启用组件，false 禁用组件
      */
-    public static void enable(Context context) {
-        AppConfig appConfig = new AppConfig(context);
-        appConfig.setAutoStartOnBoot(true);
-        AppLog.d(TAG, "Boot receiver enabled");
+    public static void setEnabled(Context context, boolean enabled) {
+        PackageManager pm = context.getPackageManager();
+        ComponentName component = new ComponentName(context, BootReceiver.class);
+        int state = enabled ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                : PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+        pm.setComponentEnabledSetting(component, state, PackageManager.DONT_KILL_APP);
+        AppLog.d(TAG, "Boot receiver component " + (enabled ? "enabled" : "disabled"));
     }
 
 }

@@ -111,8 +111,41 @@ public class AudioServiceLocator {
 
         // 每个参数加 null 守卫，防止误传 null 覆盖已有实例
         if (audioOutputManager != null) this.audioOutputManager = audioOutputManager;
-        if (microphoneManager != null) this.microphoneManager = microphoneManager;
-        if (ttsManager != null) this.ttsManager = ttsManager;
+        if (microphoneManager != null) {
+            // 修复（孤儿录音线程）：覆盖旧 MicrophoneManager 前必须停止其录音。
+            // 旧实例若在喊话中（录音线程存活），被覆盖后不再有任何外部引用能触发
+            // stop()，录音线程成为孤儿持续占用麦克风并外放；而 MicOutputController
+            // 每次都从本定位器现取实例，后续 toggle 拿到的是新实例，其 stop() 因
+            // 新实例从未启动而直接返回，旧录音永远无法停止 → 麦克风永久占用。
+            // 注：这会导致主题切换/字体缩放触发 Activity 重建时正在进行的喊话被打断，
+            // 属于可接受降级（相比麦克风永久占用）。
+            if (this.microphoneManager != null && this.microphoneManager != microphoneManager) {
+                try {
+                    this.microphoneManager.stop();
+                    AppLog.d(TAG, "Stopped previous MicrophoneManager before registering new one");
+                } catch (Exception e) {
+                    // 停止失败不阻塞新实例注册，仅记录日志
+                    AppLog.e(TAG, "Failed to stop previous MicrophoneManager", e);
+                }
+            }
+            this.microphoneManager = microphoneManager;
+        }
+        if (ttsManager != null) {
+            // 修复：覆盖旧 TTSManager 前必须 shutdown 旧的 TextToSpeech 引擎连接。
+            // TextToSpeech 是重量级 binder 资源且全工程原本无任何 shutdown 调用点，
+            // 字体缩放/主题切换导致 Activity 重建并重注册时，旧引擎连接只能等 GC 兜底，
+            // 反复重建会持续堆积引擎连接并造成新旧实例状态割裂
+            if (this.ttsManager != null && this.ttsManager != ttsManager) {
+                try {
+                    this.ttsManager.shutdown();
+                    AppLog.d(TAG, "Shut down previous TTSManager before registering new one");
+                } catch (Exception e) {
+                    // 释放失败不阻塞新实例注册，仅记录日志
+                    AppLog.e(TAG, "Failed to shutdown previous TTSManager", e);
+                }
+            }
+            this.ttsManager = ttsManager;
+        }
         if (audioFocusManager != null) this.audioFocusManager = audioFocusManager;
 
         if (musicPlayerManager != null && this.musicPlayerManager == null) {

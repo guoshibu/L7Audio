@@ -12,8 +12,11 @@ import com.aug32.l7audio.domain.audio.micoutput.AudioProcessor;
  * </ul>
  *
  * <p>线程安全：截止频率可在录制过程中由 UI 线程运行时修改（{@link #setCutoffFrequency}），
- * 而 {@link #process} 在录制线程读取系数。系数字段用 volatile 保证跨线程可见性，
- * 单个 float 读写本身原子；换系数时立即 {@link #reset()} 清空滤波器历史状态，
+ * 而 {@link #process} 在录制线程读取系数与历史状态。系数字段用 volatile 保证跨线程可见性；
+ * 历史状态（x1/x2/y1/y2）与 enabled 存在"多读多写"依赖关系，volatile 无法保证复合操作原子性，
+ * 因此 process/setCutoffFrequency/reset/setEnabled 统一用 synchronized(this) 互斥——
+ * 临界区仅几十次浮点运算，对录制线程的阻塞可忽略。
+ * 换系数/重新开启时立即 {@link #reset()} 清空滤波器历史状态，
  * 避免新旧系数与残留状态不匹配导致的爆音。
  */
 public class HighPassFilterProcessor implements AudioProcessor {
@@ -34,7 +37,8 @@ public class HighPassFilterProcessor implements AudioProcessor {
     private volatile float a1;
     private volatile float a2;
 
-    // 滤波器历史状态（仅录制线程访问）
+    // 滤波器历史状态与开关（process 在录制线程读写，setter 在 UI 线程写，
+    // 统一由 synchronized(this) 互斥，故无需 volatile）
     private float x1 = 0.0f;
     private float x2 = 0.0f;
     private float y1 = 0.0f;
@@ -57,10 +61,11 @@ public class HighPassFilterProcessor implements AudioProcessor {
      * 运行时修改截止频率并即时生效。
      *
      * <p>重算系数后立即清空滤波器历史状态，防止换系数瞬间产生爆音。
+     * synchronized 与录制线程的 {@link #process} 互斥，避免改到一半被 process 读到"新系数+旧状态"的混合态。
      *
      * @param cutoffHz 新截止频率（Hz），自动 clamp 到 [50, 2000]
      */
-    public void setCutoffFrequency(float cutoffHz) {
+    public synchronized void setCutoffFrequency(float cutoffHz) {
         recalcCoefficients(cutoffHz);
         reset();
     }
@@ -95,7 +100,7 @@ public class HighPassFilterProcessor implements AudioProcessor {
     }
 
     @Override
-    public void process(short[] samples) {
+    public synchronized void process(short[] samples) {
         if (!enabled) return;
 
         for (int i = 0; i < samples.length; i++) {
@@ -112,7 +117,7 @@ public class HighPassFilterProcessor implements AudioProcessor {
     }
 
     @Override
-    public void reset() {
+    public synchronized void reset() {
         x1 = 0.0f;
         x2 = 0.0f;
         y1 = 0.0f;
@@ -120,12 +125,17 @@ public class HighPassFilterProcessor implements AudioProcessor {
     }
 
     @Override
-    public boolean isEnabled() {
+    public synchronized boolean isEnabled() {
         return enabled;
     }
 
     @Override
-    public void setEnabled(boolean enabled) {
+    public synchronized void setEnabled(boolean enabled) {
+        // 重新开启时清空历史状态，避免残留的旧样本造成瞬时爆音/咔哒声
+        // （与 LowPassFilterProcessor 行为对齐）
+        if (enabled && !this.enabled) {
+            reset();
+        }
         this.enabled = enabled;
     }
 }

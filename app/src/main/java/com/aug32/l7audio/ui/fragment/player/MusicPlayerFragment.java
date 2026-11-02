@@ -36,6 +36,7 @@ import com.aug32.l7audio.domain.audio.player.MusicPlayerManager;
 import com.aug32.l7audio.R;
 import com.aug32.l7audio.ui.activity.MainActivity;
 import com.aug32.l7audio.ui.adapter.MusicPlaylistAdapter;
+import com.aug32.l7audio.ui.model.FileItem;
 import com.aug32.l7audio.utils.AlbumArtCache;
 import com.aug32.l7audio.utils.AppExecutors;
 import com.aug32.l7audio.utils.AppLog;
@@ -854,14 +855,8 @@ public class MusicPlayerFragment extends Fragment {
      * @return true 表示是支持的音频格式
      */
     private boolean isAudioFile(File file) {
-        if (file == null || !file.isFile()) return false;
-        String name = file.getName().toLowerCase(Locale.getDefault());
-        for (String ext : com.aug32.l7audio.utils.FileUtils.AUDIO_EXTENSIONS) {
-            if (name.endsWith(ext)) {
-                return true;
-            }
-        }
-        return false;
+        // 复用 FileItem 的统一实现（Locale.ROOT + 同一后缀表）
+        return file != null && file.isFile() && FileItem.isAudioFileName(file.getName());
     }
 
     /**
@@ -909,7 +904,15 @@ public class MusicPlayerFragment extends Fragment {
                         // Fragment 处于 PAUSED 状态、MusicPlayerManager.callback 被置空，
                         // 该回调会被静默丢弃，导致全新安装扫描后列表不刷新。
                         // 这里从添加结果回调直接刷新，不依赖反应式回调是否存活。
-                        refreshPlaylist();
+                        // 【双触发修复】前台（RESUMED）时反应式回调 onPlaylistChanged 已会刷新，
+                        // 这里再刷会让 refreshPlaylist 的 O(N) 拷贝+DiffUtil 跑两遍，故仅在后
+                        // 台回调缺席时直接刷新
+                        boolean reactiveCallbackAlive = getView() != null
+                                && getViewLifecycleOwner().getLifecycle()
+                                .getCurrentState().isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED);
+                        if (!reactiveCallbackAlive && getView() != null) {
+                            refreshPlaylist();
+                        }
                     }
                 });
     }
@@ -960,9 +963,14 @@ public class MusicPlayerFragment extends Fragment {
         if (lyricLines == null || lyricLines.isEmpty()) return;
         if (llLyricsContainer == null || llLyricsContainer.getChildCount() == 0) return;
 
-        // 找到当前应该高亮的行
+        // 找到当前应该高亮的行。
+        // 性能优化：播放进度通常单调递增，从上一高亮行继续向后扫即可（均摊 O(1)）；
+        // 仅当进度回退（seek 到前面）时才从头全表扫描
         int newIndex = -1;
-        for (int i = 0; i < lyricLines.size(); i++) {
+        int start = (currentLyricIndex >= 0
+                && currentPosition >= lyricLines.get(currentLyricIndex).timeMs)
+                ? currentLyricIndex : 0;
+        for (int i = start; i < lyricLines.size(); i++) {
             if (lyricLines.get(i).timeMs <= currentPosition) {
                 newIndex = i;
             } else {

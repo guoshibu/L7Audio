@@ -161,6 +161,21 @@ public class AudioVisualizerView extends View {
         animator.setDuration(ANIMATION_DURATION);
         animator.setInterpolator(new LinearInterpolator());
         animator.setRepeatCount(ValueAnimator.INFINITE);
+        attachAnimatorUpdateListener();
+    }
+
+    /**
+     * 挂载动画更新监听器。
+     * <p>
+     * 修复（P2-23）：onDetachedFromWindow 为防泄漏会 removeAllUpdateListeners，
+     * 但原实现没有恢复路径——视图被重新 attach（Fragment 视图复用、ViewPager 预加载、
+     * 悬浮窗切页等）后即使 startAnimation() 被调用，animator 也因没有更新监听器而"静止不动"。
+     * 抽成独立方法，attach 与 setup/start 三条路径共用，重复调用由 removeAllUpdateListeners 保证幂等。
+     */
+    private void attachAnimatorUpdateListener() {
+        if (animator == null) return;
+        // 先清空再加，避免重复添加导致每帧回调多次
+        animator.removeAllUpdateListeners();
         animator.addUpdateListener(animation -> {
             animationProgress = (float) animation.getAnimatedValue();
             updateTargetHeights();
@@ -300,6 +315,24 @@ public class AudioVisualizerView extends View {
      * 先停止当前动画，重新加载颜色资源和画笔设置，然后触发重绘
      * 用于应用主题切换时更新可视化视图的配色
      */
+    /*
+     * 【2026-11-02 注释：无调用方的死代码，保留原文便于恢复】
+     *
+     * 为什么注释：
+     * 1) 全仓库（单模块 :app）仅此一处声明，没有任何调用点；
+     * 2) 无接口/父类声明该方法，无反射 getMethod("updateTheme")，无 ::updateTheme 方法引用；
+     * 3) 主题切换实际走“重启/重建 Activity”路径：SettingsFragment 的 themeRadioGroup 监听器
+     *    以 FLAG_ACTIVITY_NEW_TASK|CLEAR_TASK 重新启动 MainActivity（见 SettingsFragment#initListeners），
+     *    重建后 TTSFragment 会重新 new AudioVisualizerView，颜色在构造与首次绘制时已按新主题加载，
+     *    因此不存在“原地刷新配色”的需求。
+     *
+     * 什么条件下可以整段删除：
+     * 将来若引入“不重建 Activity 的原地主题切换”，且需要复用已有 AudioVisualizerView 实例时再评估；
+     * 确认长期无此需求即可删除。
+     *
+     * 恢复方式：移除本注释块的开头/结尾标记即可，下方原实现未做任何改动。
+     */
+    /*
     public void updateTheme() {
         // 先停止动画，避免在旧颜色状态下继续动画
         stopAnimation();
@@ -307,6 +340,25 @@ public class AudioVisualizerView extends View {
         loadColors();
         setupPaints();
         invalidate();
+    }
+    */
+
+    /**
+     * 视图挂载到窗口时的回调。
+     * <p>
+     * 修复（P2-23）：若视图脱离窗口期间动画本应处于运行状态（isAnimating=true），
+     * 重新挂载时补回更新监听器并重启动画，避免复用视图后可视化"静止不动"。
+     */
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        if (isAnimating && animator != null) {
+            attachAnimatorUpdateListener();
+            if (!animator.isRunning()) {
+                animator.start();
+            }
+            invalidate();
+        }
     }
 
     /**
@@ -319,6 +371,7 @@ public class AudioVisualizerView extends View {
         // 停止动画，释放动画资源
         stopAnimation();
         // 移除所有更新监听器，避免动画器持有视图引用导致内存泄漏
+        // 注意：重新 attach 时由 onAttachedToWindow 恢复（见 attachAnimatorUpdateListener）
         if (animator != null) {
             animator.removeAllUpdateListeners();
         }

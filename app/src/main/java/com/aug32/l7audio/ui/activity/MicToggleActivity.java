@@ -83,6 +83,8 @@ public class MicToggleActivity extends AppCompatActivity {
             controller.init(appContext);
         }
 
+        // toggle() 内部已改为串行执行器异步执行：音频设备初始化不再占用本 Activity 主线程，
+        // 因此这里直接调用后立即 finish() 即可
         controller.toggle(true, true);
 
         finish();

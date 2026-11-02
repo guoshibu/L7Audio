@@ -15,7 +15,6 @@ import java.util.Locale;
 
 import com.aug32.l7audio.R;
 import com.aug32.l7audio.ui.model.FileItem;
-import com.aug32.l7audio.utils.FileUtils;
 
 /**
  * 文件浏览器列表适配器
@@ -261,14 +260,8 @@ public class FileBrowserAdapter extends RecyclerView.Adapter<FileBrowserAdapter.
      * @return true 表示是支持的音频格式
      */
     private boolean isAudioFile(String filePath) {
-        if (filePath == null || filePath.isEmpty()) return false;
-        String name = filePath.toLowerCase(Locale.getDefault());
-        for (String ext : FileUtils.AUDIO_EXTENSIONS) {
-            if (name.endsWith(ext)) {
-                return true;
-            }
-        }
-        return false;
+        // 复用 FileItem 的统一实现（Locale.ROOT + 同一后缀表），避免与其它入口判断不一致
+        return FileItem.isAudioFileName(filePath);
     }
 
     @NonNull

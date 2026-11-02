@@ -49,6 +49,14 @@ public class TTSFragment extends BaseFragment {
     /** 是否有待处理的悬浮窗编辑器打开请求（防止 LiveData 多次发射导致请求丢失） */
     private boolean pendingFloatingEditor = false;
 
+    /**
+     * TTS 进度监听器（本 Fragment 专属实例）。
+     * <p>修复（监听器互踩）：TTSManager 已改为多槽位注册表，
+     * 必须持有本实例引用才能在 onDestroyView 精确注销，
+     * 避免误删悬浮窗服务的监听器导致其 TTS 完成回调丢失。
+     */
+    private TTSManager.TTSProgressListener ttsProgressListener;
+
     @Override
     protected int getLayoutId() {
         return R.layout.fragment_tts;
@@ -65,7 +73,7 @@ public class TTSFragment extends BaseFragment {
         locator.init(requireContext());
         ttsManager = locator.getTTSManager();
         if (ttsManager != null) {
-            ttsManager.setProgressListener(new TTSManager.TTSProgressListener() {
+            ttsProgressListener = new TTSManager.TTSProgressListener() {
                 @Override
                 public void onTTSStart() {
                 }
@@ -74,6 +82,10 @@ public class TTSFragment extends BaseFragment {
                 public void onTTSDone() {
                     if (getSafeActivity() != null) {
                         getSafeActivity().runOnUiThread(() -> {
+                            // 修复：晚到回调判空。runOnUiThread 是异步投递，
+                            // 执行时本 Fragment 可能已过 onDestroyView（ttsItems 已置 null），
+                            // 且监听器注销只能挡"新"回调、挡不住已投递的在途回调 → 必须判空
+                            if (ttsItems == null) return;
                             if (currentlyPlayingPosition >= 0 && currentlyPlayingPosition < ttsItems.size()) {
                                 ttsItems.get(currentlyPlayingPosition).isPlaying = false;
                                 currentlyPlayingPosition = -1;
@@ -87,6 +99,8 @@ public class TTSFragment extends BaseFragment {
                 public void onTTSError() {
                     if (getSafeActivity() != null) {
                         getSafeActivity().runOnUiThread(() -> {
+                            // 同 onTTSDone：晚到回调需防 ttsItems 已被 onDestroyView 置空
+                            if (ttsItems == null) return;
                             if (currentlyPlayingPosition >= 0 && currentlyPlayingPosition < ttsItems.size()) {
                                 ttsItems.get(currentlyPlayingPosition).isPlaying = false;
                                 currentlyPlayingPosition = -1;
@@ -95,7 +109,8 @@ public class TTSFragment extends BaseFragment {
                         });
                     }
                 }
-            });
+            };
+            ttsManager.addProgressListener(ttsProgressListener);
         }
 
         ttsItems = new ArrayList<>();
@@ -141,8 +156,10 @@ public class TTSFragment extends BaseFragment {
     @Override
     public void onDestroyView() {
         super.onDestroyView();
-        if (ttsManager != null) {
-            ttsManager.setProgressListener(null);
+        // 只注销本 Fragment 的监听器实例，不影响悬浮窗服务等其他注册方
+        if (ttsManager != null && ttsProgressListener != null) {
+            ttsManager.removeProgressListener(ttsProgressListener);
+            ttsProgressListener = null;
         }
         ttsItemsContainer = null;
         ttsInput = null;
@@ -455,13 +472,13 @@ public class TTSFragment extends BaseFragment {
             Button positiveBtn = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
             Button negativeBtn = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
 
-            positiveBtn.setTextColor(getResources().getColor(android.R.color.white));
-            positiveBtn.setBackgroundColor(getResources().getColor(R.color.button_background_selected));
+            positiveBtn.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.white));
+            positiveBtn.setBackgroundColor(ContextCompat.getColor(requireContext(), R.color.button_background_selected));
             positiveBtn.setTextSize(16);
             positiveBtn.setPadding(32, 16, 32, 16);
 
-            negativeBtn.setTextColor(getResources().getColor(android.R.color.white));
-            negativeBtn.setBackgroundColor(getResources().getColor(R.color.button_background));
+            negativeBtn.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.white));
+            negativeBtn.setBackgroundColor(ContextCompat.getColor(requireContext(), R.color.button_background));
             negativeBtn.setTextSize(16);
             negativeBtn.setPadding(32, 16, 32, 16);
         });

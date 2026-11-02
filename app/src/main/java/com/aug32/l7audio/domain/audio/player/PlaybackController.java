@@ -73,6 +73,13 @@ public class PlaybackController {
     private boolean wasPlayingBeforeFocusLoss = false;
     // ExoPlayer 播放状态监听器，在 release() 时需移除
     private Player.Listener playerListener;
+    /**
+     * ExoPlayer 诊断用 AnalyticsListener（offload 埋点）。
+     * 修复：原来以匿名内部类形式 addAnalyticsListener 后不留引用，
+     * release() 无法移除 → 监听器连同其匿名类实例被 ExoPlayer 持有，
+     * 延长控制器生命周期；改为字段持有以便 release() 中显式移除
+     */
+    private androidx.media3.exoplayer.analytics.AnalyticsListener analyticsListener;
     // 音频焦点变化监听器，处理焦点获取、短暂丢失和永久丢失三种场景
     private final AudioFocusManager.OnAudioFocusChangeListener focusChangeListener =
             new AudioFocusManager.OnAudioFocusChangeListener() {
@@ -199,7 +206,7 @@ public class PlaybackController {
 
             // 【需要日志验证】监听 AudioTrack 初始化，确认是否真正进入 offload 模式；
             // 该埋点仅用于诊断（[OFFLOAD-CHECK]），offload=true 表示走了 aDSP 硬件 offload
-            exoPlayer.addAnalyticsListener(new androidx.media3.exoplayer.analytics.AnalyticsListener() {
+            analyticsListener = new androidx.media3.exoplayer.analytics.AnalyticsListener() {
                 @Override
                 public void onAudioTrackInitialized(
                         androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime eventTime,
@@ -209,7 +216,8 @@ public class PlaybackController {
                             + ", encoding=" + audioTrackConfig.encoding
                             + ", sampleRate=" + audioTrackConfig.sampleRate);
                 }
-            });
+            };
+            exoPlayer.addAnalyticsListener(analyticsListener);
 
             AppLog.d(TAG, "ExoPlayer initialized (offload requested, hardware decode preferred)");
         } catch (Exception e) {
@@ -320,12 +328,14 @@ public class PlaybackController {
      *
      * @param item          要播放的音乐项，包含文件路径、标题、艺术家等信息
      * @param startPosition 起始播放位置（毫秒），为 0 时从头开始播放
+     * @return true=播放流程已启动（异步 prepare，后续错误走回调）；
+     *         false=启动被拒绝（参数无效/音频焦点被拒/异常），调用方需回滚"播放中"外观
      */
-    public void play(MusicItem item, long startPosition) {
+    public boolean play(MusicItem item, long startPosition) {
         // 参数有效性检查，避免空指针异常
         if (exoPlayer == null || item == null) {
             AppLog.e(TAG, "play: exoPlayer=" + exoPlayer + ", item=" + item);
-            return;
+            return false;
         }
 
         AppLog.d(TAG, ">>> play() called: title=" + item.title + ", path=" + item.filePath + ", startPosition=" + startPosition);
@@ -334,8 +344,11 @@ public class PlaybackController {
             // 第一步：请求音频焦点，被拒则不播放
             AppLog.d(TAG, "play: step1 - requesting focus");
             if (!requestFocus()) {
+                // 修复（C2）：焦点被拒属于"失败返回"路径，必须告知调用方。
+                // 原实现静默 return，MusicPlayerManager 不知情，继续把
+                // MediaSession/通知栏/SP 写成"播放中" → 假播放中
                 AppLog.w(TAG, "play: focus denied, abort playback");
-                return;
+                return false;
             }
             AppLog.d(TAG, "play: step1 - focus granted");
 
@@ -370,6 +383,7 @@ public class PlaybackController {
                     .build());
 
             AppLog.d(TAG, ">>> play() completed, final state=" + exoPlayer.getPlaybackState() + ", isPlaying=" + exoPlayer.isPlaying());
+            return true;
         } catch (Exception e) {
             // 播放异常时更新状态为错误，并通过回调通知外部
             AppLog.e(TAG, "Failed to play", e);
@@ -380,6 +394,7 @@ public class PlaybackController {
             if (callback != null) {
                 callback.onError("播放失败: " + e.getMessage());
             }
+            return false;
         }
     }
 
@@ -454,8 +469,12 @@ public class PlaybackController {
         }
 
         // 目标位置与当前位置差异超过100ms时才执行 seek，避免不必要的跳转
-        if (position >= 0 && Math.abs(exoPlayer.getCurrentPosition() - position) > 100) {
-            AppLog.d(TAG, "resume: seeking to " + position + " (current=" + exoPlayer.getCurrentPosition() + ")");
+        // 注意：getCurrentPosition() 在 IDEL/无媒体时可能返回 C.TIME_UNSET(-1)，
+        // 此时减法结果恒大于阈值会导致无谓 seek，需先判 TIME_UNSET 守卫
+        long currentPosition = exoPlayer.getCurrentPosition();
+        if (position >= 0 && currentPosition != C.TIME_UNSET
+                && Math.abs(currentPosition - position) > 100) {
+            AppLog.d(TAG, "resume: seeking to " + position + " (current=" + currentPosition + ")");
             exoPlayer.seekTo(position);
         }
 
@@ -511,6 +530,17 @@ public class PlaybackController {
      */
     public void updateAudioUsage(int audioUsage) {
         if (exoPlayer == null) return;
+        // 【线程约束】ExoPlayer 只能在创建它的主线程访问：media3 的
+        // ExoPlayerImpl.setAudioAttributes() 第一步就是 verifyApplicationThread()，
+        // 线程不对会抛 IllegalStateException。
+        // 调用方可能来自 IO 线程（主页切换车内/车外）或喊话执行器线程
+        // （MicOutputController.stopAnnouncement），原实现在这些线程直接调用，
+        // 异常被下方 catch 静默吞掉，表现为"模式已切换但音乐声道不变"。
+        // 统一投递到主线程执行，调用方无需关心线程。
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            progressHandler.post(() -> updateAudioUsage(audioUsage));
+            return;
+        }
         try {
             AudioAttributes audioAttributes = new AudioAttributes.Builder()
                     .setUsage(audioUsage)
@@ -543,6 +573,11 @@ public class PlaybackController {
             if (playerListener != null) {
                 exoPlayer.removeListener(playerListener);
                 playerListener = null;
+            }
+            // 修复：移除诊断用 AnalyticsListener，避免其被 ExoPlayer 长期持有
+            if (analyticsListener != null) {
+                exoPlayer.removeAnalyticsListener(analyticsListener);
+                analyticsListener = null;
             }
             exoPlayer.release();
             exoPlayer = null;
@@ -656,15 +691,18 @@ public class PlaybackController {
     }
 
     private void setState(PlaybackState newState) {
-        // 状态去重：只有当状态、当前歌曲、错误信息都相同时才跳过通知
-        // 目的：避免重复回调导致UI不必要的刷新，减少性能消耗
-        if (this.currentState != null && this.currentState.getState() == newState.getState()
-                && this.currentState.getCurrentItem() == newState.getCurrentItem()
-                && this.currentState.getErrorMessage() == newState.getErrorMessage()) {
-            return;
-        }
+        // 状态去重：状态/歌曲/错误信息任一变化才回调通知，避免UI不必要的刷新
+        boolean identityChanged = this.currentState == null
+                || this.currentState.getState() != newState.getState()
+                || this.currentState.getCurrentItem() != newState.getCurrentItem()
+                || this.currentState.getErrorMessage() != newState.getErrorMessage();
+        // 修复（C3）：去重只跳过回调，不能跳过状态写入。
+        // 原实现去重命中时整体 return——进度更新（每 500ms，同状态同歌曲）全部被吞，
+        // currentState.currentPosition 永远停留在状态切换那一刻的值；
+        // 一旦 ExoPlayer 返回 TIME_UNSET/异常，getCurrentPosition()/getDuration()
+        // 回退读到的就是这个陈旧进度
         this.currentState = newState;
-        if (callback != null) {
+        if (identityChanged && callback != null) {
             callback.onStateChanged(newState);
         }
     }

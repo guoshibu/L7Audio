@@ -57,19 +57,35 @@
                     android:textColor="@color/text_secondary"
                     android:layout_marginBottom="8dp" />
                 
-                <!-- 歌词显示 -->
+                <!-- 歌词显示（可滚动，按行高亮）
+                     修复：原横屏布局只有无 ID 的 ScrollView + tv_lyrics，
+                     与 MusicPlayerFragment 绑定的 sv_lyrics/ll_lyrics_container/tv_lyrics_placeholder
+                     不匹配，llLyricsContainer 为 null 导致横屏歌词功能整体失效；
+                     这里对齐竖屏布局的 ID 结构 -->
                 <ScrollView
+                    android:id="@+id/sv_lyrics"
                     android:layout_width="match_parent"
                     android:layout_height="0dp"
-                    android:layout_weight="1">
-                    
-                    <TextView
-                        android:id="@+id/tv_lyrics"
+                    android:layout_weight="1"
+                    android:fillViewport="true">
+
+                    <LinearLayout
+                        android:id="@+id/ll_lyrics_container"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="暂无歌词"
-                        android:textSize="@dimen/text_player_lyric"
-                        android:textColor="@color/text_secondary" />
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="4dp">
+
+                        <TextView
+                            android:id="@+id/tv_lyrics_placeholder"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:text="暂无歌词"
+                            android:textSize="@dimen/text_player_lyric"
+                            android:textColor="@color/text_secondary" />
+                    </LinearLayout>
                 </ScrollView>
             </LinearLayout>
         </LinearLayout>

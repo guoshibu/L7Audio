@@ -14,6 +14,8 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.core.text.HtmlCompat;
 
 import java.util.Locale;
@@ -60,8 +62,13 @@ public class SettingsFragment extends BaseFragment {
     private static final String TAG = "SettingsFragment";
     // 字体缩放排查专用 TAG，便于 adb logcat 单独过滤：adb logcat | findstr FontScale
     private static final String FONT_SCALE_TAG = "FontScale";
-    // 悬浮窗权限（SYSTEM_ALERT_WINDOW）授权请求码，用于 startActivityForResult 跳转系统授权页后回调识别
-    private static final int REQUEST_OVERLAY_PERMISSION = 200;
+    // 悬浮窗权限（SYSTEM_ALERT_WINDOW）授权返回处理。
+    // 用 ActivityResult API 替代已废弃的 startActivityForResult/onActivityResult：
+    // 系统授权页不返回明确 resultCode，因此回来后主动复查权限状态。
+    // 注意：回调体必须委托给方法，不能直接引用后面声明的字段（Java 非法前向引用）
+    private final ActivityResultLauncher<Intent> overlayPermissionLauncher =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
+                    result -> onOverlayPermissionReturn());
 
     // ========== 主题设置 UI ==========
     /** 主题选择单选组 */
@@ -78,6 +85,9 @@ public class SettingsFragment extends BaseFragment {
     private Switch floatingWindowSwitch;
     // 程序化改写悬浮窗开关状态（如无权限弹回）时置 true，令监听器跳过业务逻辑，避免 setChecked 再入导致的启停抖动
     private boolean suppressFloatingSwitchCallback = false;
+    // 程序化回填主题单选组（如恢复默认）时置 true，令监听器跳过业务逻辑，
+    // 避免 check() 触发 NEW_TASK|CLEAR_TASK 清栈重启——用户点"恢复默认"不应导致整个应用重启
+    private boolean suppressThemeCallback = false;
     /** 返回按钮 */
     private Button btnBack;
     /** 主页按钮 */
@@ -367,6 +377,9 @@ public class SettingsFragment extends BaseFragment {
         // 主题切换
         themeRadioGroup.setOnCheckedChangeListener((group, checkedId) -> {
             if (!isAdded()) return;
+            // 程序化回填（如恢复默认）时跳过业务逻辑：
+            // 该监听器会以 NEW_TASK|CLEAR_TASK 清栈重启应用，恢复默认时不应触发
+            if (suppressThemeCallback) return;
             int themeMode = AppConfig.THEME_MODE_SYSTEM;
             if (checkedId == R.id.theme_system) {
                 themeMode = AppConfig.THEME_MODE_SYSTEM;
@@ -392,10 +405,13 @@ public class SettingsFragment extends BaseFragment {
         });
 
         // 开机自启动开关
+        // 修复：原实现无论勾选与否都调用 BootReceiver.enable()（内部强制把配置写成 true），
+        // 于是"关掉开关"会被立刻覆盖回开启，用户永远关不掉开机自启动
         autoStartSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (!isAdded()) return;
+            // 配置决定是否真正拉起应用，组件状态决定系统是否投递开机广播，两者必须同步
             themeConfig.setAutoStartOnBoot(isChecked);
-            BootReceiver.enable(requireContext());
+            BootReceiver.setEnabled(requireContext(), isChecked);
         });
 
         // 悬浮窗开关
@@ -519,6 +535,8 @@ public class SettingsFragment extends BaseFragment {
                     float before = themeConfig.getFontScale();
                     // 松手后保存并重建 Activity，单 Activity 架构下即整个 App 生效
                     themeConfig.setFontScale(scale);
+                    // 清掉 BaseActivity 的字体缩放静态缓存，确保 recreate 后 attachBaseContext 读到新值
+                    com.aug32.l7audio.base.BaseActivity.invalidateFontScaleCache();
                     float saved = themeConfig.getFontScale();
                     AppLog.d(FONT_SCALE_TAG, "已持久化: before=" + String.format(Locale.US, "%.2f", before)
                             + " -> after(读回)=" + String.format(Locale.US, "%.2f", saved)
@@ -573,18 +591,32 @@ public class SettingsFragment extends BaseFragment {
      */
     private void restartApp() {
         if (!isAdded()) return;
+        // 修复（P2-14）：必须先成功拉起冷启动 Intent 再结束进程。
+        // 原实现无论 Intent 是否为空/是否启动成功都执行 Runtime.exit(0)，
+        // 一旦 getLaunchIntentForPackage 返回 null 或 startActivity 抛异常，
+        // 应用被杀死后没有任何东西把它拉起来——用户看到"闪退后彻底退出"。
+        boolean launched = false;
         try {
             android.content.Context ctx = requireContext().getApplicationContext();
             Intent intent = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
             if (intent != null) {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
                 ctx.startActivity(intent);
+                launched = true;
+            } else {
+                AppLog.e(TAG, "重启失败：无法获取启动 Intent，保留当前进程");
             }
         } catch (Exception e) {
             AppLog.e(TAG, "Failed to restart app", e);
         }
-        // 结束进程，触发系统按上面的 Intent 冷启动新进程
-        Runtime.getRuntime().exit(0);
+
+        if (launched) {
+            // 仅在新进程启动请求已提交后才结束当前进程
+            Runtime.getRuntime().exit(0);
+        } else if (getActivity() != null) {
+            // 兜底降级：无法冷启动时至少用 Activity 重建刷新界面，避免功能完全失效
+            getActivity().recreate();
+        }
     }
 
     /**
@@ -593,6 +625,10 @@ public class SettingsFragment extends BaseFragment {
      * <p>包含：基本音频信息、设备连接状态、音量设置、
      * 所有音频设备详细列表（输入+输出）、系统信息等。
      */
+    // 回退分支仍使用 AudioManager 的旧路由查询 API：这些方法自 API 31 起废弃，
+    // 但"扬声器/蓝牙SCO 是否开启"没有等价的公开替代接口；
+    // 仅用于调试信息展示，故在此局部抑制警告而不是删除功能
+    @SuppressWarnings("deprecation")
     private void displayAudioRoutes() {
         if (!isAdded()) return;
         StringBuilder routesInfo = new StringBuilder();
@@ -1179,8 +1215,9 @@ public class SettingsFragment extends BaseFragment {
             else if (silenceTimeout > 300) silenceTimeout = 300;
 
             String silenceThresholdStr = editSilenceThreshold.getText().toString().trim();
-            float silenceThreshold = !silenceThresholdStr.isEmpty() ? Float.parseFloat(silenceThresholdStr) : 0.05f;
-            if (silenceThreshold < 0.03f) silenceThreshold = 0.03f;
+            // 默认 0.003：本机真正安静时峰值 RMS ≤0.001，轻声说话 0.004~0.006，正常说话 0.013+
+            float silenceThreshold = !silenceThresholdStr.isEmpty() ? Float.parseFloat(silenceThresholdStr) : 0.003f;
+            if (silenceThreshold < 0.001f) silenceThreshold = 0.001f;
             else if (silenceThreshold > 0.3f) silenceThreshold = 0.3f;
 
             micOutputConfig.setDebounceInterval(debounceInterval);
@@ -1202,7 +1239,9 @@ public class SettingsFragment extends BaseFragment {
             }
 
         } catch (NumberFormatException e) {
-            tvAudioDeviceStatus.setText("输入值无效，请输入有效的数字");
+            // 修复：原实现把错误写到 tvAudioDeviceStatus（音频设备卡片，位于上方），
+            // 用户在喊话卡片里看不到任何提示。改为写本卡片自己的状态文本
+            tvAnnouncementStatus.setText("输入值无效，请输入有效的数字");
         }
     }
 
@@ -1330,6 +1369,8 @@ public class SettingsFragment extends BaseFragment {
 
         // 清空所有配置
         prefs.edit().clear().apply();
+        // 同步清掉 BaseActivity 的字体缩放静态缓存，防止恢复默认后缓存仍持旧值
+        com.aug32.l7audio.base.BaseActivity.invalidateFontScaleCache();
 
         // 重新初始化配置对象
         themeConfig = new ThemeConfig(prefs);
@@ -1343,7 +1384,12 @@ public class SettingsFragment extends BaseFragment {
         loadAudioDeviceSettings();
 
         // 主题恢复为跟随系统
+        // 用抑制标志包裹程序化 check()：主题监听器会清栈重启应用，
+        // 恢复默认时不允许触发；主题配置已随 prefs.clear() 复位为默认值（跟随系统），
+        // 与下方"请重启应用以完全生效"的提示语一致
+        suppressThemeCallback = true;
         themeRadioGroup.check(R.id.theme_system);
+        suppressThemeCallback = false;
 
         // 开机自启恢复为开启
         autoStartSwitch.setChecked(true);
@@ -1382,7 +1428,7 @@ public class SettingsFragment extends BaseFragment {
             // 跳转系统"显示在其他应用上层"授权页
             Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                     Uri.parse("package:" + requireContext().getPackageName()));
-            startActivityForResult(intent, REQUEST_OVERLAY_PERMISSION);
+            overlayPermissionLauncher.launch(intent);
             return;
         }
         Intent serviceIntent = new Intent(requireContext(), FloatingWindowService.class);
@@ -1395,22 +1441,20 @@ public class SettingsFragment extends BaseFragment {
      * <p>用户从系统授权页返回后，若此时已授予悬浮窗权限，则自动打开开关并启动服务，
      * 免去用户手动再点一次开关；若仍未授权则保持关闭态。
      */
-    @Override
-    public void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_OVERLAY_PERMISSION && isAdded()) {
-            // 系统授权页不返回明确 resultCode，需回来后主动复查权限状态
-            if (Settings.canDrawOverlays(requireContext())) {
-                AppLog.d(TAG, "用户已授予悬浮窗权限，自动开启开关并启动服务");
-                floatingWindowConfig.setEnabled(true);
-                if (floatingWindowSwitch != null) {
-                    floatingWindowSwitch.setChecked(true);
-                }
-                Intent serviceIntent = new Intent(requireContext(), FloatingWindowService.class);
-                ServiceCompat.startForegroundService(requireContext(), serviceIntent);
-            } else {
-                AppLog.w(TAG, "用户返回后仍未授予悬浮窗权限，保持关闭态");
+    private void onOverlayPermissionReturn() {
+        if (!isAdded()) {
+            return;
+        }
+        if (Settings.canDrawOverlays(requireContext())) {
+            AppLog.d(TAG, "用户已授予悬浮窗权限，自动开启开关并启动服务");
+            floatingWindowConfig.setEnabled(true);
+            if (floatingWindowSwitch != null) {
+                floatingWindowSwitch.setChecked(true);
             }
+            Intent serviceIntent = new Intent(requireContext(), FloatingWindowService.class);
+            ServiceCompat.startForegroundService(requireContext(), serviceIntent);
+        } else {
+            AppLog.w(TAG, "用户返回后仍未授予悬浮窗权限，保持关闭态");
         }
     }
 

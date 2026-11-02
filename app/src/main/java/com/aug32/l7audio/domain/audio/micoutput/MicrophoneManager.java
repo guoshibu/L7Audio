@@ -55,9 +55,20 @@ public class MicrophoneManager {
     // 音频格式：16位PCM编码
     private static final int AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
     // 缓冲区大小
+    // 注意：BUFFER_SIZE 是类加载时求值的静态值，音频系统异常时可能为 -1（ERROR），
+    // 绝不能直接用于 new byte[]/AudioTrack——实际运行一律使用 activeBufferSize（动态求值）
     private static final int BUFFER_SIZE = AudioRecord.getMinBufferSize(
             SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT
     );
+    /**
+     * 本次会话实际生效的缓冲区大小（字节）。
+     * 修复：原实现在 recordAndPlay/AudioTrack 初始化处仍使用静态 BUFFER_SIZE，
+     * 若类加载时 getMinBufferSize 返回 ERROR(-1)，new byte[-1] 会让录制线程
+     * 抛 NegativeArraySizeException 且每次必现。改为 AudioRecord 初始化成功后
+     * 从其真实缓冲区反推（getBufferSizeInFrames × 2 字节/帧），各处统一使用。
+     * volatile：start 线程写、录制线程读，需保证可见性。
+     */
+    private volatile int activeBufferSize = 0;
 
     // 上下文对象
     private final Context context;
@@ -78,8 +89,21 @@ public class MicrophoneManager {
     private volatile float currentRms = 0.0f;
     // 管线处理后 RMS（供静音检测，volatile 保证线程可见性）
     private volatile float currentPostProcessRms = 0.0f;
+    /**
+     * 自上次读取以来的最高帧 RMS（峰值保持），专供静音检测。
+     *
+     * <p>为什么不能用平均 RMS：实车实测（1470 帧）说话时 p50=0.0005、p99=0.0435，
+     * 但单帧峰值可达 0.3172——说话能量是稀疏尖峰。10 帧平均会把尖峰稀释掉
+     * （单帧 0.3 + 9 帧近 0 ≈ 0.03），导致"正在说话"被静音检测误判为静音并关闭喊话。
+     * 因此静音检测改读本字段：只要采样区间内出现过一次高于阈值的声音就认为有声。</p>
+     */
+    private volatile float peakRmsSinceLastRead = 0.0f;
     // RMS 滑动窗口平均，避免静音检测采样到瞬时静音帧（最近10帧的平均值）
     private static final int RMS_WINDOW_SIZE = 10;
+    // 音频统计日志打印帧间隔（降低 DEBUG 日志 I/O 频率）
+    private static final int STATS_LOG_INTERVAL_FRAMES = 100;
+    // AFC ERLE 报告帧间隔（约 10s 一次，48kHz/100 帧缓冲）
+    private static final int AFC_REPORT_INTERVAL_FRAMES = 500;
     private final float[] rmsWindow = new float[RMS_WINDOW_SIZE];
     private int rmsWindowIndex = 0;
     private volatile float averageRms = 0.0f;
@@ -93,6 +117,12 @@ public class MicrophoneManager {
     private AcousticEchoCanceler acousticEchoCanceler;
     private NoiseSuppressor noiseSuppressor;
     private AutomaticGainControl automaticGainControl;
+    // 硬件 NS/AGC 接管期间被临时关闭的软件处理器标记。
+    // 硬件效果器与 AudioRecord 会话绑定，stop() 时必然释放；若不在此记录并恢复，
+    // 第二次喊话时软件处理器开关仍是 false（initNoiseSuppressor 又会因"用户禁用降噪"提前返回），
+    // 结果是硬件没了、软件也没开 —— 第二次喊话完全没有降噪/AGC
+    private boolean softwareNsSuspendedByHardware = false;
+    private boolean softwareAgcSuspendedByHardware = false;
 
     // ========== 音频处理管线 ==========
     /** 音频处理管线，按序执行 HPF → LPF → AFC → 增益 → 谱减法降噪 → 啸叫陷波 → AGC */
@@ -179,18 +209,21 @@ public class MicrophoneManager {
      */
     public synchronized boolean start() {
         String threadName = Thread.currentThread().getName();
-        StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
-        StringBuilder callerInfo = new StringBuilder();
-        for (int i = 2; i < Math.min(6, stackTrace.length); i++) {
-            StackTraceElement element = stackTrace[i];
-            if (i > 2) callerInfo.append(" -> ");
-            callerInfo.append(element.getClassName()).append(".").append(element.getMethodName())
-                    .append("(").append(element.getFileName()).append(":").append(element.getLineNumber()).append(")");
-        }
 
         AppLog.i(TAG, "========== 麦克风管理器启动() ==========");
-        AppLog.i(TAG, "线程: " + threadName + " (id=" + Thread.currentThread().getId() + ")");
-        AppLog.i(TAG, "调用方: " + callerInfo.toString());
+        AppLog.i(TAG, "线程: " + threadName);
+        // 调用栈构建涉及逐帧对象访问与字符串拼接，Release 下无日志需求，仅 DEBUG 保留
+        if (BuildConfig.DEBUG) {
+            StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
+            StringBuilder callerInfo = new StringBuilder();
+            for (int i = 2; i < Math.min(6, stackTrace.length); i++) {
+                StackTraceElement element = stackTrace[i];
+                if (i > 2) callerInfo.append(" -> ");
+                callerInfo.append(element.getClassName()).append(".").append(element.getMethodName())
+                        .append("(").append(element.getFileName()).append(":").append(element.getLineNumber()).append(")");
+            }
+            AppLog.i(TAG, "调用方: " + callerInfo.toString());
+        }
         AppLog.i(TAG, "当前 isRecording=" + isRecording + ", audioRecord=" + (audioRecord == null ? "null" : "not null"));
 
         // 已在录制，直接返回成功
@@ -215,9 +248,8 @@ public class MicrophoneManager {
                 return false;
             }
 
-            // 重置管线及 AGC 状态（清除上一轮会话的累积检测数据）
+            // 重置管线状态（清除上一轮会话的累积检测数据）；AGC 已含在管线内，无需单独复位
             pipeline.reset();
-            agcProcessor.reset();
 
             // 初始化 Android 原生 3A 硬件效果器
             initializeHardwareEffects();
@@ -371,6 +403,15 @@ public class MicrophoneManager {
             }
         }
 
+        // AudioRecord 初始化成功后，从真实缓冲区反推实际生效的缓冲区字节数，
+        // 供 AudioTrack 初始化与录制循环统一使用（替代可能有误的静态 BUFFER_SIZE）
+        activeBufferSize = audioRecord.getBufferSizeInFrames() * 2;
+        if (activeBufferSize <= 0) {
+            // getBufferSizeInFrames 异常回退：使用本次动态求值并通过兜底校验的 bufferSize
+            activeBufferSize = bufferSize;
+        }
+        AppLog.i(TAG, "实际生效缓冲区: " + activeBufferSize + " bytes (静态 BUFFER_SIZE=" + BUFFER_SIZE + ")");
+
         // 初始化 AudioTrack 播放组件
         if (!initializeAudioTrack()) {
             return false;
@@ -409,18 +450,21 @@ public class MicrophoneManager {
                 .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                 .build();
 
+        // 修复：改用 AudioRecord 实际生效的缓冲区大小（activeBufferSize）。
+        // 原来用静态 BUFFER_SIZE，类加载时音频系统异常会得到 -1，直接导致 AudioTrack 构建失败
+        int trackBufferSize = activeBufferSize > 0 ? activeBufferSize : getBufferSize();
         audioTrack = new AudioTrack.Builder()
                 .setAudioAttributes(audioAttributes)
                 .setAudioFormat(audioFormat)
-                .setBufferSizeInBytes(BUFFER_SIZE)
+                .setBufferSizeInBytes(trackBufferSize)
                 .build();
 
         if (audioTrack.getState() != AudioTrack.STATE_INITIALIZED) {
-            AppLog.e(TAG, "AudioTrack 初始化失败: usage=" + audioUsage + " SR=" + SAMPLE_RATE + " buf=" + BUFFER_SIZE);
+            AppLog.e(TAG, "AudioTrack 初始化失败: usage=" + audioUsage + " SR=" + SAMPLE_RATE + " buf=" + trackBufferSize);
             return false;
         }
 
-        AppLog.i(TAG, "AudioTrack 初始化成功: usage=" + audioUsage + " SR=" + SAMPLE_RATE + " buf=" + BUFFER_SIZE + " state=" + audioTrack.getState());
+        AppLog.i(TAG, "AudioTrack 初始化成功: usage=" + audioUsage + " SR=" + SAMPLE_RATE + " buf=" + trackBufferSize + " state=" + audioTrack.getState());
         return true;
     }
 
@@ -458,6 +502,8 @@ public class MicrophoneManager {
                 if (noiseSuppressor != null) {
                     noiseSuppressor.setEnabled(true);
                     hardwareNsAvailable = true;
+                    // 记录"软件降噪是被硬件接管才关的"，会话结束后据此恢复用户原配置
+                    softwareNsSuspendedByHardware = noiseReductionProcessor.isEnabled();
                     noiseReductionProcessor.setEnabled(false);
                     AppLog.i(TAG, "NoiseSuppressor:   可用 → 已启用, 谱减降噪禁用");
         } else {
@@ -508,12 +554,19 @@ public class MicrophoneManager {
     }
 
     private void initAutomaticGainControl(int sessionId) {
+        // 与降噪一致：用户关闭 AGC 时不应偷偷启用硬件 AGC，否则配置项形同虚设
+        if (!agcProcessor.isEnabled()) {
+            AppLog.i(TAG, "AutomaticGainControl: 跳过 (用户禁用 AGC)");
+            return;
+        }
         try {
             if (AutomaticGainControl.isAvailable()) {
                 automaticGainControl = AutomaticGainControl.create(sessionId);
                 if (automaticGainControl != null) {
                     automaticGainControl.setEnabled(true);
                     hardwareAgcAvailable = true;
+                    // 同 NS：记录软件 AGC 是"被硬件接管"才关的，会话结束后恢复
+                    softwareAgcSuspendedByHardware = true;
                     agcProcessor.setEnabled(false);
                     AppLog.i(TAG, "AutomaticGainControl: 可用 → 已启用, AGC 处理器禁用");
                 } else {
@@ -574,38 +627,51 @@ public class MicrophoneManager {
      * 下次启动时会重新初始化所有组件。
      * </p>
      */
-    public synchronized void stop() {
-        if (!isRecording) {
-            AppLog.d(TAG, "未在录制");
-            return;
-        }
-
-        // 先设置标记，让录制线程自然退出
-        isRecording = false;
-
-        // 强制解除 AudioRecord.read() 阻塞，确保录制线程能退出
-        if (audioRecord != null
-                && audioRecord.getState() == AudioRecord.STATE_INITIALIZED
-                && audioRecord.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) {
-            try {
-                audioRecord.stop();
-            } catch (Exception e) {
-                AppLog.e(TAG, "强制停止 AudioRecord 错误", e);
+    public void stop() {
+        Thread threadToJoin;
+        // 临界区只做"标记停止 + 强制唤醒 read()"，不在这里等线程
+        synchronized (this) {
+            if (!isRecording) {
+                AppLog.d(TAG, "未在录制");
+                return;
             }
+
+            // 先设置标记，让录制线程自然退出
+            isRecording = false;
+
+            // 强制解除 AudioRecord.read() 阻塞，确保录制线程能退出
+            if (audioRecord != null
+                    && audioRecord.getState() == AudioRecord.STATE_INITIALIZED
+                    && audioRecord.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) {
+                try {
+                    audioRecord.stop();
+                } catch (Exception e) {
+                    AppLog.e(TAG, "强制停止 AudioRecord 错误", e);
+                }
+            }
+            threadToJoin = recordingThread;
         }
 
-        // 等待录制线程结束，最多等待1秒，避免ANR
-        if (recordingThread != null) {
+        // 等待录制线程结束，最多等待1秒，避免ANR。
+        // 必须在锁外 join：录制线程异常退出时会在 catch 中调用 synchronized 的
+        // releaseResources()，若持锁等待，两线程互等满 1 秒（主线程掉帧）
+        if (threadToJoin != null && threadToJoin != Thread.currentThread()) {
             try {
-                recordingThread.join(1000);
+                threadToJoin.join(1000);
             } catch (InterruptedException e) {
                 AppLog.e(TAG, "等待录制线程结束失败", e);
+                // 恢复中断标记，交由上层决定是否继续传播
+                Thread.currentThread().interrupt();
             }
         }
 
-        // 释放所有音频资源
-        releaseResources();
-        currentRms = 0.0f;
+        // 释放所有音频资源（与录制线程异常退出路径共用同一把锁，串行化，避免双释放）
+        synchronized (this) {
+            releaseResources();
+            currentRms = 0.0f;
+            // 峰值同样清零，避免下一次喊话沿用上一轮的残留峰值
+            peakRmsSinceLastRead = 0.0f;
+        }
         AppLog.i(TAG, "麦克风放大器已停止，所有资源已释放");
     }
 
@@ -617,13 +683,17 @@ public class MicrophoneManager {
      * </p>
      */
     private void recordAndPlay() {
-        byte[] buffer = new byte[BUFFER_SIZE];
+        // 修复：使用本次会话实际生效的缓冲区大小（activeBufferSize）。
+        // 原来用静态 BUFFER_SIZE——类加载时 getMinBufferSize 返回 ERROR(-1) 的话，
+        // new byte[-1] 会让录制线程抛 NegativeArraySizeException 且每次必现崩溃
+        int bufSize = activeBufferSize > 0 ? activeBufferSize : getBufferSize();
+        byte[] buffer = new byte[bufSize];
         short[] samples = new short[0];
 
         int frameCount = 0;
         while (isRecording) {
             try {
-                int readSize = audioRecord.read(buffer, 0, BUFFER_SIZE);
+                int readSize = audioRecord.read(buffer, 0, bufSize);
 
                 if (readSize > 0) {
                     int sampleCount = readSize / 2;
@@ -633,18 +703,24 @@ public class MicrophoneManager {
                     frameCount++;
                     processAudioData(buffer, readSize, samples, frameCount);
                     audioTrack.write(buffer, 0, readSize);
-                    if (frameCount % 100 == 0) {
+                    if (frameCount % STATS_LOG_INTERVAL_FRAMES == 0) {
                         AppLog.i(TAG, "录制中: frame=" + frameCount + " preRms=" + String.format(java.util.Locale.US, "%.4f", currentRms) + " postRms=" + String.format(java.util.Locale.US, "%.4f", currentPostProcessRms) + " written=" + readSize);
                     }
                 } else if (readSize < 0) {
                     AppLog.e(TAG, "AudioRecord 读取错误: " + readSize);
                 } else {
-                    if (frameCount % 100 == 0) {
+                    if (frameCount % STATS_LOG_INTERVAL_FRAMES == 0) {
                         AppLog.w(TAG, "AudioRecord 读取零字节, frame=" + frameCount);
                     }
                 }
             } catch (Exception e) {
                 AppLog.e(TAG, "录制线程错误, frame=" + frameCount, e);
+                // 修复（C4）：必须先复位 isRecording 再释放资源。
+                // 原实现只 releaseResources() 就退出——releaseResources 不碰该标记，
+                // 线程已死但 isRecording()==true：start() 幂等分支假成功（无声）、
+                // 悬浮窗/UI 持续显示"喊话中"，且静音检测读到的 RMS 是冻结的旧值，
+                // 形成"喊话假活"窗口
+                isRecording = false;
                 releaseResources();
                 break;
             }
@@ -680,6 +756,11 @@ public class MicrophoneManager {
         }
         currentRms = (float) Math.sqrt(sum / sampleCount);
 
+        // 峰值保持：静音检测线程每 500ms 消费一次并清零，区间内任意一帧达到峰值即算有声
+        if (currentRms > peakRmsSinceLastRead) {
+            peakRmsSinceLastRead = currentRms;
+        }
+
         rmsWindow[rmsWindowIndex] = currentRms;
         rmsWindowIndex = (rmsWindowIndex + 1) % RMS_WINDOW_SIZE;
         float sumRms = 0;
@@ -689,7 +770,7 @@ public class MicrophoneManager {
         if (afcProcessor.isEnabled()) {
             if (lastOutputSamples != null) {
                 afcProcessor.setReference(lastOutputSamples);
-                if (BuildConfig.DEBUG && frameCount % 100 == 0) {
+                if (BuildConfig.DEBUG && frameCount % STATS_LOG_INTERVAL_FRAMES == 0) {
                     float refRms = calculateShortArrayRms(lastOutputSamples);
                     AppLog.d(TAG, "AFC参考信号已设置, 参考RMS=" + String.format(Locale.US, "%.4f", refRms) + ", 当前帧RMS=" + String.format(Locale.US, "%.4f", currentRms));
                 }
@@ -710,10 +791,10 @@ public class MicrophoneManager {
             float erle = afcProcessor.getLastErleDb();
             float coeffNorm = afcProcessor.getCoefficientNorm();
             AppLog.d(TAG, "AFC帧" + frameCount + ": ERLE=" + String.format(Locale.US, "%.1f", erle) + "dB, 系数范数=" + String.format(Locale.US, "%.3f", coeffNorm) + ", RMS=" + String.format(Locale.US, "%.4f", currentRms));
-            if (erle > 6.0f && frameCount % 500 == 0) {
+            if (erle > 6.0f && frameCount % AFC_REPORT_INTERVAL_FRAMES == 0) {
                 AppLog.i(TAG, "AFC回声消除生效! ERLE=" + String.format(Locale.US, "%.1f", erle) + "dB");
             }
-            if (erle < 1.0f && frameCount > 1000 && frameCount % 500 == 0) {
+            if (erle < 1.0f && frameCount > 1000 && frameCount % AFC_REPORT_INTERVAL_FRAMES == 0) {  // 跳过前 1000 帧让 NLMS 收敛
                 AppLog.w(TAG, "AFC效果不佳! ERLE=" + String.format(Locale.US, "%.1f", erle) + "dB, 请检查参考信号是否正确");
             }
         }
@@ -726,13 +807,18 @@ public class MicrophoneManager {
         }
         System.arraycopy(samples, 0, lastOutputSamples, 0, samples.length);
 
-        calculatePostProcessRms(samples);
-
+        // 性能优化：处理后 RMS 统计与 short→byte 写回原是两次全数组遍历，
+        // 合并为单次遍历（逐样本顺带累加平方和），每帧省一次 O(N) 扫描
+        double postSum = 0.0;
         for (int i = 0; i < sampleCount; i++) {
             int index = i * 2;
-            buffer[index] = (byte) (samples[i] & 0xFF);
-            buffer[index + 1] = (byte) (samples[i] >> 8);
+            short s = samples[i];
+            buffer[index] = (byte) (s & 0xFF);
+            buffer[index + 1] = (byte) (s >> 8);
+            float normalized = s / 32768.0f;
+            postSum += normalized * normalized;
         }
+        currentPostProcessRms = postSum > 0 ? (float) Math.sqrt(postSum / sampleCount) : 0.0f;
     }
 
     /** 计算 short 数组的 RMS 值 */
@@ -745,18 +831,13 @@ public class MicrophoneManager {
         return sum > 0 ? (float) Math.sqrt(sum / samples.length) : 0.0f;
     }
 
-    /** 计算处理后 RMS */
-    private void calculatePostProcessRms(short[] samples) {
-        double sum = 0.0;
-        for (short sample : samples) {
-            float normalized = sample / 32768.0f;
-            sum += normalized * normalized;
-        }
-        currentPostProcessRms = sum > 0 ? (float) Math.sqrt(sum / samples.length) : 0.0f;
-    }
-
     /** 释放所有资源 */
-    private void releaseResources() {
+    // 修复（线程安全）：synchronized 防止 stop() 与录制线程异常退出路径并发释放。
+    // 原实现录制线程 catch 中直接调 releaseResources()，与 stop()（synchronized）
+    // 无互斥，可能出现双释放/释放期间字段被置 null 后再访问；stop() join(1000) 超时后
+    // 释放资源时录制线程可能仍在跑，两线程同时操作同一 AudioRecord/AudioTrack。
+    // 统一锁到对象监视器（与 stop() 同一把锁）后串行化，方法内部对 null 字段幂等安全
+    private synchronized void releaseResources() {
         AppLog.d(TAG, "========== 释放资源() ==========");
         AppLog.d(TAG, "释放前: audioRecord=" + (audioRecord == null ? "null" : "not null")
                 + ", audioTrack=" + (audioTrack == null ? "null" : "not null")
@@ -767,9 +848,8 @@ public class MicrophoneManager {
         releaseAudioTrack();
 
         recordingThread = null;
-        // 重置管线及 AGC 状态（清除累积的检测数据）
+        // 重置管线状态（清除累积的检测数据）；AGC 已含在管线内，无需单独复位
         pipeline.reset();
-        agcProcessor.reset();
 
         AppLog.d(TAG, "释放后: audioRecord=" + (audioRecord == null ? "null" : "not null")
                 + ", audioTrack=" + (audioTrack == null ? "null" : "not null")
@@ -797,6 +877,12 @@ public class MicrophoneManager {
             noiseSuppressor = null;
         }
         hardwareNsAvailable = false;
+        // 会话结束：恢复被硬件 NS 临时关闭的软件降噪，保证下一次喊话仍有降噪
+        if (softwareNsSuspendedByHardware) {
+            noiseReductionProcessor.setEnabled(true);
+            softwareNsSuspendedByHardware = false;
+            AppLog.d(TAG, "NoiseSuppressor 已释放，恢复软件谱减降噪");
+        }
     }
 
     private void releaseEchoCanceler() {
@@ -825,6 +911,12 @@ public class MicrophoneManager {
             automaticGainControl = null;
         }
         hardwareAgcAvailable = false;
+        // 会话结束：恢复被硬件 AGC 临时关闭的软件 AGC，保证下一次喊话仍有增益控制
+        if (softwareAgcSuspendedByHardware) {
+            agcProcessor.setEnabled(true);
+            softwareAgcSuspendedByHardware = false;
+            AppLog.d(TAG, "AutomaticGainControl 已释放，恢复软件 AGC");
+        }
     }
 
     /** 释放 AudioRecord */
@@ -973,21 +1065,19 @@ public class MicrophoneManager {
     }
 
     /**
-     * 获取管线处理后的 RMS 均值
-     * <p>
-     * 经过全部处理器（降噪、AGC 等）后的信号 RMS，
-     * 用于静音检测，更准确反映实际输出音量。
-     * 当前暂无调用方，预留用于：
-     * - 可视化界面显示输出音量
-     * - 静音检测逻辑（检测处理后的实际音量）
-     * - 调试日志输出
-     * </p>
+     * 读取并清零"自上次读取以来的最高帧 RMS"（峰值保持）。
      *
-     * @return 处理后 RMS 值（0-1），0 表示无音频输入或未录制
+     * <p>静音检测专用：相比平均 RMS，峰值不会被稀疏的说话尖峰稀释，
+     * 避免"正在说话却判为静音"。读取后立即清零，下一次调用统计新的区间。</p>
+     *
+     * @return 自上次调用以来出现过的最高帧 RMS（0 表示区间内无数据）
      */
-    public float getPostProcessRms() {
-        return currentPostProcessRms;
+    public float getAndResetPeakRms() {
+        float peak = peakRmsSinceLastRead;
+        peakRmsSinceLastRead = 0.0f;
+        return peak;
     }
+
     /**
      * 设置是否启用噪声抑制（谱减法）
      * <p>
@@ -998,6 +1088,11 @@ public class MicrophoneManager {
      */
     public void setNoiseReductionEnabled(boolean enabled) {
         noiseReductionProcessor.setEnabled(enabled);
+        // 用户在硬件 NS 接管期间显式关掉降噪：放弃"会话结束后恢复开启"的承诺，
+        // 否则 stop() 会把用户刚关掉的降噪又打开
+        if (!enabled) {
+            softwareNsSuspendedByHardware = false;
+        }
         appConfig.setNoiseReductionEnabled(enabled);
         AppLog.d(TAG, "谱减法降噪 " + (enabled ? "已启用" : "已禁用"));
     }
@@ -1044,6 +1139,8 @@ public class MicrophoneManager {
             agcProcessor.setEnabled(true);
         } else if (!enabled) {
             agcProcessor.setEnabled(false);
+            // 用户显式关闭 AGC：放弃会话结束后的自动恢复，避免覆盖用户选择
+            softwareAgcSuspendedByHardware = false;
         }
         appConfig.setAgcEnabled(enabled);
         AppLog.d(TAG, "AGC " + (enabled ? "已启用" : "已禁用"));

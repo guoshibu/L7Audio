@@ -55,9 +55,14 @@ public class AboutFragment extends BaseFragment {
 
         if (tvVersion != null && getSafeActivity() != null) {
             try {
-                String versionName = getSafeActivity().getPackageManager()
-                        .getPackageInfo(getSafeActivity().getPackageName(), 0).versionName;
-                tvVersion.setText("版本 " + versionName);
+                // 同时读取 versionName 与 versionCode：车机上排查问题时只看 versionName
+                // 无法区分同一版本名下的多次构建（日常修改只递增 versionCode）
+                android.content.pm.PackageInfo packageInfo = getSafeActivity().getPackageManager()
+                        .getPackageInfo(getSafeActivity().getPackageName(), 0);
+                String versionName = packageInfo.versionName;
+                // minSdk 30，直接使用 getLongVersionCode()，避免 deprecated 的 versionCode 字段
+                long versionCode = packageInfo.getLongVersionCode();
+                tvVersion.setText("版本 " + versionName + " (" + versionCode + ")");
             } catch (Exception e) {
                 AppLog.e(TAG, "Failed to get version name", e);
             }

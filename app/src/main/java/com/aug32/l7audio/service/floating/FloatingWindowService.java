@@ -30,6 +30,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
@@ -106,16 +107,40 @@ public class FloatingWindowService extends Service {
         public void onAnnouncementStateChanged(boolean announcing) {
             isAnnouncing = announcing;
             updateAnnouncementButton();
+            // 修复（自动收起失效）：喊话按钮点击时会 cancelAutoHideTimer()，
+            // 而原实现的状态回调从不重新武装定时器——只要用过一次喊话
+            // （成功或停止后），列表就再也不会自动收起，只能手动点 X。
+            // 喊话进行中保持取消（避免操作被打断），喊话结束后恢复计时。
+            if (announcing) {
+                cancelAutoHideTimer();
+            } else if (isListViewVisible) {
+                resetAutoHideTimer();
+            }
         }
 
         @Override
         public void onAnnouncementAutoClosed(String reason) {
             isAnnouncing = false;
+            updateAnnouncementButton();
+            // 静音超时/录制异常导致的自动关闭同样要恢复自动收起
+            if (isListViewVisible) {
+                resetAutoHideTimer();
+            }
         }
     };
 
     // Audio 组件服务定位器
     private AudioServiceLocator audioServiceLocator;
+
+    /**
+     * TTS 进度监听器（本服务专属实例，字段持有）。
+     * <p>修复（监听器互踩）：TTSManager 已改为多槽位注册表。原实现每次
+     * setupTTSListener 都 setProgressListener 覆盖——TTS 页面打开/销毁会
+     * 把本服务的监听器顶掉或清空，导致悬浮窗 TTS 播完收不到 onTTSDone，
+     * 瞬态音频焦点永不释放、音乐永久暂停。
+     * 改为字段持有后，onDestroy 可精确注销本实例。
+     */
+    private TTSManager.TTSProgressListener ttsProgressListener;
     
     // 存储当前播放的按钮，用于变色标识播放状态
     private Button currentPlayingBtn = null;
@@ -141,11 +166,6 @@ public class FloatingWindowService extends Service {
     private Handler handler;
     // 自动隐藏悬浮窗列表的 Runnable
     private Runnable autoHideRunnable;
-    // 重试设置TTS监听的 Runnable（TTSManager未就绪时延迟重试）
-    private Runnable retrySetupTTSRunnable;
-    // TTS 监听重试计数器，最多重试 10 次后放弃
-    private int retrySetupTTSCount = 0;
-    private static final int MAX_RETRY_SETUP_TTS = 10;
 
     /**
      * 服务创建时调用
@@ -177,14 +197,35 @@ public class FloatingWindowService extends Service {
         audioFocusManager = audioServiceLocator.getAudioFocusManager();
         // 初始化车外喊话控制器
         MicOutputController.getInstance().init(this);
+        // 修复（C7）：喊话状态监听器改为服务存活期全局注册（onCreate 注册 / onDestroy 注销）。
+        // 原实现仅在悬浮窗列表展开时注册、收起时注销——收起期间喊话被其他入口
+        // （广播/Intent/麦克风页）启停时，本服务的 isAnnouncing 缓存不会更新，
+        // 导致自动收起逻辑与喊话按钮状态错乱
+        MicOutputController.getInstance().addListener(micOutputListener);
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         // 为什么用主线程Looper：悬浮窗操作必须在主线程，Handler也用于postDelayed延迟任务
         handler = new Handler(Looper.getMainLooper());
         createNotificationChannel();
-        startForeground(NOTIFICATION_ID, createNotification());
+        // 服务已声明 mediaPlayback|microphone 两种类型（后台喊话需要 microphone，
+        // 否则系统按 AppOps 拒绝 AudioRecord 建流）。但首装首次启动时录音权限可能
+        // 还没授予，此时 startForeground 会抛 SecurityException 直接让服务崩溃。
+        // 因此失败时降级为仅 mediaPlayback，保住悬浮窗等基础功能。
+        try {
+            startForeground(NOTIFICATION_ID, createNotification());
+        } catch (Exception e) {
+            AppLog.w(TAG, "startForeground（含 microphone 类型）失败，降级为仅 mediaPlayback：" + e);
+            try {
+                androidx.core.app.ServiceCompat.startForeground(this, NOTIFICATION_ID, createNotification(),
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+            } catch (Exception fallbackError) {
+                // 降级仍失败说明连前台服务都无法启动，继续存活只会被系统回收
+                AppLog.e(TAG, "startForeground 降级仍失败，服务自停", fallbackError);
+                stopSelf();
+                return;
+            }
+        }
         showFloatingBall();
         autoHideRunnable = new AutoHideRunnable(this);
-        retrySetupTTSRunnable = new RetrySetupTTSRunnable(this);
         // 立即初始化 TTS 监听（不依赖悬浮窗列表是否打开）
         // 为什么 onCreate 就初始化：TTS播放监听是全局的，悬浮窗列表只是展示入口
         setupTTSListener();
@@ -243,19 +284,27 @@ public class FloatingWindowService extends Service {
         floatingBallView = null;
         safeRemoveView(floatingListView);
         floatingListView = null;
-        if (handler != null && autoHideRunnable != null) {
-            handler.removeCallbacks(autoHideRunnable);
-        }
-        if (handler != null && retrySetupTTSRunnable != null) {
-            handler.removeCallbacks(retrySetupTTSRunnable);
+        // 修复（内存泄漏）：服务销毁时清空 handler 全部待处理消息/回调，
+        // 原来只移除两个具体 runnable，匿名回调若持有视图引用仍会滞留队列
+        if (handler != null) {
+            handler.removeCallbacksAndMessages(null);
         }
         // 注销喊话状态监听器，避免服务实例泄漏
         MicOutputController.getInstance().removeListener(micOutputListener);
-        // 兜底：若处于车外喊话/TTS 状态，强制停止并释放焦点
+        // 修复（内存泄漏 + 监听器互踩）：注销本服务的 TTS 进度监听器实例。
+        // TTSManager 为静态单例链持有，监听器若不注销会把整个 Service（含全部 View）
+        // 钉在内存里；多槽位注册表下必须按实例精确移除，不能误伤其他注册方
         try {
-            if (isAnnouncing && audioServiceLocator.getMicrophoneManager() != null) {
-                audioServiceLocator.getMicrophoneManager().stop();
+            if (audioServiceLocator.getTTSManager() != null && ttsProgressListener != null) {
+                audioServiceLocator.getTTSManager().removeProgressListener(ttsProgressListener);
+                ttsProgressListener = null;
             }
+        } catch (Throwable ignore) {}
+        // 兜底：若处于车外喊话/TTS 状态，强制停止并释放焦点
+        // 喊话停止必须同步完成（stopImmediately）：服务销毁后不再有入口补救，
+        // 异步队列可能因服务已销毁而失去时序保证
+        try {
+            MicOutputController.getInstance().stopImmediately();
             if (audioServiceLocator.getTTSManager() != null && audioServiceLocator.getTTSManager().isSpeaking()) {
                 audioServiceLocator.getTTSManager().stop();
             }
@@ -337,9 +386,23 @@ public class FloatingWindowService extends Service {
      * @param context 上下文，用于启动服务
      */
     public static void notifyThemeChanged(Context context) {
+        // 修复（C8）：主题变化不得无条件拉起悬浮窗服务。
+        // 原实现在服务已停止（用户已关闭悬浮窗功能）时也会 startService，
+        // 悬浮球会在未被允许的情况下凭空出现、服务被莫名拉起。
+        // 仅在悬浮窗功能已启用且持有悬浮窗权限时才下发主题变更通知
+        AppConfig config = new AppConfig(context.getApplicationContext());
+        if (!config.isFloatingWindowEnabled() || !Settings.canDrawOverlays(context)) {
+            return;
+        }
         Intent intent = new Intent(context, FloatingWindowService.class);
         intent.setAction("theme_changed");
-        context.startService(intent);
+        try {
+            context.startService(intent);
+        } catch (IllegalStateException e) {
+            // Android 8.0+ 后台启动限制：应用退后台后 startService 会抛 IllegalStateException，
+            // 主题变更通知失败仅影响悬浮球配色刷新，不应导致调用方崩溃
+            AppLog.w("FloatingWindowService", "notifyThemeChanged: startService 被系统限制，跳过本次主题下发");
+        }
     }
 
     /** 判断当前是否是深色主题（跟随系统） */
@@ -600,14 +663,23 @@ public class FloatingWindowService extends Service {
             // 更新车外喊话按钮状态
             updateAnnouncementButton();
 
-            // 注册喊话状态监听器，悬浮窗展开时同步状态
-            MicOutputController.getInstance().addListener(micOutputListener);
-
             resetAutoHideTimer();
         } catch (Exception e) {
             AppLog.e(TAG, "Error in showListView", e);
-            floatingListView = null;
+            // 修复：异常路径必须完整回收，否则用户彻底失去悬浮窗入口只能杀进程。
+            // 原实现仅把引用置 null：列表视图已 addView 到 WindowManager 却无人移除，
+            // 会永久残留在屏幕上；悬浮球此时已被移除也不再恢复
+            if (floatingListView != null) {
+                safeRemoveView(floatingListView);
+                floatingListView = null;
+            }
             isListViewVisible = false;
+            // 取消可能已排定的自动收起任务
+            if (handler != null && autoHideRunnable != null) {
+                handler.removeCallbacks(autoHideRunnable);
+            }
+            // 恢复悬浮球，保住用户操作入口
+            showFloatingBall();
         }
     }
 
@@ -626,9 +698,6 @@ public class FloatingWindowService extends Service {
             handler.removeCallbacks(autoHideRunnable);
         }
 
-        // 注销喊话状态监听器，悬浮窗收起时停止同步
-        MicOutputController.getInstance().removeListener(micOutputListener);
-        
         showFloatingBall();
         AppLog.d(TAG, "hideListView done");
     }
@@ -807,63 +876,57 @@ public class FloatingWindowService extends Service {
     private void setupTTSListener() {
         TTSManager ttsManager = audioServiceLocator.getTTSManager();
         if (ttsManager == null) {
-            AppLog.w(TAG, "setupTTSListener: TTSManager is null, will retry later");
-            // 最大重试次数限制，避免 TTSManager 一直初始化失败时无限重试
-            if (retrySetupTTSCount >= MAX_RETRY_SETUP_TTS) {
-                AppLog.w(TAG, "setupTTSListener: max retries reached, giving up");
-                return;
-            }
-            retrySetupTTSCount++;
-            // 为什么延迟重试：TTSManager 可能还在初始化中，延迟500ms再试
-            // 为什么要先 removeCallbacks：避免多次重试排队，确保只有一个重试任务在等待
-            if (handler != null && retrySetupTTSRunnable != null) {
-                handler.removeCallbacks(retrySetupTTSRunnable);
-                handler.postDelayed(retrySetupTTSRunnable, 500);
-            }
+            // TTSManager 在 Application 启动时已完成 init，正常不会为 null；
+            // 若为 null（进程初始化异常），监听注册失败也只是失去"播完恢复音乐"能力，
+            // 无需再搭一套延迟重试机制
+            AppLog.w(TAG, "setupTTSListener: TTSManager is null, skip");
             return;
         }
-        ttsManager.setProgressListener(new TTSManager.TTSProgressListener() {
-            @Override
-            public void onTTSStart() {
-                AppLog.d(TAG, "TTS started speaking");
-            }
+        // 懒创建本服务的监听器实例（setupTTSListener 在 onCreate 与展开列表时都会调用，
+        // TTSManager.addProgressListener 内部 addIfAbsent 保证重复注册无副作用）
+        if (ttsProgressListener == null) {
+            ttsProgressListener = new TTSManager.TTSProgressListener() {
+                @Override
+                public void onTTSStart() {
+                    AppLog.d(TAG, "TTS started speaking");
+                }
 
-            @Override
-            public void onTTSDone() {
-                AppLog.d(TAG, "TTS finished speaking");
-                // 为什么用 handler.post：TTS回调可能在子线程，UI操作必须切回主线程
-                handler.post(() -> {
-                    updateTTSButtonColors(null);
-                    // 仅在 TTS 播放时申请过焦点的情况下释放焦点恢复音乐
-                    // 为什么要判断 ttsPausedMusic：如果是车内播放TTS，音乐不会暂停，也就不需要恢复
-                    if (ttsPausedMusic && audioFocusManager != null) {
-                        audioFocusManager.abandonTransientFocus();
-                        ttsPausedMusic = false;
-                        AppLog.d(TAG, "Abandoned transient focus after TTS done");
-                    }
-                    // TTS 完成后重启自动收起定时器
-                    resetAutoHideTimer();
-                });
-            }
+                @Override
+                public void onTTSDone() {
+                    AppLog.d(TAG, "TTS finished speaking");
+                    // 为什么用 handler.post：TTS回调可能在子线程，UI操作必须切回主线程
+                    handler.post(() -> {
+                        updateTTSButtonColors(null);
+                        // 仅在 TTS 播放时申请过焦点的情况下释放焦点恢复音乐
+                        // 为什么要判断 ttsPausedMusic：如果是车内播放TTS，音乐不会暂停，也就不需要恢复
+                        if (ttsPausedMusic && audioFocusManager != null) {
+                            audioFocusManager.abandonTransientFocus();
+                            ttsPausedMusic = false;
+                            AppLog.d(TAG, "Abandoned transient focus after TTS done");
+                        }
+                        // TTS 完成后重启自动收起定时器
+                        resetAutoHideTimer();
+                    });
+                }
 
-            @Override
-            public void onTTSError() {
-                AppLog.w(TAG, "TTS error");
-                handler.post(() -> {
-                    updateTTSButtonColors(null);
-                    // 出错也要释放焦点，否则音乐可能一直暂停
-                    if (ttsPausedMusic && audioFocusManager != null) {
-                        audioFocusManager.abandonTransientFocus();
-                        ttsPausedMusic = false;
-                        AppLog.d(TAG, "Abandoned transient focus after TTS error");
-                    }
-                    // TTS 出错后也重启自动收起定时器
-                    resetAutoHideTimer();
-                });
-            }
-        });
-        // 注册成功，重置重试计数器（若之前重试过），下次进入时恢复重试能力
-        retrySetupTTSCount = 0;
+                @Override
+                public void onTTSError() {
+                    AppLog.w(TAG, "TTS error");
+                    handler.post(() -> {
+                        updateTTSButtonColors(null);
+                        // 出错也要释放焦点，否则音乐可能一直暂停
+                        if (ttsPausedMusic && audioFocusManager != null) {
+                            audioFocusManager.abandonTransientFocus();
+                            ttsPausedMusic = false;
+                            AppLog.d(TAG, "Abandoned transient focus after TTS error");
+                        }
+                        // TTS 出错后也重启自动收起定时器
+                        resetAutoHideTimer();
+                    });
+                }
+            };
+        }
+        ttsManager.addProgressListener(ttsProgressListener);
         AppLog.d(TAG, "TTS progress listener registered successfully");
     }
 
@@ -1031,17 +1094,23 @@ public class FloatingWindowService extends Service {
         ttsPausedMusic = (currentMode == AudioOutputManager.OUTPUT_EXTERNAL);
 
         // 停止车外喊话（互斥）
-        // 为什么互斥：都用车外喇叭，同时播放会导致声音重叠混乱
-        if (isAnnouncing) {
-            toggleAnnouncement();
-        }
+        // 为什么互斥：都用车外喇叭，同时播放会导致声音重叠混乱。
+        // 为什么用同步 stopImmediately 而不是 toggle：toggle 已改为异步队列，
+        // 直接 toggle 会出现"TTS 已开始播报、麦克风还在外放"的重叠窗口
+        MicOutputController.getInstance().stopImmediately();
 
         // 仅在车外模式时申请焦点暂停音乐；车内模式时不影响音乐播放
         // 为什么用音频焦点而不是直接暂停：通过统一的焦点机制管理，
         // 音乐播放器通过焦点回调处理暂停/恢复，状态更一致
+        boolean focusGranted = false;
         if (ttsPausedMusic && audioFocusManager != null) {
-            boolean granted = audioFocusManager.requestTransientFocus();
-            AppLog.d(TAG, "playTTS: currentMode=EXTERNAL, transient focus request granted=" + granted);
+            focusGranted = audioFocusManager.requestTransientFocus();
+            // 修复（C1）：焦点被拒时必须撤掉"已暂停音乐"标记。
+            // 原实现不看 granted 结果——焦点被拒意味着音乐根本没被暂停，
+            // 但 ttsPausedMusic 仍为 true，TTS 播完会 abandonTransientFocus
+            // 释放本不持有的焦点（可能误伤其他应用的焦点栈）
+            ttsPausedMusic = focusGranted;
+            AppLog.d(TAG, "playTTS: currentMode=EXTERNAL, transient focus request granted=" + focusGranted);
         } else {
             AppLog.d(TAG, "playTTS: currentMode=" + currentMode + ", will not pause music");
         }
@@ -1049,18 +1118,24 @@ public class FloatingWindowService extends Service {
         // 使用独立的车外 usage 播报 TTS，不影响全局输出模式
         // 为什么不用切换全局输出模式：TTS只是临时播报，
         // 用独立的usage可以直接从车外输出，不改变音乐的输出通道
+        boolean speakSuccess = false;
         try {
             if (audioServiceLocator.getTTSManager() != null) {
                 int externalUsage = outputManager.getExternalAudioUsage();
-                boolean success = audioServiceLocator.getTTSManager().speakWithUsage(text, externalUsage);
-                AppLog.d(TAG, "playTTS: speakWithUsage result=" + success + ", text=\"" + text + "\", usage=" + externalUsage);
+                speakSuccess = audioServiceLocator.getTTSManager().speakWithUsage(text, externalUsage);
+                AppLog.d(TAG, "playTTS: speakWithUsage result=" + speakSuccess + ", text=\"" + text + "\", usage=" + externalUsage);
             }
         } catch (Exception e) {
             AppLog.e(TAG, "Failed to speak TTS text", e);
-            // TTS 失败时，如果之前申请了焦点则释放
-            // 为什么必须释放：如果不释放，音乐可能一直处于暂停状态
-            if (ttsPausedMusic && audioFocusManager != null) {
-                audioFocusManager.abandonTransientFocus();
+        } finally {
+            // 修复：TTS 播报失败时必须释放瞬时焦点，否则音乐会一直处于暂停状态无法恢复。
+            // 原代码只在抛异常时回滚，speak 返回 false 的失败路径（如 TTS 引擎不可用）
+            // 会漏掉回滚，导致焦点被白白占用、音乐永久暂停
+            if (!speakSuccess && audioFocusManager != null) {
+                // 只有真正拿到焦点才需要 abandon；申请失败时音乐并未被暂停
+                if (focusGranted) {
+                    audioFocusManager.abandonTransientFocus();
+                }
                 ttsPausedMusic = false;
             }
         }
@@ -1205,23 +1280,23 @@ public class FloatingWindowService extends Service {
         button.setBackgroundResource(isDark ? darkBgRes : lightBgRes);
         button.setBackgroundTintList(null);
         button.setTextColor(isDark
-                ? getResources().getColor(android.R.color.white)
-                : getResources().getColor(android.R.color.black));
+                ? ContextCompat.getColor(this, android.R.color.white)
+                : ContextCompat.getColor(this, android.R.color.black));
     }
 
     /** 为按钮设置强调色（播放中/选中状态） */
     private void applyButtonAccent(Button button) {
         if (button == null) return;
         button.setBackgroundTintList(androidx.core.content.ContextCompat.getColorStateList(this, R.color.colorAccent));
-        button.setTextColor(getResources().getColor(android.R.color.white));
+        button.setTextColor(ContextCompat.getColor(this, android.R.color.white));
     }
 
     /** 为 TextView 应用主题文字色 */
     private void applyTextTheme(TextView textView) {
         if (textView == null) return;
         textView.setTextColor(isDarkTheme()
-                ? getResources().getColor(android.R.color.white)
-                : getResources().getColor(android.R.color.black));
+                ? ContextCompat.getColor(this, android.R.color.white)
+                : ContextCompat.getColor(this, android.R.color.black));
     }
 
     // ========== 静态内部类：防止 Handler 内存泄漏 ==========
@@ -1243,20 +1318,4 @@ public class FloatingWindowService extends Service {
         }
     }
 
-    /** TTS 监听重试 Runnable，使用弱引用避免内存泄漏 */
-    private static class RetrySetupTTSRunnable implements Runnable {
-        private final WeakReference<FloatingWindowService> serviceRef;
-
-        RetrySetupTTSRunnable(FloatingWindowService service) {
-            this.serviceRef = new WeakReference<>(service);
-        }
-
-        @Override
-        public void run() {
-            FloatingWindowService service = serviceRef.get();
-            if (service != null) {
-                service.setupTTSListener();
-            }
-        }
-    }
 }

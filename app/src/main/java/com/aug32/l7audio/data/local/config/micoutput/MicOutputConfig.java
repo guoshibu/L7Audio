@@ -36,12 +36,24 @@ public class MicOutputConfig {
     private static final String PREF_SILENCE_TIMEOUT = "mic_silence_timeout";
     /** 静音阈值（RMS），低于此值视为无声音输入 */
     private static final String PREF_SILENCE_THRESHOLD = "mic_silence_threshold";
+    /** 静音阈值迁移版本号，避免重复迁移历史默认值 */
+    private static final String PREF_SILENCE_THRESHOLD_VERSION = "mic_silence_threshold_version";
+    /** 当前迁移版本：3 表示已把历史默认值 0.05 / 0.01 迁移为 0.003 */
+    private static final int SILENCE_THRESHOLD_VERSION = 3;
+    /** 历史默认阈值（仅用于迁移识别）：0.05 = 初版，0.01 = 批次十五中间值 */
+    private static final float[] LEGACY_DEFAULT_SILENCE_THRESHOLDS = {0.05f, 0.01f};
 
     // 默认值
     private static final int DEFAULT_DEBOUNCE_INTERVAL = 800;
     private static final boolean DEFAULT_SILENCE_DETECTION_ENABLED = true;
     private static final int DEFAULT_SILENCE_TIMEOUT = 30;
-    private static final float DEFAULT_SILENCE_THRESHOLD = 0.05f;
+    // 静音阈值默认 0.003：实车实测（银河 L7 / G636）真正安静时峰值 RMS ≤0.001，
+    // 轻声说话峰值约 0.004~0.006，正常说话 0.013+。0.05 / 0.01 都会把轻声说话误判为静音。
+    private static final float DEFAULT_SILENCE_THRESHOLD = 0.003f;
+    /** 静音阈值允许下限：需低于本机轻声说话电平（实测约 0.004），同时高于本底噪声 */
+    private static final float SILENCE_THRESHOLD_MIN = 0.001f;
+    /** 静音阈值允许上限 */
+    private static final float SILENCE_THRESHOLD_MAX = 0.3f;
 
     // 滤波器与增益范围默认值及边界
     private static final int DEFAULT_HPF_CUTOFF = 100;
@@ -66,6 +78,46 @@ public class MicOutputConfig {
      */
     public MicOutputConfig(SharedPreferences preferences) {
         this.preferences = preferences;
+        // 一次性迁移：旧版本把静音阈值默认值写成了 0.05，在本机麦克风电平下必然误判静音。
+        // 只迁移"仍为旧默认值"的用户，用户自己改过的其它值保持不动
+        migrateLegacySilenceThreshold();
+    }
+
+    /**
+     * 把历史持久化的旧默认静音阈值（0.05）迁移为新的默认值（0.01）。
+     *
+     * <p>为什么需要迁移：默认值只影响"从未写入过"的键，而设置页保存过一次就会把
+     * 0.05 落盘，之后改常量对老用户无效。迁移通过版本号保证只执行一次。</p>
+     */
+    private void migrateLegacySilenceThreshold() {
+        if (preferences.getInt(PREF_SILENCE_THRESHOLD_VERSION, 1) >= SILENCE_THRESHOLD_VERSION) {
+            return;
+        }
+        if (!preferences.contains(PREF_SILENCE_THRESHOLD)) {
+            // 从未保存过：直接标记版本，读取时自然使用新默认值
+            preferences.edit()
+                    .putInt(PREF_SILENCE_THRESHOLD_VERSION, SILENCE_THRESHOLD_VERSION)
+                    .apply();
+            return;
+        }
+        float stored = preferences.getFloat(PREF_SILENCE_THRESHOLD, DEFAULT_SILENCE_THRESHOLD);
+        boolean isLegacyDefault = false;
+        for (float legacy : LEGACY_DEFAULT_SILENCE_THRESHOLDS) {
+            if (Math.abs(stored - legacy) < 1e-6f) {
+                isLegacyDefault = true;
+                break;
+            }
+        }
+        if (isLegacyDefault) {
+            preferences.edit()
+                    .putFloat(PREF_SILENCE_THRESHOLD, DEFAULT_SILENCE_THRESHOLD)
+                    .putInt(PREF_SILENCE_THRESHOLD_VERSION, SILENCE_THRESHOLD_VERSION)
+                    .apply();
+        } else {
+            preferences.edit()
+                    .putInt(PREF_SILENCE_THRESHOLD_VERSION, SILENCE_THRESHOLD_VERSION)
+                    .apply();
+        }
     }
 
     public int getAmplificationLevel() {
@@ -117,6 +169,9 @@ public class MicOutputConfig {
     }
 
     public void setMaxAmplification(int maxAmplification) {
+        // 写侧 clamp：防御越界值落入 SP（读侧 getMaxAmplification 也有 clamp，双保险）
+        if (maxAmplification < MAX_AMPLIFICATION_MIN) maxAmplification = MAX_AMPLIFICATION_MIN;
+        if (maxAmplification > MAX_AMPLIFICATION_MAX) maxAmplification = MAX_AMPLIFICATION_MAX;
         preferences.edit().putInt(PREF_MAX_AMPLIFICATION, maxAmplification).apply();
     }
 
@@ -138,6 +193,9 @@ public class MicOutputConfig {
      * @param cutoff 截止频率，范围 50~2000Hz
      */
     public void setHpfCutoff(int cutoff) {
+        // 写侧 clamp 到 [50, 2000]，与读侧一致
+        if (cutoff < HPF_CUTOFF_MIN) cutoff = HPF_CUTOFF_MIN;
+        if (cutoff > HPF_CUTOFF_MAX) cutoff = HPF_CUTOFF_MAX;
         preferences.edit().putInt(PREF_HPF_CUTOFF, cutoff).apply();
     }
 
@@ -159,6 +217,9 @@ public class MicOutputConfig {
      * @param cutoff 截止频率，范围 200~8000Hz
      */
     public void setLpfCutoff(int cutoff) {
+        // 写侧 clamp 到 [200, 8000]，与读侧一致
+        if (cutoff < LPF_CUTOFF_MIN) cutoff = LPF_CUTOFF_MIN;
+        if (cutoff > LPF_CUTOFF_MAX) cutoff = LPF_CUTOFF_MAX;
         preferences.edit().putInt(PREF_LPF_CUTOFF, cutoff).apply();
     }
 
@@ -186,10 +247,11 @@ public class MicOutputConfig {
      * @return 最小增益，范围 0.1~最大放大倍率，默认 1.0
      */
     public float getMinGain() {
+        // 两个 key 各读一次到局部变量后再比较（SP 无跨 key 事务，局部变量快照是本方法内能拿到的最强一致性）
         float v = preferences.getFloat(PREF_MIN_GAIN, DEFAULT_MIN_GAIN);
+        float maxGain = getMaxAmplification();
         if (v < MIN_GAIN_FLOOR) v = MIN_GAIN_FLOOR;
         // 下限不得超过上限（最大放大倍率）
-        float maxGain = getMaxAmplification();
         if (v > maxGain) v = maxGain;
         return v;
     }
@@ -200,6 +262,10 @@ public class MicOutputConfig {
      * @param minGain 最小增益，范围 0.1~最大放大倍率
      */
     public void setMinGain(float minGain) {
+        // 写侧 clamp：下限不低于 0.1，且不得超过当前最大放大倍率
+        float maxGain = getMaxAmplification();
+        if (minGain < MIN_GAIN_FLOOR) minGain = MIN_GAIN_FLOOR;
+        if (minGain > maxGain) minGain = maxGain;
         preferences.edit().putFloat(PREF_MIN_GAIN, minGain).apply();
     }
 
@@ -212,7 +278,10 @@ public class MicOutputConfig {
      * @return 防抖间隔，范围 500-2000ms，默认 800ms
      */
     public int getDebounceInterval() {
-        return preferences.getInt(PREF_DEBOUNCE_INTERVAL, DEFAULT_DEBOUNCE_INTERVAL);
+        // 读侧同样 clamp：历史版本可能写入过越界值（或被外部工具改坏），
+        // 只在写侧限制不足以保证运行期参数合法
+        int value = preferences.getInt(PREF_DEBOUNCE_INTERVAL, DEFAULT_DEBOUNCE_INTERVAL);
+        return Math.max(500, Math.min(2000, value));
     }
 
     /**
@@ -221,6 +290,9 @@ public class MicOutputConfig {
      * @param interval 防抖间隔，范围 500-2000ms
      */
     public void setDebounceInterval(int interval) {
+        // 写侧 clamp 到 [500, 2000]ms（javadoc 既定边界）
+        if (interval < 500) interval = 500;
+        if (interval > 2000) interval = 2000;
         preferences.edit().putInt(PREF_DEBOUNCE_INTERVAL, interval).apply();
     }
 
@@ -248,7 +320,9 @@ public class MicOutputConfig {
      * @return 超时时间，范围 5-300s，默认 30s
      */
     public int getSilenceTimeout() {
-        return preferences.getInt(PREF_SILENCE_TIMEOUT, DEFAULT_SILENCE_TIMEOUT);
+        // 读侧 clamp 到 [5, 300]s，避免历史越界值导致静音检测立即触发或永不触发
+        int value = preferences.getInt(PREF_SILENCE_TIMEOUT, DEFAULT_SILENCE_TIMEOUT);
+        return Math.max(5, Math.min(300, value));
     }
 
     /**
@@ -257,24 +331,32 @@ public class MicOutputConfig {
      * @param timeout 超时时间，范围 5-300s
      */
     public void setSilenceTimeout(int timeout) {
+        // 写侧 clamp 到 [5, 300]s（javadoc 既定边界）
+        if (timeout < 5) timeout = 5;
+        if (timeout > 300) timeout = 300;
         preferences.edit().putInt(PREF_SILENCE_TIMEOUT, timeout).apply();
     }
 
     /**
      * 获取静音阈值（RMS）
      *
-     * @return 阈值，范围 0.03-0.3，默认 0.05
+     * @return 阈值，范围 0.002-0.3，默认 0.01
      */
     public float getSilenceThreshold() {
-        return preferences.getFloat(PREF_SILENCE_THRESHOLD, DEFAULT_SILENCE_THRESHOLD);
+        // 读侧 clamp 到合法区间，避免历史越界值导致喊话被立刻判为静音或永不触发
+        float value = preferences.getFloat(PREF_SILENCE_THRESHOLD, DEFAULT_SILENCE_THRESHOLD);
+        return Math.max(SILENCE_THRESHOLD_MIN, Math.min(SILENCE_THRESHOLD_MAX, value));
     }
 
     /**
      * 设置静音阈值（RMS）
      *
-     * @param threshold 阈值，范围 0.03-0.3
+     * @param threshold 阈值，范围 0.002-0.3
      */
     public void setSilenceThreshold(float threshold) {
+        // 写侧 clamp 到合法区间（javadoc 既定边界）
+        if (threshold < SILENCE_THRESHOLD_MIN) threshold = SILENCE_THRESHOLD_MIN;
+        if (threshold > SILENCE_THRESHOLD_MAX) threshold = SILENCE_THRESHOLD_MAX;
         preferences.edit().putFloat(PREF_SILENCE_THRESHOLD, threshold).apply();
     }
 }
