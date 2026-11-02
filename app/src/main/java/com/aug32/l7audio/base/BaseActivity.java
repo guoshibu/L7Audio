@@ -31,6 +31,20 @@ public abstract class BaseActivity extends AppCompatActivity {
     private static final String FONT_SCALE_TAG = "FontScale";
 
     /**
+     * 字体缩放系数静态缓存：attachBaseContext 在 Activity 极早期调用，
+     * 每次 new AppConfig 会连带构造 6 个 Config 子对象，成本浪费在仅读取一个 float 上。
+     * 首次读取后缓存；设置变更处（SettingsFragment）必须调用 {@link #invalidateFontScaleCache()} 清缓存。
+     */
+    private static volatile Float cachedFontScale;
+
+    /**
+     * 使字体缩放静态缓存失效，供设置页修改 fontScale 后、recreate 前调用。
+     */
+    public static void invalidateFontScaleCache() {
+        cachedFontScale = null;
+    }
+
+    /**
      * 在 Activity 附加基础 Context 时覆写 Configuration.fontScale。
      *
      * <p>【全局字体缩放】通过覆写 fontScale，使全应用所有 sp 单位字体按用户设置的系数统一缩放。
@@ -40,8 +54,15 @@ public abstract class BaseActivity extends AppCompatActivity {
      */
     @Override
     protected void attachBaseContext(Context newBase) {
-        // 读取用户持久化的字体缩放系数（临时构造，因 appConfig 尚未初始化）
-        float fontScale = new AppConfig(newBase).getFontScale();
+        // 读取用户持久化的字体缩放系数（静态缓存，避免每次 new AppConfig 连带构造 6 个子对象）
+        float fontScale;
+        Float cached = cachedFontScale;
+        if (cached != null) {
+            fontScale = cached;
+        } else {
+            fontScale = new AppConfig(newBase).getFontScale();
+            cachedFontScale = fontScale;
+        }
         // 【字体缩放排查】这是全局字体真正生效的入口。recreate() 后会重新走到这里，
         // 若这里读到的 fontScale 是新值，说明持久化+重建链路正常；界面若仍没变则问题在渲染/缓存层。
         // 改用 AppLog 落盘：AppLog.d 为纯静态方法，内部对未初始化状态有保护（isInitialized/logFile 判空），

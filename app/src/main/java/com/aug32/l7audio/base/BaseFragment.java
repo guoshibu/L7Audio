@@ -16,7 +16,7 @@ import androidx.fragment.app.Fragment;
  * <p>主要职责：
  * <ul>
  *   <li>统一布局加载：通过模板方法模式规范 Fragment 的初始化流程</li>
- *   <li>视图缓存：维护 rootView 引用，避免重复 inflate</li>
+ *   <li>根视图引用：onCreateView 中 inflate 后供子类直接使用，onDestroyView 时置空释放</li>
  *   <li>安全访问：提供安全获取 Context、Activity、根视图的方法</li>
  *   <li>生命周期封装：将初始化拆分为 initViews/initData/initListeners 三个阶段</li>
  * </ul>
@@ -30,7 +30,7 @@ import androidx.fragment.app.Fragment;
  */
 public abstract class BaseFragment extends Fragment {
 
-    /** Fragment 根视图，onCreateView 中 inflate 后缓存，供子类直接使用 */
+    /** Fragment 根视图，onCreateView 中 inflate 后缓存供子类直接使用，onDestroyView 时置空释放（防泄漏，见类注释） */
     protected View rootView;
 
     /**
@@ -59,6 +59,21 @@ public abstract class BaseFragment extends Fragment {
         initData();
         initListeners();
         return rootView;
+    }
+
+    /**
+     * 销毁 Fragment 视图的回调方法。
+     *
+     * <p>修复：原实现未覆写 onDestroyView，视图销毁后 rootView 仍被 Fragment 持有。
+     * Fragment 进返回栈（如 FileBrowserFragment 的 addToBackStack）被系统 retained 时，
+     * rootView → 整棵 View 树 → 监听器 lambda 反向持有 Fragment，形成完整泄漏环，
+     * 叠加字体缩放/主题切换的 recreate 会持续扩大泄漏面。
+     * 在视图销毁时置空引用，斩断持有链。
+     */
+    @Override
+    public void onDestroyView() {
+        super.onDestroyView();
+        rootView = null;
     }
 
     /**

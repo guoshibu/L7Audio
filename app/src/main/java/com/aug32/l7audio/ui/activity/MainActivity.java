@@ -47,6 +47,7 @@ import com.aug32.l7audio.ui.fragment.micoutput.MicOutputFragment;
 import com.aug32.l7audio.ui.fragment.player.MusicPlayerFragment;
 import com.aug32.l7audio.ui.fragment.settings.SettingsFragment;
 import com.aug32.l7audio.ui.fragment.tts.TTSFragment;
+import com.aug32.l7audio.utils.AppExecutors;
 import com.aug32.l7audio.utils.AppLog;
 import com.aug32.l7audio.utils.ServiceCompat;
 
@@ -245,6 +246,17 @@ public class MainActivity extends BaseActivity {
         super.onConfigurationChanged(newConfig);
         AppLog.d(TAG, "onConfigurationChanged: orientation=" + newConfig.orientation);
 
+        // 修复：旋屏时先关闭文件浏览器覆盖层。
+        // 覆盖层不参与下方功能页重建，其 callback 持有的是被 replace 掉的
+        // 旧 MusicPlayerFragment 实例的匿名回调，旋转后用户选完目录/文件
+        // 回调内 isAdded() 为 false 直接静默丢弃——选了却毫无反应。
+        // 先按"用户取消"路径关闭，重开后 callback 自然指向新实例。
+        // （返回栈仅在 showFileBrowserFragment 时压入，栈非空即文件浏览器在显示）
+        FragmentManager fragmentManager = getSupportFragmentManager();
+        if (fragmentManager.getBackStackEntryCount() > 0) {
+            closeFileBrowserFragment();
+        }
+
         // 重新加载当前功能页面的 Fragment，以刷新布局（加载 layout-land 或 layout-port）
         if (currentFunction >= 0) {
             switch (currentFunction) {
@@ -376,18 +388,25 @@ public class MainActivity extends BaseActivity {
     private void initAudioManagers() {
         AudioServiceLocator locator = AudioServiceLocator.getInstance();
 
-        audioOutputManager = new AudioOutputManager(this);
-        microphoneManager = new MicrophoneManager(this, audioOutputManager);
-        ttsManager = new TTSManager(this, audioOutputManager);
+        // 复用 AudioServiceLocator 中的进程级实例，而不是每次 Activity 重建都 new 一套。
+        // 原实现每次 recreate（主题/字体切换）都会替换 TTSManager 与 MicrophoneManager：
+        //  ① 悬浮窗服务注册的 TTS 监听器挂在旧实例上，旧实例被 shutdown 后监听永久失效；
+        //  ② 正在进行的车外喊话被强行中断；
+        //  ③ 旧 TTS 引擎连接只能等 GC 回收。
+        // 现在 Manager 生命周期与应用进程一致，Activity 重建不再影响后台能力。
+        audioOutputManager = locator.getAudioOutputManager();
+        microphoneManager = locator.getMicrophoneManager();
+        ttsManager = locator.getTTSManager();
         audioFocusManager = AudioFocusManager.from(this);
 
         musicPlayerManager = locator.getMusicPlayerManager();
 
         // 初始化音乐播放器的音频输出属性（从配置中读取当前模式对应的 usage）
-        if (musicPlayerManager != null) {
+        if (musicPlayerManager != null && audioOutputManager != null) {
             musicPlayerManager.updateAudioOutputUsage(audioOutputManager.getAudioUsage());
         }
 
+        // 仍调用一次注册：内部对相同实例是幂等的，并负责把 MusicPlayerManager 绑定到 MediaSessionManager
         locator.registerManagers(
                 audioOutputManager,
                 microphoneManager,
@@ -746,50 +765,58 @@ public class MainActivity extends BaseActivity {
             return;
         }
 
-        // 记录切换前麦克风是否正在放大，切换完成后恢复
-        boolean wasAmplifying = false;
+        // 切换输出模式要停止/重启麦克风（含 AudioRecord/AudioTrack 全量初始化与 1s join 等待），
+        // 全部属于重操作。统一放 IO 线程执行，主线程只负责最后的 UI 刷新，避免掉帧/ANR
+        final AudioOutputManager output = audioOutputManager;
+        final MicrophoneManager mic = microphoneManager;
+        final MusicPlayerManager music = musicPlayerManager;
+        AppExecutors.getInstance().executeOnIOThread(() -> {
+            boolean wasAmplifying = false;
+            try {
+                // 麦克风正在录音时先停止，避免音频路由切换过程中出现异常
+                if (mic != null && mic.isRecording()) {
+                    wasAmplifying = true;
+                    mic.stop();
+                }
 
-        try {
-            // 麦克风正在录音时先停止，避免音频路由切换过程中出现异常
-            if (microphoneManager != null && microphoneManager.isRecording()) {
-                wasAmplifying = true;
-                microphoneManager.stop();
+                output.setOutputMode(outputMode);
+
+                MicOutputController controller = MicOutputController.getInstance();
+                // 同步用户偏好到 micOutputController（静音检测停止后恢复时使用）
+                controller.setPreferExternalMode(outputMode == AudioOutputManager.OUTPUT_EXTERNAL);
+                // 若正在放大，用户此刻手动切换的输出方向也应成为"停止放大后要恢复的目标"，
+                // 否则停止放大时会用放大启动瞬间的旧快照覆盖掉用户的新选择。仅放大进行中生效。
+                controller.syncSavedOutputMode(outputMode);
+
+                // 更新音乐播放器的音频输出属性（无需停止播放）
+                if (music != null) {
+                    music.updateAudioOutputUsage(output.getAudioUsage());
+                }
+
+                // 切换完成后恢复麦克风放大
+                if (wasAmplifying && mic != null) {
+                    mic.start();
+                }
+
+                // 主动切换也走对外通知，与喊话被动切换共用同一同步通道，
+                // 保证注册了 OutputModeListener 的其它界面能一致更新
+                controller.broadcastOutputModeChanged(outputMode);
+
+                final String outputText = outputMode == AudioOutputManager.OUTPUT_CAR ? "仅车内播放" : "仅车外播放";
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    updateOutputButtons(outputMode);
+                    enableFunctionButtons();
+                    Toast.makeText(this, "音频输出已设置为：" + outputText, Toast.LENGTH_SHORT).show();
+                });
+            } catch (Exception e) {
+                AppLog.e(TAG, "setAudioOutput failed", e);
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    Toast.makeText(this, "音频输出切换失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
+                });
             }
-
-            audioOutputManager.setOutputMode(outputMode);
-
-            // 同步用户偏好到 micOutputController（静音检测停止后恢复时使用）
-            MicOutputController.getInstance().setPreferExternalMode(
-                    outputMode == AudioOutputManager.OUTPUT_EXTERNAL);
-
-            // 修复缺陷：若正在放大，用户此刻手动切换的输出方向也应成为"停止放大后要恢复的目标"，
-            // 否则停止放大时会用放大启动瞬间的旧快照覆盖掉用户的新选择。仅放大进行中生效。
-            MicOutputController.getInstance().syncSavedOutputMode(outputMode);
-
-            // 更新音乐播放器的音频输出属性（无需停止播放）
-            if (musicPlayerManager != null) {
-                musicPlayerManager.updateAudioOutputUsage(audioOutputManager.getAudioUsage());
-            }
-
-            // 切换完成后恢复麦克风放大
-            if (wasAmplifying && microphoneManager != null) {
-                microphoneManager.start();
-            }
-
-            updateOutputButtons(outputMode);
-            enableFunctionButtons();
-
-            // 修复缺陷：主动切换也走对外通知，与喊话被动切换共用同一同步通道，
-            // 保证注册了 OutputModeListener 的其它界面能一致更新。主页自身的监听回调再刷一次
-            // updateOutputButtons 是幂等的，无副作用。
-            MicOutputController.getInstance().broadcastOutputModeChanged(outputMode);
-
-            String outputText = outputMode == AudioOutputManager.OUTPUT_CAR ? "仅车内播放" : "仅车外播放";
-            Toast.makeText(this, "音频输出已设置为：" + outputText, Toast.LENGTH_SHORT).show();
-        } catch (Exception e) {
-            AppLog.e(TAG, "setAudioOutput failed", e);
-            Toast.makeText(this, "音频输出切换失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
-        }
+        });
     }
 
     // ==================== 文件浏览器 ====================

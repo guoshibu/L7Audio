@@ -297,7 +297,10 @@ public void updateMetadata(@Nullable MusicItem item) {
             int state = isPlaying
                     ? PlaybackState.STATE_PLAYING
                     : PlaybackState.STATE_PAUSED;
-            stateBuilder.setState(state, currentPosition, 1.0f);
+            // 修复：speed 必须与播放状态一致——暂停时传 0f。
+            // 系统媒体中心按 position + elapsedRealtime * speed 外推进度，
+            // 暂停时若恒传 1.0f，锁屏/车机媒体卡片上的进度会继续"虚走"
+            stateBuilder.setState(state, currentPosition, isPlaying ? 1.0f : 0f);
 
             long actions = PlaybackState.ACTION_PLAY
                     | PlaybackState.ACTION_PAUSE

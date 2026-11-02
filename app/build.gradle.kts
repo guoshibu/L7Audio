@@ -18,9 +18,9 @@ android {
         applicationId = "com.aug32.l7audio"
         minSdk = 30
         targetSdk = 30
-        versionCode = 131
+        versionCode = 149
 
-        versionName = "1.5.11"
+        versionName = "1.5.12"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -47,6 +47,12 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    // JVM 单元测试（app/src/test）：音频处理器等纯 Java 逻辑不依赖 Android 框架，
+    // 允许 android.util.Log 等桩方法返回默认值，避免单测因 "not mocked" 直接失败
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 
     lint {
@@ -139,6 +145,8 @@ dependencies {
     // ProcessLifecycleOwner：进程级前后台感知，用于退后台时降低无效 CPU
     implementation(libs.lifecycle.process)
 
-    // LocalBroadcastManager（本地广播，替代 startService IPC）
-    implementation(libs.localbroadcastmanager)
+    // LocalBroadcastManager 已被 ContextCompat.registerReceiver 取代，依赖已移除
+
+    // JVM 单元测试（app/src/test），不打包进 APK
+    testImplementation("junit:junit:4.13.2")
 }

@@ -31,4 +31,9 @@
     <color name="item_background_even">#FFFFFF</color>
     <color name="item_background_odd">#F0F0F0</color>
 
+    <!-- 危险操作按钮背景色（如"恢复默认设置"）。
+         修复（P2-28）：原来在布局里硬编码 #F44336，深色模式下刺眼且不随主题变化，
+         抽为颜色资源，深浅主题各自取值 -->
+    <color name="button_danger">#F44336</color>
+
 </resources>

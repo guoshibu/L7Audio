@@ -138,6 +138,8 @@ public class MusicPlayerManager {
     private long lastPositionSaveTime = 0L;
     // 落盘节流间隔（毫秒）：断点续播只需秒级精度，异常退出最多丢 5s，可接受
     private static final long POSITION_SAVE_INTERVAL_MS = 5000L;
+    // 内存缓存最后已知播放位置，避免 getCurrentPosition() 回退时每次同步读 SharedPreferences
+    private volatile long lastKnownPosition;
 
     // ========== 构造函数 ==========
     /**
@@ -150,6 +152,8 @@ public class MusicPlayerManager {
         this.appConfig = new AppConfig(this.context);
         this.playlistManager = new PlaylistManager(this.context);
         this.playbackController = new PlaybackController(this.context);
+        // 冷启动时一次性读取 SP 初始化内存缓存，之后由播放进度实时刷新
+        this.lastKnownPosition = appConfig.getLastPlayedPosition();
 
         setupListeners();
         AppLog.d(TAG, "MusicPlayerManager initialized");
@@ -168,8 +172,17 @@ public class MusicPlayerManager {
 
             @Override
             public void onCurrentIndexChanged(int newIndex) {
-                // 当前索引变化，但不自动播放
-                // 原因：索引变化可能由用户手动触发，是否播放由上层决定
+                // 修复（C6）：正在播放的歌曲被删除时（索引被置 -1），
+                // 原实现不做任何处理——ExoPlayer 继续播放已删除的文件，
+                // MediaSession/通知栏仍显示该曲"播放中"，UI 显示"正在播放已删除歌曲"。
+                // 主动停止播放并同步 UI 状态；索引 >= 0 的变化由上层播放流程自行处理
+                if (newIndex == -1) {
+                    AppLog.w(TAG, "当前播放的歌曲已被删除，停止播放并同步状态");
+                    playbackController.stop();
+                    currentPlayingItem = null;
+                    notifyMediaSessionPlaybackState(false, 0);
+                    AudioForegroundService.notifyUpdate(context);
+                }
             }
         });
 
@@ -182,6 +195,8 @@ public class MusicPlayerManager {
 
             @Override
             public void onProgressChanged(long position, long duration) {
+                // 刷新内存缓存，供 getCurrentPosition() 回退读取
+                lastKnownPosition = position;
                 // 【性能优化】真节流：播放位置每 5 秒才落盘一次，
                 // 避免此前每 500ms 一次 SharedPreferences 磁盘写造成的后台无效开销
                 long now = System.currentTimeMillis();
@@ -248,7 +263,17 @@ public class MusicPlayerManager {
         loadLyricsIfNeeded(item);
 
         // 先播放，封面在后台异步加载，加载完成后刷新通知
-        playbackController.play(item, startPosition);
+        boolean started = playbackController.play(item, startPosition);
+        if (!started) {
+            // 修复（C2）：播放启动被拒（音频焦点被其他应用持有等）时，
+            // 原实现无视失败继续 notifyMediaSession(playing=true) + 刷新通知，
+            // 通知栏/车机媒体中心/方向盘按键全部显示"播放中"但实际无声 → 假播放中。
+            // 失败时按"未播放"同步 MediaSession 与通知栏，索引保留（用户的选择仍生效）
+            AppLog.w(TAG, "start: playback refused (focus denied?), sync UI as not-playing");
+            notifyMediaSessionPlaybackState(false, startPosition);
+            AudioForegroundService.notifyUpdate(context);
+            return;
+        }
 
         ensureAlbumArt(item);
 
@@ -264,7 +289,9 @@ public class MusicPlayerManager {
      */
     public void pause() {
         // 暂停时立即落盘真实位置，兜住 5s 节流窗口内未保存的进度
-        appConfig.setLastPlayedPosition(playbackController.getCurrentPosition());
+        long pos = playbackController.getCurrentPosition();
+        lastKnownPosition = pos;
+        appConfig.setLastPlayedPosition(pos);
         playbackController.pause();
         // 同步更新 MediaSession 播放状态
         notifyMediaSessionPlaybackState(false, playbackController.getCurrentPosition());
@@ -472,12 +499,10 @@ public class MusicPlayerManager {
      */
     public long getCurrentPosition() {
         long pos = playbackController.getCurrentPosition();
-        // 播放器未准备好时，使用保存的播放位置
-        // 原因：播放器未初始化时位置为0，但用户可能期望看到上次播放的位置
+        // 播放器未准备好时，回退使用内存缓存的播放位置，避免同步读 SharedPreferences
         if (pos == 0 && !playbackController.getCurrentState().hasCurrentItem()) {
-            long savedPos = appConfig.getLastPlayedPosition();
-            if (savedPos > 0) {
-                return savedPos;
+            if (lastKnownPosition > 0) {
+                return lastKnownPosition;
             }
         }
         return pos;
@@ -575,28 +600,31 @@ public class MusicPlayerManager {
     // ========== 内部方法 ==========
 
     private void handleStateChanged(PlaybackState state) {
-        if (callback == null) return;
-
         try {
-            // 根据播放状态分发对应的回调事件
+            // 修复：通知栏/MediaSession 的状态同步必须独立于 UI 回调。
+            // 原代码在 callback == null 时直接 return（Fragment 退后台或未注册回调），
+            // 导致通知栏和 MediaSession 停止更新，出现"已暂停/停止但通知还显示播放中"的脱节；
+            // 且 STOPPED/IDLE 分支原先完全不做同步，通知会残留播放状态
             switch (state.getState()) {
                 case PLAYING:
-                    callback.onPlaybackStarted(playlistManager.getCurrentIndex());
                     notifyMediaSessionPlaybackState(true, playbackController.getCurrentPosition());
                     AudioForegroundService.notifyUpdate(context);
+                    if (callback != null) callback.onPlaybackStarted(playlistManager.getCurrentIndex());
                     break;
                 case PAUSED:
-                    callback.onPlaybackPaused();
                     notifyMediaSessionPlaybackState(false, playbackController.getCurrentPosition());
                     AudioForegroundService.notifyUpdate(context);
+                    if (callback != null) callback.onPlaybackPaused();
                     break;
                 case STOPPED:
                 case IDLE:
-                    // STOPPED 和 IDLE 都视为停止状态
-                    callback.onPlaybackStopped();
+                    // STOPPED 和 IDLE 都视为停止状态，同样同步 MediaSession 与通知栏
+                    notifyMediaSessionPlaybackState(false, playbackController.getCurrentPosition());
+                    AudioForegroundService.notifyUpdate(context);
+                    if (callback != null) callback.onPlaybackStopped();
                     break;
                 case ERROR:
-                    callback.onError(state.getErrorMessage());
+                    if (callback != null) callback.onError(state.getErrorMessage());
                     break;
                 default:
                     // 其他状态（如 LOADING）不触发回调，等待最终状态
@@ -728,7 +756,12 @@ public class MusicPlayerManager {
         if (musicFilePath == null || musicFilePath.isEmpty()) return null;
 
         // 同名 .lrc 文件路径：将音乐文件的扩展名替换为 .lrc
-        String lrcPath = musicFilePath.substring(0, musicFilePath.lastIndexOf('.')) + ".lrc";
+        // 修复：路径无 '.' 时 lastIndexOf 返回 -1，substring(0,-1) 会抛
+        // StringIndexOutOfBoundsException 导致歌词静默失败；无扩展名时直接追加 .lrc
+        int dotIndex = musicFilePath.lastIndexOf('.');
+        String lrcPath = (dotIndex > 0)
+                ? musicFilePath.substring(0, dotIndex) + ".lrc"
+                : musicFilePath + ".lrc";
         File lrcFile = new File(lrcPath);
 
         // .lrc 文件不存在则返回 null
@@ -736,6 +769,9 @@ public class MusicPlayerManager {
             return null;
         }
 
+        // 修复（内存）：限制歌词读取量（1MB / 2 万行）。
+        // 异常或伪造的巨型 .lrc 全量读入会造成 3~4 倍内存峰值（StringBuilder 累积 + 后续 split），
+        // 正常歌词文件通常 <100KB 远不会触及；超限截断并记警告日志
         java.io.BufferedReader reader = null;
         try {
             StringBuilder sb = new StringBuilder();
@@ -744,8 +780,17 @@ public class MusicPlayerManager {
                     new java.io.InputStreamReader(
                             new java.io.FileInputStream(lrcFile), "UTF-8"));
             String line;
+            int lineCount = 0;
+            int totalChars = 0;
             while ((line = reader.readLine()) != null) {
                 sb.append(line).append("\n");
+                lineCount++;
+                totalChars += line.length() + 1;
+                if (lineCount >= 20000 || totalChars >= 1024 * 1024) {
+                    AppLog.w(TAG, "歌词文件过大已截断: lines=" + lineCount
+                            + ", chars=" + totalChars + ", path=" + lrcPath);
+                    break;
+                }
             }
             return sb.toString();
         } catch (Exception e) {

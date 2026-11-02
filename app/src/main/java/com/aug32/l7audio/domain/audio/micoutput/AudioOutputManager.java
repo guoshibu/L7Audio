@@ -84,14 +84,17 @@ public class AudioOutputManager {
      *
      * @return AudioAttributes.Usage 值
      */
-    public synchronized int getAudioUsage() {
+    public int getAudioUsage() {
+        // 不加 synchronized：currentOutputMode 已是 volatile，读取本身原子；
+        // 原实现持锁调用 appConfig（SharedPreferences）会在热点路径上做同步 IO，
+        // 而建流前会频繁调用本方法
         int usage;
         if (currentOutputMode == OUTPUT_CAR) {
             usage = appConfig.getAudioOutputUsageCar();
         } else {
             usage = appConfig.getAudioOutputUsageExternal();
         }
-        AppLog.i(TAG, "获取音频用法: mode=" + currentOutputMode + " → usage=" + usage);
+        AppLog.d(TAG, "获取音频用法: mode=" + currentOutputMode + " → usage=" + usage);
         return usage;
     }
 

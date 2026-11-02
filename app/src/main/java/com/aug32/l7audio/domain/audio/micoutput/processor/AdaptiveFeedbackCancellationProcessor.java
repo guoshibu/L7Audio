@@ -92,7 +92,15 @@ public class AdaptiveFeedbackCancellationProcessor implements AudioProcessor {
                 }
             }
 
-            samples[i] = (short) (e * 32767.0f);
+            // 输出限幅：滤波器收敛前 e 可能远超 ±1，直接乘 32767 强转 short 会整数回绕，
+            // 听感上是突发爆音（比正常削波刺耳得多），因此先夹到 short 合法区间
+            float out = e * 32767.0f;
+            if (out > 32767.0f) {
+                out = 32767.0f;
+            } else if (out < -32768.0f) {
+                out = -32768.0f;
+            }
+            samples[i] = (short) out;
         }
 
         // 系数归一化：防止滤波器系数无限增长导致数值漂移

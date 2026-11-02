@@ -44,6 +44,10 @@ public class MicOutputController {
 
     private static final String TAG = "MicOutputController";
     private static final String PREF_PREFER_EXTERNAL = "mic_output_prefer_external";
+    /** 静音检测轮询间隔（毫秒） */
+    private static final int SILENCE_CHECK_INTERVAL_MS = 500;
+    /** 静音检测启动宽限期（毫秒），此期间内录制未就绪不触发超时 */
+    private static final long STARTUP_GRACE_MS = 3000;
 
     // ========== 单例 ==========
     private static volatile MicOutputController instance;
@@ -78,6 +82,24 @@ public class MicOutputController {
     private final List<MicOutputListener> listeners = new CopyOnWriteArrayList<>();
     /** 输出模式监听器列表（使用 CopyOnWriteArrayList） */
     private final List<OutputModeListener> outputModeListeners = new CopyOnWriteArrayList<>();
+
+    /**
+     * 喊话启停串行执行器。
+     *
+     * <p>启停会创建/释放 AudioRecord、AudioTrack 并初始化硬件 3A 效果器，
+     * 属于百毫秒级重操作。统一放到单线程执行器上：
+     * <ul>
+     *   <li>悬浮窗按钮、麦克风页面点击等主线程入口不再同步初始化音频设备，避免 ANR</li>
+     *   <li>串行化保证 start/stop 不会交错执行，防抖顺序与状态读写保持一致</li>
+     * </ul>
+     * 守护线程：进程退出时不需要显式关闭。
+     */
+    private final java.util.concurrent.ExecutorService toggleExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "MicOutputToggle");
+                t.setDaemon(true);
+                return t;
+            });
 
     /**
      * 喊话状态监听接口
@@ -236,12 +258,23 @@ public class MicOutputController {
      * @param showToast true=显示Toast提示（仅第三方广播调用时使用），
      *                   false=不显示Toast（悬浮窗/麦克风页面调用）
      */
-    public synchronized void toggle(boolean forceExternal, boolean showToast) {
+    public void toggle(boolean forceExternal, boolean showToast) {
         if (appContext == null) {
             AppLog.e(TAG, "控制器未初始化，请先调用 init()");
             return;
         }
+        // 只做入队，调用线程（可能是主线程）不被音频设备初始化阻塞
+        toggleExecutor.execute(() -> toggleInternal(forceExternal, showToast));
+    }
 
+    /**
+     * 喊话状态切换的实际执行体（运行在串行执行器线程）
+     *
+     * <p>synchronized 与 {@link #syncSavedOutputMode(int)} 等主线程读写互斥，
+     * 保证 savedOutputMode 状态一致；串行执行器则保证 start/stop 不交错。
+     * </p>
+     */
+    private synchronized void toggleInternal(boolean forceExternal, boolean showToast) {
         long now = System.currentTimeMillis();
         int debounceInterval = micOutputConfig.getDebounceInterval();
         if (now - lastToggleTime < debounceInterval) {
@@ -258,10 +291,38 @@ public class MicOutputController {
     }
 
     /**
+     * 重置防抖时间戳，允许用户立即重试。
+     *
+     * <p>修复（P2-27）：toggle() 在通过防抖检查后立即消耗了 lastToggleTime，
+     * 但启动喊话可能失败（管理器为空、麦克风启动失败等）。失败后用户想立刻重试，
+     * 却被自己刚才那次失败请求"吃掉"了防抖窗口，按键 800ms 内毫无反馈。
+     * 失败路径回滚时间戳，保证失败不惩罚用户。
+     */
+    private void resetDebounce() {
+        lastToggleTime = 0L;
+    }
+
+    /**
      * 切换喊话状态（兼容旧接口，不显示Toast）
      */
-    public synchronized void toggle(boolean forceExternal) {
+    public void toggle(boolean forceExternal) {
         toggle(forceExternal, false);
+    }
+
+    /**
+     * 立即停止喊话（不受防抖限制，同步执行）
+     *
+     * <p>供 TTS 播报、悬浮窗销毁等"必须立刻互斥"的场景使用：
+     * 这些场景需要"停止完成后再继续"，走 {@link #toggle(boolean, boolean)} 的
+     * 异步队列会与后续动作重叠（例如 TTS 已开始播报、麦克风还在外放）。
+     * 方法返回时麦克风已停止、输出模式已恢复、焦点已释放。
+     * </p>
+     */
+    public synchronized void stopImmediately() {
+        if (!isAnnouncing) {
+            return;
+        }
+        stopAnnouncement(false);
     }
 
     /**
@@ -282,31 +343,11 @@ public class MicOutputController {
         AppLog.i(TAG, "========== 启动喊话() ==========");
         AppLog.i(TAG, "forceExternal=" + forceExternal + ", showToast=" + showToast);
 
-        // 记录音乐播放器状态
-        try {
-            com.aug32.l7audio.domain.audio.player.MusicPlayerManager musicManager = locator.getMusicPlayerManager();
-            if (musicManager != null) {
-                boolean isPlaying = musicManager.isPlaying();
-                AppLog.i(TAG, "音乐播放器: isPlaying=" + isPlaying);
-            } else {
-                AppLog.i(TAG, "音乐播放器: null (懒加载未触发)");
-            }
-        } catch (Exception e) {
-            AppLog.e(TAG, "获取音乐播放器状态失败", e);
-        }
-
-        // 记录 AudioFocus 状态
-        try {
-            if (focusManager != null) {
-                AppLog.i(TAG, "音频焦点管理器: 实例存在 (将申请短暂焦点)");
-            }
-        } catch (Exception e) {
-            AppLog.e(TAG, "获取音频焦点状态失败", e);
-        }
-
         if (outputManager == null || focusManager == null || micManager == null) {
             AppLog.e(TAG, "必需的管理器为空，无法启动喊话");
             AppLog.e(TAG, "  outputManager=" + outputManager + ", focusManager=" + focusManager + ", micManager=" + micManager);
+            // 修复（P2-27）：启动失败回滚防抖时间戳，允许用户立即重试
+            resetDebounce();
             return;
         }
 
@@ -342,9 +383,20 @@ public class MicOutputController {
             // 回滚：恢复输出模式和焦点
             if (savedOutputMode >= 0) {
                 outputManager.setOutputMode(savedOutputMode);
+                // 回滚必须对外通知，否则界面/悬浮窗仍显示"车外"，
+                // 用户需要再手动切一次才能与实际输出方向一致
+                notifyOutputModeChanged(savedOutputMode);
                 savedOutputMode = -1;
             }
             focusManager.abandonTransientFocus();
+            // 修复（P2-27）：麦克风启动失败回滚防抖时间戳，允许用户立即重试
+            resetDebounce();
+            // 修复（首次使用"点了没反应"）：原实现只写日志就 return，而悬浮窗入口
+            // toggle(true) 的 showToast=false，用户完全看不到失败，且悬浮窗的自动收起
+            // 定时器在点击时已被取消、不会再恢复。这里失败一律给可见反馈，并通知监听方
+            // （notifyStateChanged(false) 会让悬浮窗重新武装自动收起定时器）
+            notifyStateChanged(false);
+            showToast("车外喊话启动失败：麦克风不可用，请检查车机麦克风权限/隐私开关后重试");
             return;
         }
 
@@ -370,7 +422,7 @@ public class MicOutputController {
      *
      * @param showToast true=显示Toast，false=不显示
      */
-    private void stopAnnouncement(boolean showToast) {
+    private synchronized void stopAnnouncement(boolean showToast) {
         stopSilenceDetection();
 
         AudioServiceLocator locator = AudioServiceLocator.getInstance();
@@ -430,9 +482,9 @@ public class MicOutputController {
             int timeoutMs = micOutputConfig.getSilenceTimeout() * 1000;
             float threshold = micOutputConfig.getSilenceThreshold();
             long silenceStartTime = 0;
-            int checkIntervalMs = 500;
+            int checkIntervalMs = SILENCE_CHECK_INTERVAL_MS;
             long detectionStartTime = System.currentTimeMillis();
-            long startupGraceMs = 3000;
+            long startupGraceMs = STARTUP_GRACE_MS;
 
             AppLog.d(TAG, "静音检测启动: timeout=" + timeoutMs + "ms, threshold=" + threshold + " gracePeriod=" + startupGraceMs + "ms");
 
@@ -440,42 +492,70 @@ public class MicOutputController {
                 while (!stopSilenceDetection && isAnnouncing && !Thread.interrupted()) {
                     AudioServiceLocator locator = AudioServiceLocator.getInstance();
                     MicrophoneManager micManager = locator.getMicrophoneManager();
-                    if (micManager == null || !micManager.isRecording()) {
+                    if (micManager == null) {
                         Thread.sleep(checkIntervalMs);
                         continue;
                     }
+                    if (!micManager.isRecording()) {
+                        // 修复（C4 兜底）：录制线程异常死亡时 isRecording 已被复位，
+                        // 不能再 sleep+continue 空转（原实现下喊话永久假活：
+                        // UI 显示喊话中、焦点与车外输出都被挂着，实际无声）。
+                        // 宽限期内视为启动尚未就绪继续观察；宽限期外确认死亡 → 自动关闭
+                        if (System.currentTimeMillis() - detectionStartTime < startupGraceMs) {
+                            Thread.sleep(checkIntervalMs);
+                            continue;
+                        }
+                        AppLog.w(TAG, "检测到录制已停止（录制线程异常退出），自动关闭喊话");
+                        mainHandler.post(() -> {
+                            // 先判空再调用：若用户已手动停止，不重复关闭、不弹"自动关闭"提示；
+                            // stopImmediately 内部还有一次 synchronized 校验，防止与串行执行器上的 toggle 交错
+                            if (!isAnnouncing) {
+                                return;
+                            }
+                            stopImmediately();
+                            notifyAutoClosed("录制异常终止");
+                        });
+                        break;
+                    }
 
-                    float rms = micManager.getCurrentRms();
+                    // 用区间峰值而不是瞬时平均：说话能量是稀疏尖峰（实测 p99=0.0435，
+                    // 单帧峰值可达 0.32），10 帧平均会把"正在说话"稀释到阈值以下导致误关
+                    float peakRms = micManager.getAndResetPeakRms();
                     long now = System.currentTimeMillis();
                     long elapsedSinceStart = now - detectionStartTime;
                     boolean inGracePeriod = elapsedSinceStart < startupGraceMs;
 
-                    if (rms < threshold) {
+                    if (peakRms < threshold) {
                         if (inGracePeriod) {
                             silenceStartTime = 0;
-                            AppLog.d(TAG, "静音检测: RMS=" + RMS_FORMAT.format(rms) + " < threshold=" + threshold + ", 在宽限期内 (" + (startupGraceMs - elapsedSinceStart) + "ms 剩余), 忽略");
+                            AppLog.d(TAG, "静音检测: 峰值RMS=" + RMS_FORMAT.format(peakRms) + " < threshold=" + threshold + ", 在宽限期内 (" + (startupGraceMs - elapsedSinceStart) + "ms 剩余), 忽略");
                         } else if (silenceStartTime == 0) {
                             silenceStartTime = now;
-                            AppLog.d(TAG, "静音检测: RMS=" + RMS_FORMAT.format(rms) + " < threshold=" + threshold + ", 静音开始, 将在 " + timeoutMs + "ms 后超时");
+                            AppLog.d(TAG, "静音检测: 峰值RMS=" + RMS_FORMAT.format(peakRms) + " < threshold=" + threshold + ", 静音开始, 将在 " + timeoutMs + "ms 后超时");
                         } else {
                             long silenceDuration = now - silenceStartTime;
                             long remainingMs = timeoutMs - silenceDuration;
                             if (remainingMs <= 0) {
-                                AppLog.w(TAG, "静音超时，自动停止喊话。RMS=" + RMS_FORMAT.format(rms) + ", silenceDuration=" + silenceDuration + "ms, timeout=" + timeoutMs + "ms");
+                                AppLog.w(TAG, "静音超时，自动停止喊话。峰值RMS=" + RMS_FORMAT.format(peakRms) + ", silenceDuration=" + silenceDuration + "ms, timeout=" + timeoutMs + "ms");
                                 mainHandler.post(() -> {
-                                    stopAnnouncement(false);
+                                    // 修复：补上 isAnnouncing 校验。原实现无条件 stopAnnouncement，
+                                    // 用户手动停止后延时任务仍会再停一次，导致输出模式二次恢复、焦点重复释放
+                                    if (!isAnnouncing) {
+                                        return;
+                                    }
+                                    stopImmediately();
                                     notifyAutoClosed("长时间无声音输入");
                                 });
                                 break;
-                            } else if (remainingMs <= 3000 || remainingMs % 2000 == 0) {
-                                AppLog.d(TAG, "静音检测: RMS=" + RMS_FORMAT.format(rms) + " < threshold=" + threshold + ", elapsed=" + silenceDuration + "ms, remaining=" + remainingMs + "ms");
+                            } else if (remainingMs <= STARTUP_GRACE_MS || remainingMs % 2000 == 0) {  // 每 2s 打印一次日志
+                                AppLog.d(TAG, "静音检测: 峰值RMS=" + RMS_FORMAT.format(peakRms) + " < threshold=" + threshold + ", elapsed=" + silenceDuration + "ms, remaining=" + remainingMs + "ms");
                             }
                         }
                     } else {
                         long previousDuration = silenceStartTime > 0 ? now - silenceStartTime : 0;
                         silenceStartTime = 0;
                         if (previousDuration > 0) {
-                            AppLog.d(TAG, "静音检测: RMS=" + RMS_FORMAT.format(rms) + " >= threshold=" + threshold + ", 静音结束 (持续 " + previousDuration + "ms), 计时器重置");
+                            AppLog.d(TAG, "静音检测: 峰值RMS=" + RMS_FORMAT.format(peakRms) + " >= threshold=" + threshold + ", 静音结束 (持续 " + previousDuration + "ms), 计时器重置");
                         }
                     }
 

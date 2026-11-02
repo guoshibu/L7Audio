@@ -158,8 +158,8 @@ public class MicOutputFragment extends BaseFragment {
                 @Override
                 public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                     if (fromUser && microphoneManager != null) {
+                        // MicrophoneManager 内部已持久化到配置，无需再重复写一次
                         microphoneManager.setAmplificationLevel(progress);
-                        micOutputConfig.setAmplificationLevel(progress);
                         updateAmplificationLevel(progress);
                     }
                 }
@@ -183,8 +183,8 @@ public class MicOutputFragment extends BaseFragment {
         if (swNoiseReduction != null && microphoneManager != null) {
             swNoiseReduction.setOnCheckedChangeListener((buttonView, isChecked) -> {
                 if (microphoneManager != null) {
+                    // setXxx 内部已写入配置，这里不再重复落盘
                     microphoneManager.setNoiseReductionEnabled(isChecked);
-                    micOutputConfig.setNoiseReductionEnabled(isChecked);
                 }
             });
         }
@@ -194,7 +194,6 @@ public class MicOutputFragment extends BaseFragment {
             swEchoCancellation.setOnCheckedChangeListener((buttonView, isChecked) -> {
                 if (microphoneManager != null) {
                     microphoneManager.setEchoCancellationEnabled(isChecked);
-                    micOutputConfig.setEchoCancellationEnabled(isChecked);
                 }
             });
         }
@@ -204,7 +203,6 @@ public class MicOutputFragment extends BaseFragment {
             swHowlingSuppression.setOnCheckedChangeListener((buttonView, isChecked) -> {
                 if (microphoneManager != null) {
                     microphoneManager.setHowlingSuppressionEnabled(isChecked);
-                    micOutputConfig.setHowlingSuppressionEnabled(isChecked);
                 }
             });
         }
@@ -214,7 +212,6 @@ public class MicOutputFragment extends BaseFragment {
             swAgc.setOnCheckedChangeListener((buttonView, isChecked) -> {
                 if (microphoneManager != null) {
                     microphoneManager.setAgcEnabled(isChecked);
-                    micOutputConfig.setAgcEnabled(isChecked);
                 }
             });
         }

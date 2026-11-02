@@ -724,8 +724,8 @@
                         android:background="?attr/colorSurface"
                         android:layout_width="143dp"
                         android:layout_height="48dp"
-                        android:hint="0.05"
-                        android:maxLength="5"
+                        android:hint="0.003"
+                        android:maxLength="6"
                         android:inputType="numberDecimal"
                         android:paddingStart="16dp"
                         android:paddingEnd="16dp"/>
@@ -733,10 +733,20 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="12dp"
-                        android:text="0.03-0.3"
+                        android:text="推荐 0.003~0.01"
                         android:textColor="?android:attr/textColorSecondary"
                         android:textSize="@dimen/text_settings_hint"/>
                 </LinearLayout>
+
+                <!-- 阈值说明：范围提示只表达"可填区间"会误导用户填 0.3，这里补充量级含义 -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="8dp"
+                    android:text="RMS(0~1)，越小越灵敏：0.003≈安静环境，0.01≈行车噪声；可填范围 0.001-0.3"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="@dimen/text_settings_hint"/>
 
                 <Button
                     android:id="@+id/btn_save_announcement"
@@ -1130,7 +1140,7 @@
                     android:layout_marginTop="16dp"
                     android:text="恢复默认设置"
                     android:textSize="@dimen/text_settings_body"
-                    android:backgroundTint="#F44336"
+                    android:backgroundTint="@color/button_danger"
                     android:textColor="#FFFFFF"/>
 
             </LinearLayout>

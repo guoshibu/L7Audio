@@ -23,7 +23,8 @@ public class AutomaticGainControlProcessor implements AudioProcessor {
     /** 增量 RMS 计算：累积样本平方和，避免每次全帧遍历 */
     private double rmsSum = 0.0;
     private int rmsSampleCount = 0;
-    private boolean enabled = true;
+    // UI 线程写、录制线程读，必须 volatile 保证开关立刻可见（与 HPF/LPF 的处理保持一致）
+    private volatile boolean enabled = true;
 
     @Override
     public void process(short[] samples) {

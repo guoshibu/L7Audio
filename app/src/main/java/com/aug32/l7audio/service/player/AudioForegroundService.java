@@ -14,9 +14,9 @@ import android.os.Build;
 import android.os.IBinder;
 
 import androidx.core.app.NotificationCompat;
-import androidx.localbroadcastmanager.content.LocalBroadcastManager;
+import androidx.core.app.ServiceCompat;
+import androidx.core.content.ContextCompat;
 import androidx.media.app.NotificationCompat.MediaStyle;
-import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import com.aug32.l7audio.R;
 import com.aug32.l7audio.domain.audio.player.MediaSessionManager;
@@ -86,6 +86,17 @@ public class AudioForegroundService extends Service {
     private static final long UPDATE_DEBOUNCE_MS = 200;
     /** 上次通知更新时间戳 */
     private long lastUpdateTime = 0;
+    /** 主线程 Handler：用于防抖窗口后的终态补发更新 */
+    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    /** 是否已安排防抖窗口后的终态更新（防止重复排队） */
+    private boolean trailingUpdateScheduled = false;
+
+    /**
+     * 封面加载 in-flight 去重集合：记录正在异步加载封面的文件路径。
+     * 同步集合包装——通知更新可能来自多个线程，防止并发修改
+     */
+    private final java.util.Set<String> pendingAlbumArtLoads =
+            java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
     /**
      * 服务创建时调用
@@ -99,7 +110,20 @@ public class AudioForegroundService extends Service {
         createNotificationChannel();
         registerMediaButtonReceiver();
         registerLocalUpdateReceiver();
-        startForeground(NOTIFICATION_ID, createNotification());
+        // 服务已声明 mediaPlayback|microphone 两种类型（后台喊话需要 microphone 类型）。
+        // 首装首次启动时录音权限可能尚未授予，startForeground 会抛 SecurityException；
+        // 失败时降级为仅 mediaPlayback，保证音乐前台服务本身不受影响
+        try {
+            startForeground(NOTIFICATION_ID, createNotification());
+        } catch (Exception e) {
+            AppLog.w(TAG, "startForeground（含 microphone 类型）失败，降级为仅 mediaPlayback：" + e);
+            try {
+                ServiceCompat.startForeground(this, NOTIFICATION_ID, createNotification(),
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+            } catch (Exception fallbackError) {
+                AppLog.e(TAG, "startForeground 降级仍失败", fallbackError);
+            }
+        }
     }
 
     /**
@@ -115,7 +139,10 @@ public class AudioForegroundService extends Service {
             }
         };
         IntentFilter filter = new IntentFilter(ACTION_UPDATE_NOTIFICATION);
-        LocalBroadcastManager.getInstance(this).registerReceiver(localUpdateReceiver, filter);
+        // 用 ContextCompat.registerReceiver + RECEIVER_NOT_EXPORTED 替代已废弃的
+        // LocalBroadcastManager：同样只接收本应用内广播，且兼容 API 30
+        ContextCompat.registerReceiver(this, localUpdateReceiver, filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED);
     }
 
     /**
@@ -153,7 +180,8 @@ public class AudioForegroundService extends Service {
      */
     private void unregisterLocalUpdateReceiver() {
         if (localUpdateReceiver != null) {
-            LocalBroadcastManager.getInstance(this).unregisterReceiver(localUpdateReceiver);
+            // 与 ContextCompat.registerReceiver 配对使用
+            unregisterReceiver(localUpdateReceiver);
             localUpdateReceiver = null;
         }
     }
@@ -253,6 +281,21 @@ public class AudioForegroundService extends Service {
 
         MediaStyle mediaStyle = new MediaStyle();
         mediaStyle.setShowActionsInCompactView(0, 1, 2);
+        // 修复：MediaStyle 必须绑定 MediaSession token，系统才会把该通知识别为媒体通知。
+        // 未绑定时锁屏/车机媒体卡片可能不显示、蓝牙与方向盘按键状态与 MediaSession 脱节
+        try {
+            android.media.session.MediaSession session =
+                    MediaSessionManager.getInstance().getMediaSession();
+            if (session != null && session.getSessionToken() != null) {
+                // 项目使用平台 MediaSession，需转换为 compat Token 才能传给 androidx 的 MediaStyle
+                mediaStyle.setMediaSession(
+                        android.support.v4.media.session.MediaSessionCompat.Token
+                                .fromToken(session.getSessionToken()));
+            }
+        } catch (Exception e) {
+            // 绑定失败不影响通知本身显示，仅退化为普通通知样式
+            AppLog.e(TAG, "Failed to bind MediaSession token to MediaStyle", e);
+        }
         builder.setStyle(mediaStyle);
 
         return builder.build();
@@ -353,7 +396,8 @@ public class AudioForegroundService extends Service {
                 break;
             case ACTION_STOP:
                 manager.stop();
-                stopForeground(false);
+                // stopForeground(false) 的等价新 API：保留通知但退出前台状态
+                ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_DETACH);
                 stopSelf();
                 return;
         }
@@ -370,11 +414,23 @@ public class AudioForegroundService extends Service {
     public void updateNotification() {
         long now = System.currentTimeMillis();
         if (now - lastUpdateTime < UPDATE_DEBOUNCE_MS) {
+            // 防抖窗口内：仍刷新成员状态，并安排一次延迟终态更新，
+            // 避免暂停/切歌等最终状态被防抖吞掉导致通知栏停留在旧状态
+            refreshPlaybackState();
+            scheduleTrailingUpdate();
             return;
         }
         lastUpdateTime = now;
 
         AppLog.d(TAG, "updateNotification called, isPlaying=" + isPlaying);
+        refreshPlaybackState();
+        postNotification();
+    }
+
+    /**
+     * 从 MusicPlayerManager 刷新成员状态（isPlaying/标题/艺术家）
+     */
+    private void refreshPlaybackState() {
         try {
             MusicPlayerManager manager = com.aug32.l7audio.domain.audio.AudioServiceLocator.getInstance()
                     .getMusicPlayerManager();
@@ -407,7 +463,28 @@ public class AudioForegroundService extends Service {
         } catch (Exception e) {
             AppLog.e(TAG, "Failed to update notification", e);
         }
+    }
 
+    /**
+     * 防抖窗口后的终态补发：确保最终播放状态一定落到通知栏
+     */
+    private void scheduleTrailingUpdate() {
+        if (trailingUpdateScheduled) {
+            return;
+        }
+        trailingUpdateScheduled = true;
+        mainHandler.postDelayed(() -> {
+            trailingUpdateScheduled = false;
+            // 清零防抖计时，让终态更新绕过防抖立即生效
+            lastUpdateTime = 0;
+            updateNotification();
+        }, UPDATE_DEBOUNCE_MS);
+    }
+
+    /**
+     * 构建并下发通知
+     */
+    private void postNotification() {
         Notification notification = createNotification();
         AppLog.d(TAG, "updateNotification: notification created, title=" + currentTitle);
         NotificationManager notificationManager = getSystemService(NotificationManager.class);
@@ -426,12 +503,32 @@ public class AudioForegroundService extends Service {
      */
     public static void start(Context context) {
         Intent intent = new Intent(context, AudioForegroundService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent);
-        } else {
-            context.startService(intent);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent);
+            } else {
+                context.startService(intent);
+            }
+            AppLog.d(TAG, "Foreground service started");
+        } catch (Exception e) {
+            // 用 instanceof 判断而非直接 catch 具体类，避免 minSdk < 31 时
+            // ForegroundServiceStartNotAllowedException 类不存在导致 ClassNotFoundException
+            if (Build.VERSION.SDK_INT >= 31
+                    && "ForegroundServiceStartNotAllowedException".equals(e.getClass().getSimpleName())) {
+                // Android 12+ 后台启动限制：应用退后台后系统禁止启动前台服务
+                // 静默降级，不启动服务，调用方需自行处理"无前台服务"场景
+                AppLog.w(TAG, "后台启动前台服务被系统限制（Android 12+），跳过本次启动");
+            } else if (e instanceof SecurityException) {
+                // 权限不足：如未声明 FOREGROUND_SERVICE_MEDIA_PLAYBACK 或权限被撤销
+                AppLog.e(TAG, "启动前台服务权限不足", e);
+            } else if (e instanceof IllegalStateException) {
+                // 服务状态异常：如服务正在销毁过程中被重复启动
+                AppLog.e(TAG, "启动前台服务状态异常", e);
+            } else {
+                // 其他未知系统异常
+                AppLog.e(TAG, "Failed to start foreground service", e);
+            }
         }
-        AppLog.d(TAG, "Foreground service started");
     }
 
     /**
@@ -440,8 +537,8 @@ public class AudioForegroundService extends Service {
      * @param context 上下文对象
      */
     public static void notifyUpdate(Context context) {
-        LocalBroadcastManager.getInstance(context)
-                .sendBroadcast(new Intent(ACTION_UPDATE_NOTIFICATION));
+        // 接收方是 RECEIVER_NOT_EXPORTED 的上下文注册广播，同一应用内的 sendBroadcast 即可送达
+        context.sendBroadcast(new Intent(ACTION_UPDATE_NOTIFICATION));
     }
 
     /**
@@ -450,17 +547,33 @@ public class AudioForegroundService extends Service {
      * 在后台线程加载封面，加载完成后通过本地广播通知更新通知栏。
      * 避免在主线程阻塞加载导致通知更新延迟。
      * </p>
+     * <p>
+     * 性能修复：①裸 new Thread 改为共享 IO 线程池（AppExecutors），避免连续切歌时
+     * 并发拉起多个线程重复解码同一封面；②新增 in-flight 去重集合，同一 filePath
+     * 的加载请求进行中时直接跳过后续重复请求。
+     * </p>
      *
      * @param filePath 音乐文件路径
      */
     private void triggerAsyncAlbumArtLoad(String filePath) {
-        new Thread(() -> {
+        // in-flight 去重：add 返回 false 说明该路径已有加载在进行，直接跳过
+        if (filePath == null || !pendingAlbumArtLoads.add(filePath)) {
+            return;
+        }
+        com.aug32.l7audio.utils.AppExecutors.getInstance().executeOnIOThread(() -> {
             try {
                 MusicPlayerManager manager = com.aug32.l7audio.domain.audio.AudioServiceLocator.getInstance()
                         .getMusicPlayerManager();
                 if (manager != null) {
                     com.aug32.l7audio.domain.audio.player.MusicItem item = manager.getCurrentMusicItem();
-                    if (item != null && item.albumArt != null) {
+                    // 校验请求路径与当前歌曲一致：异步任务执行期间用户可能已经切歌，
+                    // 若直接拿"当前歌曲"的封面写进请求路径的缓存，会同时造成
+                    // ① 通知栏串图  ② AlbumArtCache 被写入错误封面（下次该路径直接命中错图）
+                    if (item == null || item.filePath == null || !item.filePath.equals(filePath)) {
+                        AppLog.d(TAG, "Skip async album art: current item changed, requested=" + filePath);
+                        return;
+                    }
+                    if (item.albumArt != null) {
                         AlbumArtCache.getInstance().put(filePath, item.albumArt);
                         AppLog.d(TAG, "Async album art loaded for " + filePath);
                         notifyUpdate(this);
@@ -468,7 +581,10 @@ public class AudioForegroundService extends Service {
                 }
             } catch (Exception e) {
                 AppLog.e(TAG, "Failed to load album art asynchronously", e);
+            } finally {
+                // 无论成功失败都要移除 in-flight 标记，否则该路径后续永远无法重试
+                pendingAlbumArtLoads.remove(filePath);
             }
-        }).start();
+        });
     }
 }

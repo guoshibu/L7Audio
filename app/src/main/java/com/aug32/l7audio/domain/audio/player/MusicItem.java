@@ -84,7 +84,11 @@ public class MusicItem {
         copy.lyrics = this.lyrics;
         copy.lyricsModified = this.lyricsModified;
         copy.fileModified = this.fileModified;
-        copy.albumArt = (this.albumArt != null) ? this.albumArt.clone() : null;
+        // 性能修复：albumArt 不再逐字节 clone。封面是 transient 的内存缓存，
+        // 各持有方（通知栏/MediaSession/封面加载器）只读取字节、从不修改数组内容，
+        // 共享同一引用即可；原实现每次 copy 都复制整张封面（几十 KB~数 MB），
+        // 而通知刷新路径（getCurrentMusicItem→copy）调用极频繁，纯属浪费
+        copy.albumArt = this.albumArt;
         return copy;
     }
 

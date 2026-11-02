@@ -29,6 +29,14 @@ public class FileItem {
     public int childCount;
 
     /**
+     * 是否为受支持的音频文件（目录恒为 false）。
+     * 性能修复：扫描构造时用纯字符串后缀判断预计算，
+     * UI 交互（全选统计/单击选中）直接读此标志，
+     * 避免每次交互对列表每项做 new File().isFile() 磁盘 stat
+     */
+    public boolean isAudio;
+
+    /**
      * 构造文件项
      *
      * @param file 原始文件对象
@@ -39,6 +47,7 @@ public class FileItem {
         this.isDirectory = file.isDirectory();
         this.isSelected = false;
         this.size = file.length();
+        this.isAudio = !this.isDirectory && isAudioFileName(this.name);
     }
 
     /**
@@ -54,6 +63,28 @@ public class FileItem {
         this.isDirectory = isDirectory;
         this.isSelected = false;
         this.size = 0;
+        this.isAudio = !isDirectory && isAudioFileName(name);
+    }
+
+    /**
+     * 纯字符串后缀判断是否为音频文件名（无任何磁盘 IO）
+     *
+     * <p>公开给文件浏览器/播放器复用，避免多处各写一份后缀判断导致行为不一致。</p>
+     *
+     * @param fileName 文件名
+     * @return true 表示后缀属于受支持的音频格式
+     */
+    public static boolean isAudioFileName(String fileName) {
+        if (fileName == null) return false;
+        // 必须用 Locale.ROOT：土耳其语等默认区域会把 'I' 小写成 'ı'，
+        // 用默认 Locale 做 toLowerCase 会让含大写字母的扩展名判断失败
+        String name = fileName.toLowerCase(java.util.Locale.ROOT);
+        for (String ext : com.aug32.l7audio.utils.FileUtils.AUDIO_EXTENSIONS) {
+            if (name.endsWith(ext)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

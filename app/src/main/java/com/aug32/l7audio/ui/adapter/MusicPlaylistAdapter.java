@@ -14,7 +14,6 @@ import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 import com.aug32.l7audio.domain.audio.player.MusicItem;
@@ -134,33 +133,16 @@ public class MusicPlaylistAdapter extends RecyclerView.Adapter<MusicPlaylistAdap
             public boolean areContentsTheSame(int oldPos, int newPos) {
                 MusicItem o = oldItems.get(oldPos);
                 MusicItem n = newItems.get(newPos);
-                return o.title != null ? o.title.equals(n.title) : n.title == null
-                        && o.artist != null ? o.artist.equals(n.artist) : n.artist == null
+                // 修复：原实现为嵌套三元运算符，Java 三元右结合导致实际语义为
+                // "title 非空时只比 title"，artist/duration 变更后 UI 不刷新、
+                // title 为空时判定逻辑错乱。改为三个字段逐一显式比较
+                return java.util.Objects.equals(o.title, n.title)
+                        && java.util.Objects.equals(o.artist, n.artist)
                         && o.duration == n.duration;
             }
         }, false);
         this.musicItems = newItems;
         result.dispatchUpdatesTo(this);
-    }
-
-    /**
-     * 批量删除指定位置的音乐项
-     * 逐个 notifyItemRemoved 实现增量动画
-     *
-     * @param positions 要删除的位置列表
-     */
-    public void removeMusicItems(List<Integer> positions) {
-        if (positions == null || positions.isEmpty()) return;
-
-        List<Integer> sorted = new ArrayList<>(positions);
-        Collections.sort(sorted, (a, b) -> b - a);
-
-        for (int pos : sorted) {
-            if (pos >= 0 && pos < musicItems.size()) {
-                musicItems.remove(pos);
-                notifyItemRemoved(pos);
-            }
-        }
     }
 
     /**

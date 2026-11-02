@@ -62,6 +62,8 @@ public class MicOutputReceiver extends BroadcastReceiver {
             if (!controller.isInitialized()) {
                 controller.init(appContext);
             }
+            // toggle() 内部已改为串行执行器异步执行（音频设备初始化、Toast/UI 回调均已切线程），
+            // 这里直接调用即可，无需再手工包一层 IO 线程
             controller.toggle(true, true);
         } else {
             AppLog.e(TAG, "MicOutputController instance is null, broadcast ignored");

@@ -1,13 +1,252 @@
 # L7Audio CHANGELOG
 
-> 日期：2026-09-30
-> 版本：v1.5.11 (versionCode: 131)
+> 日期：2026-11-03
+> 版本：v1.5.12 (versionCode: 149)
 
 ---
 
-## v1.5.11 车载适配 + 音频管线升级 (versionCode: 131)
+## v1.5.12 代码审查修复与稳定性 (versionCode: 132→149)
 
-> 自 v1.5.9（versionCode 105）以来的累积改动。
+> 自 v1.5.11（versionCode 131）以来的累积改动，涵盖 versionCode 132→149（132→144 为代码审查批次，145→148 为真车测试批次，149 为路径回正批次，另含 2026-11-02 补记项）。
+> 其中 132→144 由代码审查驱动：修复 5 个 P0 真实故障、6 个 P1 竞态问题、5 项 P2 整洁与兼容问题，并新增 JVM 单元测试骨架；145→148 为实车日志驱动的修复与显示调整。
+
+### 变更概览
+
+**🐛 修复（P0 用户可感知故障）**
+
+- 开机自启动开关关闭无效：`BootReceiver.enable()` 会把配置强制写回 true，用户关不掉
+- 第二次车外喊话没有降噪/AGC：硬件效果器释放后未恢复软件处理器；硬件 AGC 还无视用户开关
+- 喊话启停阻塞主线程：`MicrophoneManager.stop()` 持锁 `join(1000)`、`toggle()` 在主线程全量初始化 AudioRecord/AudioTrack
+- Activity 重建替换 TTSManager：悬浮窗 TTS 监听永久失效、播报中销毁不回调
+- TTS 与喊话共用瞬态焦点互踩：改为引用计数，全部释放后才让出焦点
+
+**🐛 修复（P1 竞态与稳定性）**
+
+- 静音超时/录制异常自动关闭缺 `isAnnouncing` 校验，`stopAnnouncement` 未加锁
+- 麦克风启动失败回滚输出模式后未通知 UI
+- AGC/谱减 `enabled` 非 `volatile`，开关可能延迟生效
+- 通知栏异步封面加载未校验路径，切歌串图且污染封面缓存
+- `PlaylistManager.removeItems` 锁内写 SharedPreferences
+- AFC 输出缺少限幅，滤波器收敛前整数回绕爆音
+
+**🐛 修复（2026-10-24 真车测试批次）**
+
+- 正常说话被静音检测误判为静音、5 秒后自动关闭喊话：改为峰值 RMS 保持，默认阈值 `0.05 → 0.003`，历史默认值一次性迁移（版本 3）
+- 音乐“车内/车外”切换无效：ExoPlayer 线程校验抛异常被静默吞掉，`PlaybackController.updateAudioUsage()` 非主线程改为主线程转发
+- 车外喊话在应用界面之外失败且完全静默：两个前台服务补 `microphone` 类型与权限，启动失败降级为 `mediaPlayback` 并 Toast 提示
+- 悬浮窗用过一次车外喊话后不再自动收起：喊话结束/自动关闭时重新武装自动收起计时器
+- 喊话设置保存失败提示写到错误卡片：由音频设备状态位改为“车外喊话设置”状态位
+
+**🚀 性能**
+
+- 喊话启停移出主线程：Controller 内部单线程串行执行器 + 输出模式切换走 IO 线程，`stop()` 改为锁外 join
+- `AudioOutputManager.getAudioUsage()` 去锁，消除建流热点路径上的锁内 SP 读取
+- 删除 `MicOutputFragment` 5 处重复配置落盘、TTS 监听重试脚手架、仅打日志的 try-catch 等冗余
+
+**🔧 其他**
+
+- P2 整洁：配置读侧 clamp、`Locale.ROOT` 与音频格式判断合并、死代码删除、20 条 deprecation 清零（`LocalBroadcastManager` / `getColor` / `stopForeground` / `startActivityForResult` 等）
+- 新增 JVM 单元测试骨架（JUnit 4.13.2，2 个测试类 10 个用例）
+- 移除无引用的 `localbroadcastmanager` 依赖
+- 关于页版本号追加 versionCode 显示；设置页静音阈值范围提示改为“推荐 0.003~0.01”、输入框 `maxLength` 5→6
+- 两个文件移回原路径，消除源码目录与包名不一致（撤销 10-24 被撤回重构的路径残留），并删除空目录 `ui/view/`
+- 注释掉无调用方的 `AudioVisualizerView.updateTheme()`（主题切换走 Activity 重建）
+
+### 详细批次记录（versionCode 132→149，按批次倒序排列）
+
+### 🔧 其他（2026-11-02 批次十八：路径回正 + 死代码注释，versionCode 149）
+
+- 🔧 两个文件移回原路径，消除“源码目录与包名不一致”并撤销 10-24 被撤回重构残留的路径：`data/local/MicOutputConfig.java` → `data/local/config/micoutput/MicOutputConfig.java`，`ui/view/AudioVisualizerView.java` → `domain/audio/AudioVisualizerView.java`；`package` 与 import 均未改动，并删除空目录 `ui/view/`
+- 🔧 注释掉无调用方的 `AudioVisualizerView.updateTheme()`：主题切换走 Activity 重启重建、视图每次新建，均无调用点；按约定保留原实现便于恢复
+
+### 🔧 其他（2026-11-02 补记：遗漏项补录，versionCode 148 不变）
+
+> 补记说明：以下两项在 132→148 的开发过程中已落地，但此前未写入 CHANGELOG。本次仅补文档，不改代码、不递增 versionCode、不改 versionName。
+
+- 🚀 性能：**音乐页列表刷新双触发**——`MusicPlayerFragment` 添加歌曲完成回调原先无条件 `refreshPlaylist()`，而前台（RESUMED）时反应式 `onPlaylistChanged` 已会刷新，导致同一份列表的 O(N) 拷贝 + DiffUtil 计算跑两遍。改为仅当页面非 RESUMED（反应式回调会被静默丢弃）时才主动刷新
+- 🔧 其他：`MicrophoneManager.stop()` 的锁外 `join(1000)` 被中断时补恢复 `Thread.currentThread().interrupt()` 标记，避免中断状态被吞掉后上层无法感知（与既有的"锁外 join、监听器多槽位"修复同一批次）
+
+### 🔧 其他（2026-10-24 批次十七：关于页显示 versionCode，versionCode 148）
+
+- 🔧 关于页版本号增加 versionCode 显示：`版本 1.5.12` → `版本 1.5.12 (148)`，便于车机上区分同一 versionName 下的多次日常构建（`AboutFragment.initViews()` 改用 `PackageInfo.getLongVersionCode()`）
+
+### 🔧 其他（2026-10-24 真车测试批次十六：设置页静音阈值显示修正，versionCode 147）
+
+- 🔧 修复：**喊话设置保存失败时提示打到错误卡片**——`saveAnnouncementSettings()` 的 `NumberFormatException` 分支原先把提示写到 `tvAudioDeviceStatus`（音频设备设置卡片，位于页面上方），用户在"车外喊话设置"卡片里看不到任何反馈。改为写 `tvAnnouncementStatus`
+- 🔧 显示：阈值右侧范围由 `0.001-0.3`（合法区间）改为 `推荐 0.003~0.01`，避免用户误以为 0.3 是正常值（填 0.3 会开口即判静音）
+- 🔧 显示：阈值输入框 `maxLength` 5 → 6，支持 `0.0025` 这类四位小数（原默认值 0.003 已占满 5 字符上限）
+- 🔧 显示：阈值行下方新增说明 `RMS(0~1)，越小越灵敏：0.003≈安静环境，0.01≈行车噪声；可填范围 0.001-0.3`
+- 说明：`静音超时` 的 hint 仍为 30（默认值），车机上实际值 5 是用户自定义，非不一致
+
+### 🐛 修复（2026-10-24 真车测试批次十五：静音自动关闭误判，versionCode 146）
+
+> 数据来源：车机 G636 实测日志 1470 帧录音统计——说话时 RMS p50=0.0005、p90=0.001、p99=0.0435，单帧峰值可达 0.3172；旧阈值 0.05 位于 99.4 分位以上。
+
+- 🐛 修复：**正常说话被静音检测误判为静音，5 秒后自动关闭喊话**——原检测读取 `getCurrentRms()`（最近 10 帧≈160ms 的平均值），说话能量是稀疏尖峰，单帧 0.3 混在 9 个近 0 帧里平均只剩 0.03，低于阈值 0.05。实车 17:05:24 那次喊话中帧峰值达 0.3172/0.2555，仍被判静音并在 17:05:34 自动关闭。
+  - 修复方式（A：峰值保持）：`MicrophoneManager` 新增 `peakRmsSinceLastRead`，录制循环内对每帧 `currentRms` 取最大值；新增 `getAndResetPeakRms()` 供静音检测每 500ms 读取并清零。只要采样区间内出现过一次高于阈值的声音即视为有声，不再被平均值稀释。停止录音时同步清零，避免残留峰值。
+  - 修复方式（B：阈值下调）：静音阈值默认值 `0.05 → 0.003`，合法区间 `[0.03, 0.3] → [0.001, 0.3]`（`MicOutputConfig` 读写两侧与 `SettingsFragment` 保存逻辑同步）；设置页提示更新为 `0.003` / `0.001-0.3`。取值依据：实测真正安静时峰值 RMS ≤0.001、轻声说话 0.004~0.006、正常说话 0.013+，0.01 仍会漏判轻声说话。
+  - 一次性迁移：新增 `mic_silence_threshold_version` 标记（当前版本 3），历史默认值 `0.05` / `0.01` 自动迁移为 `0.003`，用户自定义过的其它值保持不动。
+- 🔧 日志：静音检测相关日志中的 `RMS=` 改为 `峰值RMS=`，便于区分采样口径。
+
+### 🐛 修复（2026-10-24 真车测试批次十四：车内/车外切换与悬浮窗自动收起，versionCode 145）
+
+> 复现设备：银河 L7 车机（ecarx G636 / Android 11），日志取自 `l7audio_log.txt` 与 logcat。
+
+- 🐛 修复：**音乐"车内/车外"切换无效**（用户可感知故障）——`MainActivity.setAudioOutput()` 整体移到 IO 线程后，`music.updateAudioOutputUsage()` 在 `AppExecutors-IO` 线程调用 ExoPlayer；media3 的 `ExoPlayerImpl.setAudioAttributes()` 会先执行 `verifyApplicationThread()`，直接抛 `IllegalStateException: Player is accessed on the wrong thread`，又被 `PlaybackController.updateAudioUsage()` 的 `catch` 静默吞掉。日志表现为"输出模式已设置"但 `Audio usage updated` 从未成功（16:36:11/24/25 三次全部如此）。
+  - 修复方式：`PlaybackController.updateAudioUsage()` 内部判断线程，非主线程时经主线程 Handler 转发（同时覆盖 `MicOutputController.stopAnnouncement()` 这个喊话执行器线程的调用点）。media3 的 `setAudioAttributes()` → `reconfigureAndFlush()` → `flush()` 会释放并重建 AudioOutput，因此主线程调用即可真正切换 usage 路由，无需重启播放。
+- 🐛 修复：**悬浮窗用过一次车外喊话后不再自动收起**——喊话按钮点击时 `cancelAutoHideTimer()` 取消定时器，而 `MicOutputListener` 回调只更新 `isAnnouncing` 与按钮文字，从不重新武装定时器。实车日志中列表从 16:36:56 一直挂到 16:37:25 仍未 `hideListView`。
+  - 修复方式：`onAnnouncementStateChanged()` 在喊话进行中保持取消（避免打断操作），喊话结束且列表可见时 `resetAutoHideTimer()`；`onAnnouncementAutoClosed()`（静音超时/录制异常自动关闭）同样恢复计时并刷新按钮状态。
+- 🐛 修复：**车外喊话在应用界面之外失败且完全静默**——实车日志显示 16:37:06~16:37:14 连续 19 次启动全部失败，logcat 为 `ServiceUtilities: Request denied by app op: 27`、`AudioPolicyIntefaceImpl: getInputForAttr permission denied: recording not allowed for uid 10238`，即系统在 AppOps 层判定"此刻不允许录音"（不是清单权限缺失，`cmd appops get` 为 allow）。而我们的两个前台服务只声明了 `mediaPlayback`，没有 `microphone` 类型，后台录音不具备合法前台服务类型。
+  - 修复方式（三项）：
+    1. `AndroidManifest.xml`：两个前台服务改为 `foregroundServiceType="mediaPlayback|microphone"`，并补 `FOREGROUND_SERVICE_MICROPHONE` 权限声明
+    2. `FloatingWindowService` / `AudioForegroundService`：`startForeground` 加 try-catch，若因录音权限未授予（首装首次启动）导致含 microphone 类型启动失败，降级为仅 `mediaPlayback`，避免服务崩溃
+    3. `MicOutputController.startAnnouncement()` 失败分支：补 `notifyStateChanged(false)` + Toast 提示，用户不再"点了没反应"，悬浮窗自动收起定时器也会恢复
+
+### 🔧 其他（2026-10-24 批次十三：最小单测骨架，versionCode 144）
+
+- 🔧 新增 JVM 单元测试骨架：`testImplementation(junit:4.13.2)` + `testOptions.unitTests.isReturnDefaultValues`，测试源码位于 `app/src/test`，不打包进 APK
+- 🔧 新增 2 个测试类共 10 个用例：
+  - `AudioProcessorSafetyTest`：HPF/LPF/AGC/AFC 静音输入必须输出静音；GainLimiter 4 倍增益 + 满量程输入保持极性（防整数回绕爆音）；关闭态的 HPF/LPF 原样透传
+  - `FileItemTest`：8 种受支持扩展名、大写扩展名（`Locale.ROOT` 回归）、非音频/空名/无后缀拒绝
+- 🔧 移除已无引用的 `localbroadcastmanager` 依赖（已由 `ContextCompat.registerReceiver` 替代）
+
+### 🔧 其他（2026-10-24 代码审查批次十二：P2 整洁与兼容，versionCode 143）
+
+- 🔧 配置读侧 clamp：`MicOutputConfig` 的防抖间隔/静音超时/静音阈值在 getter 侧也限制到合法区间，历史越界值不再影响运行期行为
+- 🔧 音频格式判断统一：`FileItem.isAudioFileName` 提升为 public，`FileBrowserAdapter`/`MusicPlayerFragment` 改为复用，删除两份重复实现；`toLowerCase` 全部改用 `Locale.ROOT`（含文件排序），避免土耳其语等区域判断异常
+- 🔧 死代码清理：删除无调用方的 `AudioFocusManager.hasAnyFocus()`、`MicrophoneManager.getPostProcessRms()`
+- 🔧 性能：`AudioOutputManager.getAudioUsage()` 去掉 `synchronized`（`currentOutputMode` 已是 volatile），消除建流热点路径上的锁内 SharedPreferences 读取；日志级别 i→d
+- 🔧 API 兼容清理：
+  - `LocalBroadcastManager` → `ContextCompat.registerReceiver(RECEIVER_NOT_EXPORTED)` + 同应用 `sendBroadcast`，并删除重复 import
+  - 9 处 `getResources().getColor()` → `ContextCompat.getColor()`
+  - `stopForeground(boolean)` → `ServiceCompat.stopForeground(STOP_FOREGROUND_DETACH)`
+  - 悬浮窗授权 `startActivityForResult/onActivityResult` → `registerForActivityResult`
+  - `TTSManager` 单参数 `onError` 改为委托给 `onError(String,int)`（保留抽象方法实现，消除重复逻辑并局部抑制废弃警告）；`Thread.getId()` 日志改用线程名
+  - `displayAudioRoutes()` 的旧音频路由查询 API 局部 `@SuppressWarnings`（无公开替代接口，仅调试展示）
+
+### 🐛 修复（2026-10-24 代码审查批次十一：P1 竞态与稳定性，versionCode 142）
+
+- 🐛 修复：静音超时/录制异常自动关闭补 `isAnnouncing` 校验，并统一走同步 `stopImmediately()`；`stopAnnouncement` 加锁，避免主线程延时任务与串行执行器上的 `toggle` 交错执行（输出模式二次恢复、焦点重复释放）
+- 🐛 修复：麦克风启动失败回滚输出模式后补 `notifyOutputModeChanged()`，界面与悬浮窗不再停留在"车外"状态
+- 🐛 修复：`AutomaticGainControlProcessor` / `SpectralNoiseReduction` 的 `enabled` 改为 `volatile`，修复 UI 线程写入后录制线程可能长时间读不到（开关延迟生效）
+- 🐛 修复：通知栏异步封面加载校验请求路径与当前歌曲一致，切歌时放弃本次加载，避免封面串图与 `AlbumArtCache` 写错缓存
+- 🐛 修复：`PlaylistManager.removeItems` 把 `setLastPlayedIndex` 移出锁外，避免持锁期间写 SharedPreferences 阻塞其它播放列表操作
+- 🐛 修复：AFC 自适应回声消除输出加 `[-32768, 32767]` 限幅，消除滤波器收敛前的整数回绕爆音
+
+### 🐛 修复（2026-10-24 代码审查批次十：P0 故障收敛，versionCode 141）
+
+- 🐛 修复（P0）：开机自启动开关关不掉——`SettingsFragment` 无论勾选与否都调用 `BootReceiver.enable()`（内部强制把配置写成 true），关闭操作被立刻覆盖回开启。改为按开关值写配置并同步 `BootReceiver.setEnabled()` 组件状态，同时删除已无调用方的 `enable()` 死代码
+- 🐛 修复（P0）：第二次喊话完全没有降噪/AGC——硬件 `NoiseSuppressor`/`AutomaticGainControl` 接管时会关闭对应的软件处理器，但会话结束释放硬件后没有恢复，第二次喊话既无硬件（`initNoiseSuppressor` 因"用户禁用降噪"提前返回）也无软件。新增 `softwareNsSuspendedByHardware`/`softwareAgcSuspendedByHardware` 记录，释放硬件时恢复；用户显式关闭时放弃自动恢复，避免覆盖用户设置
+- 🐛 修复（P0）：硬件 AGC 无视用户配置——`initAutomaticGainControl` 未校验 `agcProcessor.isEnabled()`，用户关闭 AGC 后仍会被硬件 AGC 接管
+- 🐛 修复（P0）：喊话启停阻塞主线程——`MicrophoneManager.stop()` 在持有对象锁时 `join(1000)`，而录制线程异常退出路径又需要同一把锁调用 `releaseResources()`，两线程互等满 1 秒；`MainActivity.setAudioOutput()` 也在主线程直接 stop/start 麦克风。改为临界区只做标记与唤醒、锁外 join，输出模式切换整体移到 IO 线程
+- 🐛 修复（P0）：喊话启停统一异步化——`MicOutputController.toggle()` 内部改为单线程串行执行器执行，悬浮窗按钮、麦克风页面、广播/Intent 入口不再在主线程初始化 AudioRecord/AudioTrack；顺带删除 `MicOutputReceiver`/`MicToggleActivity` 中重复的 IO 线程包装
+- 🐛 修复（P0）：Activity 重建导致悬浮窗 TTS 监听失效——`MainActivity` 每次 `onCreate` 都 new 一套 Manager 并替换到 `AudioServiceLocator`，旧 `TTSManager` 被 shutdown 后悬浮窗注册的监听器永久失效、正在喊话被中断。改为复用 `AudioServiceLocator` 的进程级实例；`TTSManager.shutdown()` 在播报中销毁时补发 `onTTSError`，避免瞬态焦点不释放导致音乐永久暂停
+- 🐛 修复（P0）：TTS 与喊话共用瞬态焦点互相踩踏——`AudioFocusManager` 的瞬态独占焦点改为引用计数，任一方结束只递减计数，全部释放后才真正让出焦点并恢复音乐；`AUDIOFOCUS_LOSS`/`LOSS_TRANSIENT` 时同步清零计数，修复瞬态焦点标志残留导致后续播放焦点申请被永久拒绝
+- 🔧 其他（简洁化）：删除 `BootReceiver.enable()`、`PlaylistManager.rebuildExistingPaths()` 等无调用方死代码；`MicOutputFragment` 删除与 `MicrophoneManager` 重复的配置落盘（5 处）；`FloatingWindowService` 删除 TTS 监听的 500ms 延迟重试脚手架（Manager 已进程内常驻，不会为 null）；`MicOutputController.startAnnouncement` 删除仅打日志的两段 try-catch
+
+### 🐛 修复（2026-10-23 代码审查批次九：新发现问题与代码整洁，versionCode 140）
+
+- 🐛 修复：`MicToggleActivity` 同步 toggle 调用未捕获异常，音频系统异常（麦克风被占用、AudioRecord 初始化失败）时 Activity 崩溃。`AppExecutors` IO 线程内补 try-catch，仅记录日志不影响 finish
+- 🔧 其他：`BootReceiver` 新增 `setEnabled()` 静态方法，支持运行时通过 `PackageManager.setComponentEnabledSetting()` 动态启用/禁用组件，相比仅靠 SP 开关可彻底阻止系统投递广播
+- 🐛 修复：`AudioForegroundService.start()` 统一 catch Exception，无法区分 Android 12+ 后台启动限制、权限不足、状态异常。细分为 ForegroundServiceStartNotAllowedException（静默降级）、SecurityException（权限日志）、IllegalStateException（状态日志）、Exception（兜底）
+- 🔧 其他（P2 整洁）：`MicOutputController` 提取魔法数字为常量：SILENCE_CHECK_INTERVAL_MS=500、STARTUP_GRACE_MS=3000
+- 🔧 其他（P2 整洁）：`MicrophoneManager` 提取魔法数字为常量：STATS_LOG_INTERVAL_FRAMES=100、AFC_REPORT_INTERVAL_FRAMES=500，替换全部硬编码帧数值
+
+### 🐛 修复（2026-10-23 代码审查批次八：P2 余项与结构小项，versionCode 139）
+
+- 🐛 修复（P2-3）：`PlaybackController.resume()` 在 ExoPlayer 未就绪时 seek 到 TIME_UNSET 位置，可能导致播放异常。新增 TIME_UNSET 守卫，仅在进度有效时才执行 seek
+- 🐛 修复（P2-5）：`MusicPlayerManager.getCurrentPosition()` 在 ExoPlayer 返回 TIME_UNSET 时回退到同步读 SharedPreferences，造成主线程阻塞。改为内存缓存 lastKnownPosition（构造时 SP 初始化一次，onProgressChanged/pause 刷新），回退直接读内存
+- 🐛 修复（P2-6）：`AudioForegroundService` 通知防抖命中时直接 return，导致播放状态/进度被吞掉。命中防抖时仍执行 refreshPlaybackState()，并增加 trailingUpdate 保证最终一致性
+- 🐛 修复（P2-7）：`AudioForegroundService.start()` 未捕获 SecurityException，Flyme Auto/QNX 定制 ROM 上 overlay 权限异常时崩溃。改包 try-catch Exception 兜底
+- 🐛 修复（P2-9）：`FloatingWindowService.notifyThemeChanged()` 直接 startService，Android 8.0+ 后台启动限制可能抛 IllegalStateException。增加 try-catch 兜底
+- 🐛 修复（P2-16）：`BaseActivity.attachBaseContext()` 每次从 SharedPreferences 读取字体缩放，主线程阻塞。改为静态缓存（volatile），字体变更后主动失效
+- 🐛 修复（P2-18）：`PlaylistManager.addItemsInternal()` 锁内执行 normalizeFilePath（含 IO 操作），且空列表时仍触发 debounceSave。路径归一化移出锁外预计算，空列表时跳过保存
+- 🐛 修复（P2-21）：`FileBrowserFragment` 异步回调未校验视图状态，onDestroyView 后回调触发 NPE。两处 runOnUiThread 回调增加 getView() 判空
+- 🐛 修复（P2-22）：`HighPassFilterProcessor` 与 LowPassFilterProcessor 互斥策略不一致——process/setCutoffFrequency/reset/setEnabled/isEnabled 未加 synchronized，且 setEnabled(true) 未补 reset()。已对齐加锁并补 reset
+- 🐛 修复（P2-26）：`MicOutputConfig` 各配置项无范围校验，外部传入异常值导致处理器行为异常。写侧增加 clamp：maxAmplification[1,50]、hpfCutoff[50,2000]、lpfCutoff[200,8000]、minGain[0.1,maxAmp]、debounce[500,2000]ms、silenceTimeout[5,300]s、silenceThreshold[0.03,0.3]
+- 🐛 修复（P2-29）：`MusicPlaylistAdapter.removeMusicItems()` 为死代码；`BaseFragment.rootView` 注释语义不清。删除死代码并补注释
+- 🔧 其他（结构优化）：`MicrophoneManager.start()` 中 getStackTrace() 构建调用方日志在 Release 下无意义，改为仅 DEBUG 保留；两处 `agcProcessor.reset()` 与 `pipeline.reset()` 重复，删除冗余调用
+- 🔧 其他（结构优化）：`SpectralAndNotchProcessor.isVoiceActive()` 每帧对 129 频点连乘求几何均值，极易下溢为 0 导致 pow(0, 1/n) 失真。改为 log 域 exp(Σlog(x)/n) 保证数值稳定
+- 🔧 其他（结构优化）：`GainLimiterProcessor.fastTanh()` 仅钳输出，输入侧无限制。高增益场景下输入可达数十，多项式严重发散。输入侧补 clamp 到 ±4 有效域，输出侧保留 [-1,1] 钳位
+- 🔧 其他（自查）：`MediaSessionManager.updatePlaybackState()` 的 speed 恒为 1.0f，暂停时进度仍会虚走。改为 isPlaying ? 1.0f : 0.0f
+- 🔧 其他（自查）：`AudioServiceLocator` 单例字段已确认全部 volatile，appContext 全程 synchronized 保护，无需修改
+- 🔧 其他（自查）：`TTSFragment` 晚到回调（onTTSDone/onTTSError）未判空，onDestroyView 后 ttsItems 置空但回调在途。已补 null 校验
+
+### 🐛 修复（2026-10-23 代码审查批次七：链路 C1/C6/C7/C8 收尾，versionCode 138）
+
+- 🐛 修复（C1）：TTS 播放不检查焦点授予结果——`playTTS` 中 `ttsPausedMusic` 只看输出模式不看 `requestTransientFocus` 的 granted 结果；焦点被拒时音乐实际未暂停，TTS 播完却 `abandonTransientFocus` 释放本不持有的焦点，可能误伤其他应用焦点栈。焦点被拒时撤掉标记，仅有权释放时才置位
+- 🐛 修复（C6）：删除正在播放的歌曲后播放不同步——`PlaylistManager.removeItems` 把 currentIndex 置 -1 并回调 `onCurrentIndexChanged`，但 `MusicPlayerManager` 的回调实现是空操作：ExoPlayer 继续播放已删除文件，MediaSession/通知栏仍显示该曲"播放中"。索引变 -1 时主动停止播放、清空当前曲目并按"未播放"同步 MediaSession 与通知栏
+- 🐛 修复（C7）：喊话状态监听器仅悬浮窗列表展开期注册——收起期间喊话被广播/Intent/麦克风页启停时，`FloatingWindowService` 的 `isAnnouncing` 缓存不更新，自动收起逻辑与喊话按钮状态错乱。改为 onCreate 注册 / onDestroy 注销的服务存活期全局注册
+- 🐛 修复（C8）：切换主题无条件拉起悬浮窗服务——`notifyThemeChanged` 直接 startService，用户已关闭悬浮窗功能时主题变化会把服务拉起、悬浮球凭空出现。增加悬浮窗功能开关 + 悬浮窗权限双重前置校验，未启用/无权限时直接不下发
+- 🔧 其他（C5 补齐）：`MicToggleActivity` 同步 toggle 调用同样阻塞主线程（与广播入口同一 ANR 风险面），改经 AppExecutors IO 线程执行
+- 📝 说明（C10）：喊话三入口参数差异确认为设计意图——悬浮窗按钮有视觉状态反馈故不弹 Toast（toggle(true) 无 Toast），广播/Intent 两个无头入口无 UI 反馈故弹 Toast（toggle(true,true)），不改代码
+
+### 🐛 修复（2026-10-23 代码审查批次六：链路 C2-C5 + TTS，versionCode 137）
+
+- 🐛 修复（C2）：音频焦点被拒导致假播放中——`MusicPlayerManager.start()` 先写当前曲目/索引/SP，再调 `PlaybackController.play()`；焦点被其他应用持有时 play 静默 return，调用方不知情继续 `notifyMediaSession(playing=true)` + 刷新通知，通知栏/车机媒体中心/方向盘按键全显示"播放中"但实际无声。`play()` 改为返回 boolean（焦点被拒/参数无效/异常均返回 false），start() 失败时按"未播放"同步 MediaSession 与通知栏，索引保留
+- 🐛 修复（C3）：播放进度被状态去重吞掉——`setState` 去重命中（同状态同歌曲）时整体 return，每 500ms 的进度更新全部不写 `currentState`，`getCurrentPosition()/getDuration()` 在 ExoPlayer 返回 TIME_UNSET/异常时回退读到状态切换那一刻的陈旧进度。去重只跳过回调通知，状态写入无条件执行
+- 🐛 修复（C4）：录制线程异常死亡形成喊话假活——`recordAndPlay` catch 只 `releaseResources()` 不复位 `isRecording`，线程已死但标记为 true：`start()` 幂等分支假成功（实际无声）、UI 持续显示"喊话中"、静音检测读到冻结的旧 RMS 值。catch 中先复位 `isRecording=false` 再释放资源
+- 🐛 修复（C4 兜底）：静音检测对死录制线程空转——检测线程遇 `!isRecording()` 只 sleep+continue，录制异常死亡后喊话永久挂着（焦点/车外输出不释放）。宽限期外确认录制已停则自动关闭喊话并通知"录制异常终止"（主线程再校验 isAnnouncing 防竞态）
+- 🐛 修复（C5）：广播触发喊话阻塞主线程——`MicOutputReceiver.onReceive` 直接同步调用 `toggle()`，内部 `micManager.start()` 是全量初始化（最坏 4 次 AudioRecord 构造回退 + AudioTrack + 7 处理器 + 硬件效果器），主线程阻塞数十至上百毫秒。改经 AppExecutors IO 线程执行（Controller 整体 synchronized、UI 回调均走 mainHandler，线程安全）
+- 🐛 修复：TTS 中文被误判不可用退化成英文——`setLanguage` 判定用 `== LANG_AVAILABLE`，拒绝返回 LANG_COUNTRY_AVAILABLE(1)/LANG_COUNTRY_VAR_AVAILABLE(2) 的车载中文引擎，逐级回退落到英文。改为 `>= LANG_AVAILABLE`（0/1/2 均为成功，负值才失败）
+- 🐛 修复：TTS stop() 无回调致焦点悬挂——部分引擎对被 stop() 中断的 utterance 不补发 onDone/onError，悬浮窗苦等 onTTSDone 释放瞬态焦点永远等不到 → 音乐永久暂停。stop() 在确实中断播报时主动补发 onTTSError（各监听方幂等）
+- 🔧 其他：TTSManager 的 `isInitialized`/`isSpeaking` 补 volatile——onInit 与 utterance 回调在引擎绑定/Binder 线程写，业务线程经 getter 读，原声明无跨线程可见性保证
+
+### 🐛 修复（2026-10-23 代码审查批次五：自查回归与监听器互踩，versionCode 136）
+
+- 🐛 修复：歌单加载异常导致持久化永久失效——`loadFromStorage` 把 `storageLoaded=true` 放在正常路径末尾，读盘/索引恢复途中抛出未捕获异常（SP 读失败、Gson 内部错误未被内层 catch 覆盖等）时标记永远停留 false，`saveToStorage` 被永久抑制，用户对歌单的一切修改都不再落盘、重启后丢失。整段加载逻辑包 try/finally，标记在 finally 中置位（加载失败时已按空列表运行，持久化不应被一并禁用）
+- 🐛 修复：麦克风永久占用的孤儿录音线程——`AudioServiceLocator.registerManagers` 覆盖旧 MicrophoneManager 前未停止其录音，旧实例若在喊话中被覆盖则再无任何引用能触发 stop()，录音线程成孤儿持续占用麦克风并外放；MicOutputController 每次现取新实例，其 stop() 因从未启动而直接返回，旧录音永远无法停止。覆盖前对旧实例 try-catch 调用 stop()（主题切换打断进行中的喊话属可接受降级）
+- 🐛 修复：TTS 进度监听器互踩致音乐永久暂停——TTSManager 原为单槽位 setProgressListener，TTSFragment 打开时覆盖悬浮窗服务的监听器、销毁时又一并置 null，悬浮窗 TTS 播完收不到 onTTSDone，瞬态音频焦点永不释放、音乐永久暂停。改为多槽位注册表（CopyOnWriteArrayList，addIfAbsent 防重、逐个 try-catch 分发），TTSFragment 与 FloatingWindowService 各自持有监听器实例、按实例精确注册/注销，互不干扰
+
+### 🐛 修复（2026-10-23 代码审查批次四：P2，versionCode 135）
+
+- 🐛 修复：音频焦点分发并发修改崩溃——`dispatchGained/dispatchLostTransient/dispatchLostPermanent` 在无锁状态下遍历 `listeners`（ArrayList），而注册/注销监听器的方法是 synchronized 的，播放器重建或 Fragment 销毁时并发触发即抛 ConcurrentModificationException。改为锁内清理死弱引用并拷贝快照、锁外遍历回调（避免持锁回调业务代码造成死锁）
+- 🐛 修复：显示"播放失败"但引擎正常——喊话/播报启动失败后防抖窗口被自己消耗，用户想立刻重试却在 800ms 内毫无反馈。启动失败（管理器为空、麦克风启动失败）时回滚防抖时间戳，失败不惩罚用户
+- 🐛 修复：ExoPlayer 诊断用 AnalyticsListener 在 release() 时未移除——原来以匿名内部类添加且不留引用，无法移除，监听器连同匿名类实例被播放器长期持有。改为字段持有并在 release() 中显式 removeAnalyticsListener
+- 🐛 修复：文件浏览器选完目录"毫无反应"或列表错乱——异步目录加载回调未校验视图与路径：adapter 已被 onDestroyView 置空时 setItems 触发 NPE；快速连续进入不同目录时先发出的任务后返回，把旧目录列表覆盖到当前目录上。回填前增加 isAdded/adapter 判空 + requestedPath 与 currentPath 一致性校验
+- 🐛 修复：重启应用失败会彻底退出——restartApp 无论能否取到启动 Intent 都执行 Runtime.exit(0)，getLaunchIntentForPackage 返回 null 或 startActivity 抛异常时进程被杀且无人拉起。改为仅在启动 Intent 成功提交后才结束进程，失败时降级为 Activity.recreate()
+- 🐛 修复：可视化视图重新 attach 后动画静止——onDetachedFromWindow 为防止泄漏移除全部动画更新监听器，但原实现没有恢复路径，视图复用后即使 startAnimation() 也因无监听器而不刷新。抽出 attachAnimatorUpdateListener()，在 onAttachedToWindow 中按 isAnimating 状态恢复监听器并重启动画
+- 🐛 修复：设置页"恢复默认设置"按钮颜色硬编码——布局中写死 `#F44336`，深色模式下刺眼且不随主题变化。抽为 `@color/button_danger` 资源，浅色 `#F44336`、深色 `#B71C1C`
+
+### 🐛 修复（2026-10-22 代码审查批次三：P1 健壮性/性能，versionCode 134）
+
+- 🐛 修复：麦克风缓冲区静态求值崩溃路径——BUFFER_SIZE 是类加载时求值的 static final，若此时音频系统异常 getMinBufferSize 返回 -1，录制循环 `new byte[BUFFER_SIZE]` 直接抛 NegativeArraySizeException 且每次必现。改为 AudioRecord 初始化成功后从真实缓冲区反推 activeBufferSize（getBufferSizeInFrames×2），AudioTrack 构建与录制循环统一使用该动态值
+- 🐛 修复：stop() 与录制线程异常路径并发释放资源——录制线程 catch 直接调 releaseResources() 而 stop() 也在调用，两个线程并发 stop/release 同一对象（字段无同步）；stop() join(1000) 超时后线程可能仍在使用已置 null 的 audioRecord。releaseResources 加 synchronized（与 stop 同一把对象锁）串行化
+- 🐛 修复：悬浮窗 Service 销毁时 TTS 进度监听器泄漏——TTSManager 为静态单例链持有，匿名 progressListener 未注销会把整个 Service（含全部 View）钉在内存里。onDestroy 中 setProgressListener(null)，handler 改为 removeCallbacksAndMessages(null) 清空全部待处理回调
+- 🐛 修复：悬浮窗 Service 销毁绕过 Controller 直接停麦克风导致状态脱同步——直接调 MicrophoneManager.stop()，Controller.isAnnouncing 仍为 true（麦克风页显示"正在放大"但麦克风已停），且喊话启动时保存的输出模式恢复逻辑被跳过、输出方向永久停留在车外。改为经 MicOutputController.toggle() 完整停止流程
+- 🐛 修复：TTS 连续播报误报失败——speak 前的 isSpeaking() 前置判断在刚 stop() 后（异步生效）恒为 true，走失败分支返回 false，用户看到"播放失败"但引擎正常。删除前置判断，QUEUE_FLUSH 本身就是打断语义直接播报
+- 🐛 修复：歌词文件路径无扩展名时 substring(0,-1) 抛异常、歌词静默失败（P2-24 顺带修复）
+- 🐛 修复：旋屏后文件浏览器选完目录/文件毫无反应——覆盖层不参与功能页重建，callback 持有被 replace 掉的旧 Fragment 实例，回调内 isAdded() 为 false 静默丢弃。旋屏时先按"用户取消"路径关闭文件浏览器，重开后 callback 自然指向新实例
+- 🐛 修复（内存防御）：WAV/FLAC 元数据块分配上界仅受文件大小约束，损坏/被构造的文件可声明与文件等大的 LIST/id3/VORBIS_COMMENT 块，一次性分配等大数组造成内存压力。WavMetadataReader/FlacMetadataReader 增加 4MB 常量上限（对齐 M4aMetadataReader 的正确写法）
+- 🐛 修复（内存防御）：歌词文件读取无大小上限，异常/伪造的巨型 .lrc 会造成 3~4 倍内存峰值。增加 1MB/2 万行限制，超限截断并记警告日志
+- 🚀 性能：录制数据通路三次全数组遍历合并——处理后 RMS 统计与 short→byte 写回合并为单次遍历，每帧省一次 O(N) 扫描
+- 🚀 性能：音频管线每帧反射取处理器名——addProcessor 注册时缓存类名（IdentityHashMap），process() 每帧直接查表，消除 48kHz 实时管线每秒数千次的反射类名查询
+- 🚀 性能：通知路径封面深拷贝——MusicItem.copy() 不再逐字节 clone albumArt（各持有方只读不写、共享引用安全），通知刷新极频繁时省去每次几十 KB~数 MB 的数组复制
+- 🚀 性能：封面异步加载裸 new Thread 改共享 IO 线程池 + in-flight 去重集合，连续切歌不再并发拉起多线程重复解码
+- 🚀 性能：文件浏览器每次点击/全选统计对列表每项做主线程磁盘 stat——FileItem 构造时预计算 isAudio 标志（纯字符串后缀判断），交互零 IO，U 盘大目录不再卡顿
+- 🚀 性能：AppLog 每条日志重复创建 SimpleDateFormat——改为 ThreadLocal 缓存实例（多线程安全），高频日志场景消除重复对象创建
+- 🚀 性能：歌词高亮每 500ms 全表线性扫描——播放进度单调递增时从上一高亮行继续向后扫（均摊 O(1)），仅 seek 回退时才全表扫描
+
+### 🐛 修复（2026-10-22 代码审查批次二，versionCode 133）
+
+- 🐛 修复：媒体样式通知未绑定 MediaSession token——MediaStyle 不 setMediaSession 时不会被系统识别为媒体通知，在车机通知栏可能按普通通知渲染、无法随播放状态收展。修复：AudioForegroundService 构建通知时绑定 session token（platform token 经 MediaSessionCompat.Token.fromToken 转换，报告原代码直接强转会编译失败），session 为空时跳过绑定，异常兜底不影响通知发出
+- 🐛 修复：悬浮窗列表展开失败后悬浮球永久消失——showListView 抛异常时 catch 只打日志，半初始化的列表视图残留窗口且悬浮球不恢复，悬浮窗功能整体失联。修复：catch 中 safeRemoveView 列表视图、移除喊话监听器与自动隐藏回调、恢复悬浮球显示
+- 🐛 修复：MainActivity 持有 Activity Context 的内存泄漏——initAudioManagers 把 Activity 本身传给 AudioOutputManager/MicrophoneManager/TTSManager，Manager 生命周期长于 Activity，旋转/重建即泄漏。修复：改传 getApplicationContext()（AudioFocusManager 内部已自行转换无需处理）
+- 🐛 修复：重复初始化时旧 TTSManager 引擎连接泄漏——AudioServiceLocator.registerManagers 覆盖 ttsManager 前未 shutdown 旧实例，TextToSpeech 引擎连接悬挂。修复：覆盖前检测旧实例存在且非同一对象时 try-catch 调用 shutdown()
+- 🐛 修复：BaseFragment.rootView 不释放——Fragment 视图销毁后 rootView 仍持有视图树，与 ViewPager/导航场景叠加形成泄漏环。修复：新增 onDestroyView() 置空 rootView，ViewCache 语义修正为根视图引用
+- 🐛 修复：PlaylistManager 冷启动主线程同步读盘——构造函数同步执行 SP 读取 + 全量 JSON 解析（上限 1000 条），触发链路在主线程，大歌单阻塞可达数百毫秒。修复：改 IO 线程异步加载，加载完成前 saveToStorage 由 storageLoaded 抑制（防止空列表覆盖真实数据丢歌单），加载时与窗口期新增歌曲做规范化路径去重，完成后主线程通知刷新
+- 🐛 修复：播放列表持久化在锁内做 O(N) 序列化——saveToStorage 整体（含 gson.toJson）持 lock 执行，1000 条序列化期间阻塞主线程 getAllItems()/getItemCount() 等同锁读取。修复：锁内仅做引用快照拷贝（极快），序列化移至锁外 IO 线程
+- 🐛 修复：播放列表排序比较器嵌套三元运算符逻辑错误——areContentsTheSame 中嵌套三元右结合导致 artist 比较结果被 duration 覆盖，内容变化误判为未变化，DiffUtil 不刷新。修复：改为 Objects.equals(title) && Objects.equals(artist) && duration== 的明确组合
+
+### 🐛 修复（2026-10-22 代码审查批次，versionCode 132）
+
+- 🐛 修复：开机自启功能整体失效——Manifest 中 BootReceiver 被声明为 `android:enabled="false"`，而全工程没有任何 `setComponentEnabledSetting` 恢复代码，组件被永久禁用，BOOT_COMPLETED 广播永远收不到（设置页开关只写 SharedPreferences，接收器根本不在线）。移除 enabled="false" 恢复组件启用，是否自启仍由接收器内部 `AppConfig.isAutoStartOnBoot()` 开关控制
+- 🐛 修复：悬浮窗 TTS 播报失败后音乐被永久暂停——`playTTS` 仅在 `speakWithUsage` 抛异常时回滚瞬时音频焦点，而 speak 返回 false 的失败路径（TTS 引擎不可用等）只打日志不回滚，申请到的焦点无人释放，音乐无法自动恢复。改为 try-finally：播报失败（异常或返回 false）时释放焦点并复位 ttsPausedMusic；仅在实际拿到焦点时才 abandon
+- 🐛 修复：通知栏/MediaSession 与真实播放状态脱节——`handleStateChanged` 在 callback==null（Fragment 退后台/未注册回调）时直接 return，连通知与 MediaSession 同步也一并跳过；且 STOPPED/IDLE 分支完全不做同步，停止后通知残留"播放中"。重构为状态同步独立于 UI 回调执行，STOPPED/IDLE 补齐 MediaSession + 通知栏同步
+- 🐛 修复：横屏音乐页歌词功能整体失效——layout-land 的歌词区只有无 ID 的 ScrollView + tv_lyrics，与 Fragment 绑定的 sv_lyrics/ll_lyrics_container/tv_lyrics_placeholder 不匹配，llLyricsContainer 为 null 后歌词加载/高亮全部静默跳过。横屏布局对齐竖屏 ID 结构，恢复歌词滚动与逐行高亮
+- 🐛 修复：应用重启后同一首歌可重复添加进播放列表——`rebuildExistingPaths()` 重建去重集合时直接存原始路径，而查重侧（addItemsInternal）用 normalizeFilePath 规范化路径（小写+正斜杠），持久化恢复后两侧口径不一致必然查重失败。重建集合统一改用 normalizeFilePath
+- 🐛 修复：车外喊话高增益下回绕爆音隐患——GainLimiterProcessor 的 fastTanh 多项式近似仅在 |x|≲1.1 内收敛，超出后输出超过 1（x=2 时约 5.73），`(short)` 强转整数回绕产生刺耳爆音（默认放大级别不触发，用户调高放大级别即触发）。多项式结果先钳位到 [-1,1] 再强转
+- 🐛 修复：设置页"恢复默认"会意外清栈重启应用——恢复默认时程序化 `themeRadioGroup.check()` 会触发主题监听器，以 NEW_TASK|CLEAR_TASK + finishAffinity 重启整个应用。新增 suppressThemeCallback 抑制标志包裹程序化回填，主题配置已随 prefs.clear() 复位为默认（跟随系统），重启后自然生效
 
 ### ✨ 新功能
 

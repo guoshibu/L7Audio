@@ -184,6 +184,15 @@ public class AppLog {
     }
 
     /**
+     * 时间格式化缓存（ThreadLocal）。
+     * 性能修复：原来每条日志 new 一个 SimpleDateFormat（对象创建 + 模式编译开销大），
+     * 字体 SeekBar 拖动等高频日志场景浪费明显；SimpleDateFormat 非线程安全，
+     * 用 ThreadLocal 保证多线程（主线程/录制线程/IO 线程）各持独立实例
+     */
+    private static final ThreadLocal<SimpleDateFormat> TIME_FORMAT =
+            ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault()));
+
+    /**
      * 获取当前时间字符串。
      *
      * <p>格式为 "yyyy-MM-dd HH:mm:ss.SSS"，精确到毫秒，便于定位问题发生时间。
@@ -191,7 +200,6 @@ public class AppLog {
      * @return 格式化的时间字符串
      */
     private static String getCurrentTime() {
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault());
-        return sdf.format(new Date());
+        return TIME_FORMAT.get().format(new Date());
     }
 }

@@ -47,6 +47,10 @@ public class AudioFocusManager {
     private volatile boolean hasPlaybackFocus = false;
     // 是否持有短暂独占焦点（同上）
     private volatile boolean hasTransientFocus = false;
+    // 短暂独占焦点的持有者计数：TTS 播报与车外喊话可能同时需要瞬态焦点，
+    // 任一方释放都不应真正 abandon，必须等所有持有者都释放后才让出焦点，
+    // 否则会出现"TTS 结束释放焦点 → 正在喊话的音乐恢复播放"的互踩问题
+    private int transientFocusRefCount = 0;
 
     // 音频焦点变化监听器列表（使用弱引用防止内存泄漏）
     private final List<WeakReference<OnAudioFocusChangeListener>> listeners = new ArrayList<>();
@@ -110,15 +114,6 @@ public class AudioFocusManager {
     }
 
     /**
-     * 当前是否持有任何类型的音频焦点
-     *
-     * @return true 表示持有播放焦点或短暂独占焦点，false 表示未持有任何焦点
-     */
-    public synchronized boolean hasAnyFocus() {
-        return hasPlaybackFocus || hasTransientFocus;
-    }
-
-    /**
      * 当前是否持有短暂独占焦点
      *
      * @return true 表示持有短暂独占焦点，false 表示未持有
@@ -179,15 +174,38 @@ public class AudioFocusManager {
         }
     }
 
+    /**
+     * 获取活跃监听器的线程安全快照，并顺带清理已被 GC 回收的弱引用。
+     *
+     * <p>修复（线程安全）：dispatchGained/LostTransient/LostPermanent 原来直接
+     * 在无锁状态下迭代 listeners（ArrayList），而 addFocusChangeListener /
+     * removeFocusChangeListener 是 synchronized 的，分发期间若主线程注册/注销
+     * 监听器（播放器重建、Fragment 销毁）即触发 ConcurrentModificationException，
+     * 且 it.remove() 也会与之竞争。改为：锁内清理死引用并拷贝快照，
+     * 锁外遍历快照执行回调（避免在持有锁时回调业务代码造成死锁）。
+     *
+     * @return 当前活跃监听器的快照列表
+     */
+    private List<OnAudioFocusChangeListener> snapshotListeners() {
+        List<OnAudioFocusChangeListener> live = new ArrayList<>(listeners.size());
+        synchronized (this) {
+            Iterator<WeakReference<OnAudioFocusChangeListener>> it = listeners.iterator();
+            while (it.hasNext()) {
+                OnAudioFocusChangeListener l = it.next().get();
+                if (l == null) {
+                    // 弱引用已被回收，顺手清理，防止列表无限增长
+                    it.remove();
+                } else {
+                    live.add(l);
+                }
+            }
+        }
+        return live;
+    }
+
     /** 分发焦点获取事件 */
     private void dispatchGained() {
-        Iterator<WeakReference<OnAudioFocusChangeListener>> it = listeners.iterator();
-        while (it.hasNext()) {
-            OnAudioFocusChangeListener l = it.next().get();
-            if (l == null) {
-                it.remove();
-                continue;
-            }
+        for (OnAudioFocusChangeListener l : snapshotListeners()) {
             try {
                 l.onFocusGained();
             } catch (Throwable ignore) { /* defensive */ }
@@ -196,13 +214,7 @@ public class AudioFocusManager {
 
     /** 分发短暂失去焦点事件 */
     private void dispatchLostTransient() {
-        Iterator<WeakReference<OnAudioFocusChangeListener>> it = listeners.iterator();
-        while (it.hasNext()) {
-            OnAudioFocusChangeListener l = it.next().get();
-            if (l == null) {
-                it.remove();
-                continue;
-            }
+        for (OnAudioFocusChangeListener l : snapshotListeners()) {
             try {
                 l.onFocusLostTransient();
             } catch (Throwable ignore) { /* defensive */ }
@@ -211,13 +223,7 @@ public class AudioFocusManager {
 
     /** 分发永久失去焦点事件 */
     private void dispatchLostPermanent() {
-        Iterator<WeakReference<OnAudioFocusChangeListener>> it = listeners.iterator();
-        while (it.hasNext()) {
-            OnAudioFocusChangeListener l = it.next().get();
-            if (l == null) {
-                it.remove();
-                continue;
-            }
+        for (OnAudioFocusChangeListener l : snapshotListeners()) {
             try {
                 l.onFocusLostPermanent();
             } catch (Throwable ignore) { /* defensive */ }
@@ -289,8 +295,11 @@ public class AudioFocusManager {
      * @return true 表示焦点申请成功，false 表示申请失败
      */
     public synchronized boolean requestTransientFocus() {
-        // 已持有短暂独占焦点，直接返回成功
+        // 已持有短暂独占焦点：只增加持有计数，避免后到的使用方拿不到"已持有"的事实
+        // 而在自己的结束路径里误释放前者仍在使用的焦点
         if (hasTransientFocus) {
+            transientFocusRefCount++;
+            AppLog.d(TAG, "Transient focus already held, refCount=" + transientFocusRefCount);
             return true;
         }
         // 若已持有播放焦点，先主动释放以让短暂独占焦点可以获取
@@ -315,6 +324,7 @@ public class AudioFocusManager {
         boolean granted = (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
         if (granted) {
             hasTransientFocus = true;
+            transientFocusRefCount = 1;
             // 短暂焦点获取后，手动分发短暂失去焦点事件，让音乐播放等组件暂停（切主线程避免 Binder 线程调 ExoPlayer）
             AppLog.d(TAG, "Posting dispatchLostTransient to main thread");
             mainHandler.post(AudioFocusManager.this::dispatchLostTransient);
@@ -335,6 +345,14 @@ public class AudioFocusManager {
         if (!hasTransientFocus || transientFocusRequest == null) {
             return;
         }
+        // 还有其他持有者（如喊话与 TTS 同时持有）：只递减计数，不真正让出焦点。
+        // 否则先结束的一方会把后者仍需要的独占焦点释放掉，导致音乐在喊话中途恢复播放
+        if (transientFocusRefCount > 1) {
+            transientFocusRefCount--;
+            AppLog.d(TAG, "Transient focus still held by others, refCount=" + transientFocusRefCount);
+            return;
+        }
+        transientFocusRefCount = 0;
         audioManager.abandonAudioFocusRequest(transientFocusRequest);
         hasTransientFocus = false;
         // 短暂焦点释放后，手动分发焦点获取事件，让音乐播放等组件恢复（切主线程）
@@ -350,6 +368,8 @@ public class AudioFocusManager {
      */
     public synchronized void abandonAll() {
         abandonPlaybackFocus();
+        // 清理路径语义是"无条件让出"，忽略多持有者计数直接释放瞬态焦点
+        transientFocusRefCount = 0;
         abandonTransientFocus();
     }
 
@@ -378,12 +398,20 @@ public class AudioFocusManager {
                             case AudioManager.AUDIOFOCUS_LOSS:
                                 hasPlaybackFocus = false;
                                 hasTransientFocus = false;
+                                // 焦点已被系统收走：清空持有计数，避免后续 abandon 误判仍有持有者
+                                transientFocusRefCount = 0;
                                 dispatchTask = AudioFocusManager.this::dispatchLostPermanent;
                                 break;
                             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
                             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
                                 if (hasPlaybackFocus) {
                                     hasPlaybackFocus = false;
+                                }
+                                // 若系统已把瞬态焦点也收走，必须同步复位，避免 hasTransientFocus()
+                                // 一直返回 true 导致后续请求播放焦点被永久拒绝
+                                if (hasTransientFocus) {
+                                    hasTransientFocus = false;
+                                    transientFocusRefCount = 0;
                                 }
                                 dispatchTask = AudioFocusManager.this::dispatchLostTransient;
                                 break;

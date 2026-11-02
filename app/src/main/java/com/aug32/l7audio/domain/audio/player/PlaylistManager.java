@@ -100,16 +100,10 @@ public class PlaylistManager {
     private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     // 防抖 Handler，1秒内多次修改合并为一次持久化
     private final android.os.Handler debounceHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-    private final Runnable saveRunnable = () -> {
-        // 在 IO 线程中执行序列化，避免 gson.toJson() O(N) 阻塞主线程
-        AppExecutors.getInstance().executeOnIOThread(() -> {
-            synchronized (lock) {
-                saveToStorage();
-            }
-        });
-    };
 
     // 播放列表数据
+    // 注意：这些字段必须声明在 saveRunnable 之前——
+    // Java 字段初始化器禁止前向引用（saveRunnable 的 lambda 中直接使用了 items）
     private List<MusicItem> items;
     // 现有路径的规范化集合，用于 O(1) 去重查重，增量维护
     private final Set<String> existingPaths = new HashSet<>();
@@ -121,6 +115,23 @@ public class PlaylistManager {
     private int repeatMode = REPEAT_MODE_ALL;
     // 播放列表变化监听器
     private PlaylistChangeListener listener;
+    // 是否已完成首次持久化加载（volatile：IO 加载线程写、业务线程读需立即可见）
+    // 未加载完成前 saveToStorage 被抑制，防止异步加载窗口期把空列表写入 SP 覆盖真实数据
+    private volatile boolean storageLoaded = false;
+
+    private final Runnable saveRunnable = () -> {
+        // 在 IO 线程中执行序列化，避免 gson.toJson() O(N) 阻塞主线程
+        AppExecutors.getInstance().executeOnIOThread(() -> {
+            // 修复：锁内只做引用快照拷贝（极快），gson 序列化移到锁外执行。
+            // 原实现把整个 saveToStorage()（含全量 toJson）放在锁内，
+            // 1000 条列表序列化期间会阻塞主线程 getAllItems()/getItemCount() 等同锁读取
+            List<MusicItem> snapshot;
+            synchronized (lock) {
+                snapshot = new ArrayList<>(items);
+            }
+            saveToStorage(snapshot);
+        });
+    };
 
     /** 播放列表最大条目数，防止 SP 序列化/反序列化 O(N) 过大 */
     private static final int MAX_PLAYLIST_SIZE = 1000;
@@ -143,7 +154,13 @@ public class PlaylistManager {
         this.context = context.getApplicationContext();
         this.appConfig = new AppConfig(this.context);
         this.items = new ArrayList<>();
-        loadFromStorage();
+        // 修复：构造函数原本同步执行 SP 磁盘读 + 全量 JSON 解析（上限 1000 条），
+        // 且触发链路全在主线程（冷启动 AudioForegroundService.onCreate 建通知 →
+        // 懒加载本类），大列表时主线程阻塞可达数百毫秒。改为 IO 线程异步加载：
+        // - 加载完成前 items 为空，saveToStorage 由 storageLoaded 抑制，防止空列表覆盖真实数据
+        // - 加载时与窗口期新增歌曲做规范化路径去重，避免重复入列
+        // - 加载完成后主线程通知 listener，驱动 UI 刷新
+        AppExecutors.getInstance().executeOnIOThread(this::loadFromStorage);
     }
 
     /**
@@ -348,6 +365,8 @@ public class PlaylistManager {
 
         boolean currentRemoved = false;
         boolean playlistChanged = false;
+        // 记录删除后的当前索引，锁外再落盘
+        int persistedIndex;
 
         synchronized (lock) {
             // 倒序排列后删除，避免正序删除导致索引偏移问题
@@ -372,12 +391,15 @@ public class PlaylistManager {
                 }
             }
 
-            // 防抖持久化保存（1s 窗口）
-            if (playlistChanged) {
-                if (currentRemoved) {
-                    appConfig.setLastPlayedIndex(-1);
-                }
-            }
+            // 索引变化（被删当前曲置 -1，或删除当前曲之前的歌曲导致前移）都要落盘，
+            // 否则重启后 lastPlayedIndex 与实际列表错位，恢复播放到错误的歌曲。
+            // 注意：这里只记录值，真正写 SharedPreferences 放到锁外，
+            // 避免持锁期间做磁盘 IO 阻塞播放线程的其它操作
+            persistedIndex = currentIndex;
+        }
+
+        if (playlistChanged) {
+            appConfig.setLastPlayedIndex(persistedIndex);
         }
 
         // 防抖持久化保存
@@ -537,12 +559,25 @@ public class PlaylistManager {
         final int skippedFailed[] = {0};
         final int startPos[] = {0};
 
+        // 【性能优化】路径规范化含 getCanonicalPath() 磁盘 IO，必须移出锁外预计算，
+        // 避免持锁期间阻塞其他播放列表操作（LruCache 本身线程安全，锁外访问无竞态）
+        final List<String> normalizedPaths = new ArrayList<>(newItems.size());
+        for (MusicItem item : newItems) {
+            if (item == null || item.filePath == null || item.filePath.isEmpty()) {
+                normalizedPaths.add(null);
+            } else {
+                normalizedPaths.add(normalizeFilePath(item.filePath));
+            }
+        }
+
         synchronized (lock) {
             // 记录添加前的列表大小，作为新添加项的起始位置
             startPos[0] = items.size();
-            for (MusicItem item : newItems) {
+            for (int i = 0; i < newItems.size(); i++) {
+                MusicItem item = newItems.get(i);
+                String normalizedPath = normalizedPaths.get(i);
                 // 跳过无效数据
-                if (item == null || item.filePath == null || item.filePath.isEmpty()) {
+                if (item == null || normalizedPath == null) {
                     skippedFailed[0]++;
                     continue;
                 }
@@ -552,7 +587,6 @@ public class PlaylistManager {
                     continue;
                 }
                 // 检查是否已存在（按规范化文件路径去重）
-                String normalizedPath = normalizeFilePath(item.filePath);
                 if (existingPaths.contains(normalizedPath)) {
                     skippedExist[0]++;
                     continue;
@@ -562,8 +596,11 @@ public class PlaylistManager {
                 existingPaths.add(normalizedPath);
             }
         }
-        // 防抖持久化保存（1s 窗口），避免频繁增删时反复序列化全列表
-        debounceSave();
+        // 防抖持久化保存（1s 窗口），避免频繁增删时反复序列化全列表；
+        // 全部重复/失败的空添加不变更列表，跳过落盘
+        if (!added.isEmpty()) {
+            debounceSave();
+        }
 
         // 在主线程回调播放列表变化
         if (listener != null && !added.isEmpty()) {
@@ -796,47 +833,66 @@ public class PlaylistManager {
     }
 
     private void loadFromStorage() {
-        // 加载播放列表
-        String playlistJson = appConfig.getMusicPlaylist();
-        if (playlistJson != null && !playlistJson.isEmpty()) {
-            try {
-                Type listType = new TypeToken<List<MusicItem>>(){}.getType();
-                List<MusicItem> savedItems = gson.fromJson(playlistJson, listType);
-                if (savedItems != null) {
-                    items.addAll(savedItems);
-                    // 构建现有路径集合
-                    rebuildExistingPaths();
+        // 修复（持久化失效）：整段加载逻辑包 try/finally，storageLoaded 在 finally 中置位。
+        // 原实现把 storageLoaded=true 放在正常路径末尾，一旦读盘/索引恢复途中抛出
+        // 未捕获异常（SP 读失败、Gson 内部错误未被内层 catch 覆盖等），标记将永远
+        // 停留在 false → saveToStorage 被永久抑制 → 用户对歌单的一切修改都不再落盘。
+        try {
+            // 加载播放列表（IO 线程执行，由构造函数异步触发）
+            String playlistJson = appConfig.getMusicPlaylist();
+            if (playlistJson != null && !playlistJson.isEmpty()) {
+                try {
+                    Type listType = new TypeToken<List<MusicItem>>(){}.getType();
+                    List<MusicItem> savedItems = gson.fromJson(playlistJson, listType);
+                    if (savedItems != null) {
+                        synchronized (lock) {
+                            for (MusicItem item : savedItems) {
+                                // 跳过无效数据
+                                if (item == null || item.filePath == null) continue;
+                                // 与窗口期（异步加载完成前）用户已新增的歌曲做同口径去重，
+                                // 避免同一首歌重复入列（与 addItemsInternal 查重口径一致）
+                                String normalizedPath = normalizeFilePath(item.filePath);
+                                if (existingPaths.contains(normalizedPath)) continue;
+                                items.add(item);
+                                existingPaths.add(normalizedPath);
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    // 加载失败不影响应用运行，使用空列表即可
+                    AppLog.e(TAG, "Failed to load playlist", e);
                 }
-            } catch (Exception e) {
-                // 加载失败不影响应用运行，使用空列表即可
-                AppLog.e(TAG, "Failed to load playlist", e);
             }
-        }
 
-        // 加载上次播放索引，仅在索引有效时恢复
-        int lastIndex = appConfig.getLastPlayedIndex();
-        if (lastIndex >= 0 && lastIndex < items.size()) {
-            currentIndex = lastIndex;
-        }
-
-        // 加载循环模式设置，仅在模式有效时恢复
-        int savedRepeatMode = appConfig.getRepeatMode();
-        if (savedRepeatMode >= REPEAT_MODE_ALL && savedRepeatMode <= REPEAT_MODE_OFF) {
-            repeatMode = savedRepeatMode;
-        }
-    }
-
-    /**
-     * 重建 existingPaths 集合（全量重建）
-     * 在 loadFromStorage() 和外部批量替换时调用
-     */
-    private void rebuildExistingPaths() {
-        existingPaths.clear();
-        for (MusicItem item : items) {
-            if (item.filePath != null) {
-                existingPaths.add(item.filePath);
+            // 加载上次播放索引与循环模式设置（在锁内统一恢复，避免与业务线程竞争）
+            int lastIndex = appConfig.getLastPlayedIndex();
+            int savedRepeatMode = appConfig.getRepeatMode();
+            synchronized (lock) {
+                // 仅在业务尚未开始播放时恢复索引；窗口期用户已开播则不打扰
+                if (currentIndex < 0 && lastIndex >= 0 && lastIndex < items.size()) {
+                    currentIndex = lastIndex;
+                }
+                if (savedRepeatMode >= REPEAT_MODE_ALL && savedRepeatMode <= REPEAT_MODE_OFF) {
+                    repeatMode = savedRepeatMode;
+                }
             }
+        } finally {
+            // 标记加载完成，解除 saveToStorage 抑制（volatile 保证跨线程可见）。
+            // 无论加载成败都必须置位：失败时已按空列表继续运行，持久化不应被一并禁用
+            storageLoaded = true;
         }
+
+        // 主线程通知列表已加载完成，驱动已注册的 UI 刷新
+        mainHandler.post(() -> {
+            PlaylistChangeListener l = listener;
+            if (l != null) {
+                try {
+                    l.onPlaylistChanged();
+                } catch (Exception e) {
+                    AppLog.e(TAG, "Error notifying playlist loaded", e);
+                }
+            }
+        });
     }
 
     private void debounceSave() {
@@ -844,9 +900,16 @@ public class PlaylistManager {
         debounceHandler.postDelayed(saveRunnable, 1000);
     }
 
-    private void saveToStorage() {
+    private void saveToStorage(List<MusicItem> snapshot) {
         try {
-            String json = gson.toJson(items);
+            // 修复：未完成首次异步加载前禁止回写持久化。
+            // 加载改为异步后存在窗口期（items 尚为空），此期间若触发保存
+            // 会把空列表/不完整列表写入 SP，覆盖真实数据造成歌单丢失
+            if (!storageLoaded) {
+                AppLog.w(TAG, "saveToStorage skipped: storage not loaded yet");
+                return;
+            }
+            String json = gson.toJson(snapshot);
             appConfig.setMusicPlaylist(json);
         } catch (Exception e) {
             // 保存失败不影响当前使用，仅记录日志
